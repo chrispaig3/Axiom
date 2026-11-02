@@ -1,4 +1,5 @@
 A Bytes stdlib/Axqlite/AxqlMacro.ax @7dd9e20b4839e216 "String"
+A InternState stdlib/Intern.ax @ccf8578aa4560760 "InternalInternState"
 A OptBytes stdlib/Axqlite/AxqlMacro.ax @c436af86e743c883 "Option String"
 A OptFloat stdlib/Axqlite/AxqlMacro.ax @bbfb0d98bef53e02 "Option Float"
 A OptInt stdlib/Axqlite/AxqlMacro.ax @11e13bec7c5fb339 "Option Int"
@@ -57,23 +58,19 @@ F aeadNonceFromBytes stdlib/Crypto/Aead.ax @6e3d5083842d80ca "(String -> Err::Re
 F aeadNonceLen stdlib/Crypto/Aead.ax @48ac8c714336d232 "Int"
 F aeadNonceRandom stdlib/Crypto/Aead.ax @872f048b3fe715c4 "Err::Result Crypto.Aead::AeadNonce Err::Error" #effects=Alloc,Entropy,IO,Mut
 F aeadTagLen stdlib/Crypto/Aead.ax @1df60eb873b9662b "Int"
-F aes128GcmKeyExport stdlib/Crypto/AesGcm.ax @94df0a35836e77d1 "(Crypto.AesGcm::Aes128GcmKey -> Err::Result Crypto.Secret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
-F aes128GcmKeyFromSecret stdlib/Crypto/AesGcm.ax @03813e2b9dd5a08f "(Crypto.Secret::SecretBytes -> Err::Result Crypto.AesGcm::Aes128GcmKey Err::Error)" #effects=Alloc,IO,Mut
+F aes128GcmKeyExport stdlib/Crypto/AesGcm.ax @94df0a35836e77d1 "(Crypto.AesGcm::Aes128GcmKey -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
+F aes128GcmKeyFromSecret stdlib/Crypto/AesGcm.ax @03813e2b9dd5a08f "(Internal.CryptoSecret::SecretBytes -> Err::Result Crypto.AesGcm::Aes128GcmKey Err::Error)" #effects=Alloc,IO,Mut
 F aes128GcmKeyGenerate stdlib/Crypto/AesGcm.ax @6c560c69b5ed1e94 "Err::Result Crypto.AesGcm::Aes128GcmKey Err::Error" #effects=Alloc,Entropy,IO,Mut
-F aes128GcmKeyWipe stdlib/Crypto/AesGcm.ax @bac71d3b1515c220 "(Crypto.AesGcm::Aes128GcmKey -> Int)" #effects=Alloc,IO,Mut
+F aes128GcmKeyWipe stdlib/Crypto/AesGcm.ax @bac71d3b1515c220 "(Crypto.AesGcm::Aes128GcmKey -> Int)" #effects=IO,Unsafe
 F aes128GcmOpen stdlib/Crypto/AesGcm.ax @2c01ca645fae89ec "(Crypto.AesGcm::Aes128GcmKey -> (Crypto.Aead::AeadNonce -> (String -> (String -> Err::Result String Err::Error))))" #effects=Alloc,Mut
 F aes128GcmSeal stdlib/Crypto/AesGcm.ax @e128da4cca3a77b5 "(Crypto.AesGcm::Aes128GcmKey -> (Crypto.Aead::AeadNonce -> (String -> (String -> Err::Result String Err::Error))))" #effects=Alloc,Mut
-F aes256GcmKeyExport stdlib/Crypto/AesGcm.ax @f6c1db94f2a91211 "(Crypto.AesGcm::Aes256GcmKey -> Err::Result Crypto.Secret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
-F aes256GcmKeyFromSecret stdlib/Crypto/AesGcm.ax @fbf339c1ef3519cf "(Crypto.Secret::SecretBytes -> Err::Result Crypto.AesGcm::Aes256GcmKey Err::Error)" #effects=Alloc,IO,Mut
+F aes256GcmKeyExport stdlib/Crypto/AesGcm.ax @f6c1db94f2a91211 "(Crypto.AesGcm::Aes256GcmKey -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
+F aes256GcmKeyFromSecret stdlib/Crypto/AesGcm.ax @fbf339c1ef3519cf "(Internal.CryptoSecret::SecretBytes -> Err::Result Crypto.AesGcm::Aes256GcmKey Err::Error)" #effects=Alloc,IO,Mut
 F aes256GcmKeyGenerate stdlib/Crypto/AesGcm.ax @68e23361d3c21ad4 "Err::Result Crypto.AesGcm::Aes256GcmKey Err::Error" #effects=Alloc,Entropy,IO,Mut
-F aes256GcmKeyWipe stdlib/Crypto/AesGcm.ax @05c27b3fd678f460 "(Crypto.AesGcm::Aes256GcmKey -> Int)" #effects=Alloc,IO,Mut
+F aes256GcmKeyWipe stdlib/Crypto/AesGcm.ax @05c27b3fd678f460 "(Crypto.AesGcm::Aes256GcmKey -> Int)" #effects=IO,Unsafe
 F aes256GcmOpen stdlib/Crypto/AesGcm.ax @c1ea249b92cc392c "(Crypto.AesGcm::Aes256GcmKey -> (Crypto.Aead::AeadNonce -> (String -> (String -> Err::Result String Err::Error))))" #effects=Alloc,Mut
 F aes256GcmSeal stdlib/Crypto/AesGcm.ax @77113483fd5826f5 "(Crypto.AesGcm::Aes256GcmKey -> (Crypto.Aead::AeadNonce -> (String -> (String -> Err::Result String Err::Error))))" #effects=Alloc,Mut
-F aesCtr32Xor stdlib/Crypto/Aes.ax @d04d4ea982869f19 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))" #effects=Mut,Unsafe
 F aesCtrWorkBytes stdlib/Crypto/Aes.ax @9e2c2beff41f45a7 "Int"
-F aesDecryptBlocks stdlib/Crypto/Aes.ax @3d9274625c9690ed "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Mut
-F aesEncryptBlocks stdlib/Crypto/Aes.ax @d3c8f8dbc076c339 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Mut
-F aesKeyExpand stdlib/Crypto/Aes.ax @6097a2ff238e3f89 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
 F aesKeyWorkBytes stdlib/Crypto/Aes.ax @f74eaab6fbba3793 "Int"
 F aesRounds stdlib/Crypto/Aes.ax @06079cd2995b7f27 "(Int -> Int)"
 F aesScheduleBytes stdlib/Crypto/Aes.ax @e33566a444231676 "(Int -> Int)"
@@ -242,16 +239,13 @@ F b64UrlEncode stdlib/Crypto/Bytes.ax @89575c5479cb2210 "(String -> String)" #ef
 F blake2b stdlib/Crypto/Blake2b.ax @9face8d91685565c "(Int -> (String -> (String -> Err::Result String Err::Error)))" #effects=Alloc,Mut
 F blake2b256 stdlib/Crypto/Blake2b.ax @46c3bb050bf3fe21 "(String -> String)" #effects=Alloc,Mut
 F blake2b512 stdlib/Crypto/Blake2b.ax @1b5ff004f35ab1d4 "(String -> String)" #effects=Alloc,Mut
-F blake2bAddr stdlib/Crypto/Blake2b.ax @babbeaef8d1a810f "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Alloc,Mut,Unsafe
-F blake2bCompress stdlib/Crypto/Blake2b.ax @b91b7bff4457d5b0 "(Int -> (Int -> (Int -> (Bool -> Int))))" #effects=Mut
-F blake2bCopy stdlib/Crypto/Blake2b.ax @ea49b90152c26821 "(Crypto.Blake2b::Blake2b -> Crypto.Blake2b::Blake2b)" #effects=Alloc,Mut
-F blake2bFinal stdlib/Crypto/Blake2b.ax @c583c08c53d47fd4 "(Crypto.Blake2b::Blake2b -> String)" #effects=Alloc,Mut,Unsafe
-F blake2bNew stdlib/Crypto/Blake2b.ax @2b3cbe0349c0607a "(Int -> Err::Result Crypto.Blake2b::Blake2b Err::Error)" #effects=Alloc,Mut
-F blake2bNewKeyed stdlib/Crypto/Blake2b.ax @5c7e583eb995b128 "(Int -> (String -> Err::Result Crypto.Blake2b::Blake2b Err::Error))" #effects=Alloc,Mut
-F blake2bNewKeyedSecret stdlib/Crypto/Blake2b.ax @ef48612714c228f4 "(Int -> (Crypto.Secret::SecretBytes -> Err::Result Crypto.Blake2b::Blake2b Err::Error))" #effects=Alloc,Mut
-F blake2bUpdate stdlib/Crypto/Blake2b.ax @aff4741d927637bd "(Crypto.Blake2b::Blake2b -> (String -> Int))" #effects=Mut
-F blake2bUpdateAddr stdlib/Crypto/Blake2b.ax @4ac5f3778d9442ca "(Crypto.Blake2b::Blake2b -> (Int -> (Int -> Int)))" #effects=Mut
-F blake2bWipe stdlib/Crypto/Blake2b.ax @0777da5aef976397 "(Crypto.Blake2b::Blake2b -> Int)" #effects=Mut,Unsafe
+F blake2bCopy stdlib/Crypto/Blake2b.ax @ea49b90152c26821 "(Internal.CryptoBlake2b::Blake2b -> Internal.CryptoBlake2b::Blake2b)" #effects=Alloc,Mut
+F blake2bFinal stdlib/Crypto/Blake2b.ax @c583c08c53d47fd4 "(Internal.CryptoBlake2b::Blake2b -> String)" #effects=Alloc,Mut,Unsafe
+F blake2bNew stdlib/Crypto/Blake2b.ax @2b3cbe0349c0607a "(Int -> Err::Result Internal.CryptoBlake2b::Blake2b Err::Error)" #effects=Alloc,Mut
+F blake2bNewKeyed stdlib/Crypto/Blake2b.ax @5c7e583eb995b128 "(Int -> (String -> Err::Result Internal.CryptoBlake2b::Blake2b Err::Error))" #effects=Alloc,Mut
+F blake2bNewKeyedSecret stdlib/Crypto/Blake2b.ax @ef48612714c228f4 "(Int -> (Internal.CryptoSecret::SecretBytes -> Err::Result Internal.CryptoBlake2b::Blake2b Err::Error))" #effects=Alloc,Mut
+F blake2bUpdate stdlib/Crypto/Blake2b.ax @aff4741d927637bd "(Internal.CryptoBlake2b::Blake2b -> (String -> Int))" #effects=Mut
+F blake2bWipe stdlib/Crypto/Blake2b.ax @0777da5aef976397 "(Internal.CryptoBlake2b::Blake2b -> Int)" #effects=Mut,Unsafe
 F btreeCheck stdlib/Axqlite/Btree.ax @9e417ef516f8b669 "(Axqlite.Pager::Pager -> (Vec Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Mut,Unsafe
 F btreeClear stdlib/Axqlite/Btree.ax @0fc4e5d1722004f8 "(Axqlite.Pager::Pager -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Mut
 F btreeCount stdlib/Axqlite/Btree.ax @53e20bea1c85855e "(Axqlite.Pager::Pager -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Mut
@@ -270,7 +264,6 @@ F btreeScan stdlib/Axqlite/Btree.ax @ce3d6a053aebec9e "(Axqlite.Pager::Pager -> 
 F btreeSchemaRoot stdlib/Axqlite/Btree.ax @deafa969398484a0 "Int"
 F btreeTable stdlib/Axqlite/Btree.ax @955b55aa70b123b9 "Int"
 F bytesEqCt stdlib/Crypto/Bytes.ax @febf2ceb94107827 "(String -> (String -> Bool))" #effects=Mut
-F bytesFromAddr stdlib/Crypto/Bytes.ax @54b365ae445a77a9 "(Int -> (Int -> String))" #effects=Alloc,Mut
 F bytesNew stdlib/Crypto/Bytes.ax @be79a294a0cd2268 "(Int -> String)" #effects=Alloc,Mut
 F bytesU32Be stdlib/Crypto/Bytes.ax @04843f9727b0bfad "(Int -> String)" #effects=Alloc,Mut
 F bytesU32Le stdlib/Crypto/Bytes.ax @04552b9727892cef "(Int -> String)" #effects=Alloc,Mut
@@ -300,15 +293,13 @@ F cerealTextCodec stdlib/Cereal.ax @c27aeebbc3556686 "Cereal::Codec String" #eff
 F cerealToValue stdlib/Cereal.ax @3a19a2a763597c3f "(Cereal::Codec a -> (a -> Err::Result Cereal::CerealValue Err::Error))" #effect-params=value
 F cerealValueCodec stdlib/Cereal.ax @ecace94029f2f852 "Cereal::Codec Cereal::CerealValue" #effects=Alloc
 F cerealVecCodec stdlib/Cereal.ax @b5cf6db5532690cf "(Cereal::Codec a -> Cereal::Codec Vec a)" #effects=Alloc,Mut
-F chacha20Block stdlib/Crypto/ChaCha20.ax @b049145fd99424f6 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
 F chacha20BlockBytes stdlib/Crypto/ChaCha20.ax @d6be80882f7be19d "Int"
-F chacha20Poly1305KeyExport stdlib/Crypto/ChaCha20Poly1305.ax @3f2cb2de20c502c5 "(Crypto.ChaCha20Poly1305::ChaCha20Poly1305Key -> Err::Result Crypto.Secret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
-F chacha20Poly1305KeyFromSecret stdlib/Crypto/ChaCha20Poly1305.ax @41a5f773da18250b "(Crypto.Secret::SecretBytes -> Err::Result Crypto.ChaCha20Poly1305::ChaCha20Poly1305Key Err::Error)" #effects=Alloc,IO,Mut
+F chacha20Poly1305KeyExport stdlib/Crypto/ChaCha20Poly1305.ax @3f2cb2de20c502c5 "(Crypto.ChaCha20Poly1305::ChaCha20Poly1305Key -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
+F chacha20Poly1305KeyFromSecret stdlib/Crypto/ChaCha20Poly1305.ax @41a5f773da18250b "(Internal.CryptoSecret::SecretBytes -> Err::Result Crypto.ChaCha20Poly1305::ChaCha20Poly1305Key Err::Error)" #effects=Alloc,IO,Mut
 F chacha20Poly1305KeyGenerate stdlib/Crypto/ChaCha20Poly1305.ax @dab6351de70ba070 "Err::Result Crypto.ChaCha20Poly1305::ChaCha20Poly1305Key Err::Error" #effects=Alloc,Entropy,IO,Mut
-F chacha20Poly1305KeyWipe stdlib/Crypto/ChaCha20Poly1305.ax @6e99efd00cbf5eec "(Crypto.ChaCha20Poly1305::ChaCha20Poly1305Key -> Int)" #effects=Alloc,IO,Mut
+F chacha20Poly1305KeyWipe stdlib/Crypto/ChaCha20Poly1305.ax @6e99efd00cbf5eec "(Crypto.ChaCha20Poly1305::ChaCha20Poly1305Key -> Int)" #effects=IO,Unsafe
 F chacha20Poly1305Open stdlib/Crypto/ChaCha20Poly1305.ax @7e1e0da45f27b9d0 "(Crypto.ChaCha20Poly1305::ChaCha20Poly1305Key -> (Crypto.Aead::AeadNonce -> (String -> (String -> Err::Result String Err::Error))))" #effects=Alloc,Mut
 F chacha20Poly1305Seal stdlib/Crypto/ChaCha20Poly1305.ax @8c52b54adaea5441 "(Crypto.ChaCha20Poly1305::ChaCha20Poly1305Key -> (Crypto.Aead::AeadNonce -> (String -> (String -> Err::Result String Err::Error))))" #effects=Alloc,Mut
-F chacha20Xor stdlib/Crypto/ChaCha20.ax @148928b63918e00a "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int)))))))" #effects=Mut,Unsafe
 F chanCap stdlib/Chan.ax @7f1730b8617b6e35 "(Chan::Chan -> Int)"
 F chanClose stdlib/Chan.ax @1e09607ed8d3cced "(Chan::Chan -> Int)" #effects=Alloc,Block,IO,Mut
 F chanClosed stdlib/Chan.ax @ddbb808a6fe48ccb "(Chan::Chan -> Bool)" #effects=Alloc,Block,IO,Mut
@@ -321,7 +312,9 @@ F chanSend stdlib/Chan.ax @750c69c965559ce1 "(Chan::Chan -> (Int -> Bool))" #eff
 F chanSendTimeout stdlib/Chan.ax @67ed944025d6567c "(Chan::Chan -> (Int -> (Int -> Err::Result Bool Err::Error)))" #effects=Alloc,Block,IO,Mut
 F chanTryRecv stdlib/Chan.ax @8b58bcd70141e750 "(Chan::Chan -> Option Int)" #effects=Alloc,Block,IO,Mut
 F chanTrySend stdlib/Chan.ax @08b59adcff559116 "(Chan::Chan -> (Int -> Bool))" #effects=Alloc,Block,IO,Mut
+F childPid stdlib/Sys.ax @991c4b9590c4498c "(Sys::Child -> Int)"
 F childPollKind stdlib/Sys/Platform.ax @36bd998094030714 "Int"
+F childWait stdlib/Sys.ax @bc7c1b2c4b8feffa "(Sys::Child -> Err::Result Int Err::Error)" #effects=Alloc,Block,IO,Mut,Unsafe
 F chronoClockUnavailable stdlib/Chrono.ax @663a2aeee4128f78 "Int"
 F chronoInvalidDate stdlib/Chrono.ax @f15938e3cb75324f "Int"
 F chronoInvalidFormat stdlib/Chrono.ax @e5f3e770bab17e84 "Int"
@@ -347,8 +340,6 @@ F cryptoLimitExceeded stdlib/Crypto/Errors.ax @15443bb54a92a918 "Int"
 F cryptoNoSecretStore stdlib/Crypto/Errors.ax @ac5fc548b05bee66 "Int"
 F cryptoUnsupported stdlib/Crypto/Errors.ax @2d46274db0bf84fd "Int"
 F ctBarrier stdlib/Crypto/Ct.ax @0239bc73323eb057 "(Int -> Int)" #effects=Mut,Unsafe
-F ctCopy stdlib/Crypto/Ct.ax @b5b40de8fdd18d49 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F ctEqAddr stdlib/Crypto/Ct.ax @9cfd434529d1c045 "(Int -> (Int -> (Int -> Bool)))" #effects=Mut,Unsafe
 F ctMaskEq stdlib/Crypto/Ct.ax @af5759481e6d5936 "(Int -> (Int -> Int))" #effects=Mut
 F ctMaskFromBit stdlib/Crypto/Ct.ax @78b16d380c93be47 "(Int -> Int)" #effects=Mut
 F ctMaskLtU stdlib/Crypto/Ct.ax @98ecf38bd40aeaf3 "(Int -> (Int -> Int))" #effects=Mut
@@ -356,8 +347,6 @@ F ctMaskNeg stdlib/Crypto/Ct.ax @aacb778bde51a902 "(Int -> Int)" #effects=Mut
 F ctMaskNz stdlib/Crypto/Ct.ax @af7566481e866cdc "(Int -> Int)" #effects=Mut
 F ctMaskZero stdlib/Crypto/Ct.ax @21c4af45a51bb196 "(Int -> Int)" #effects=Mut
 F ctSelect stdlib/Crypto/Ct.ax @becd06977150203c "(Int -> (Int -> (Int -> Int)))"
-F ctSwapWords stdlib/Crypto/Ct.ax @c9831deaa0743a90 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
-F ctWipe stdlib/Crypto/Ct.ax @3d8020491604418f "(Int -> (Int -> Int))" #effects=Mut,Unsafe
 F cwd stdlib/IO.ax @157f7ecab6ed7bbb "Err::Result String Err::Error" #effects=Alloc,IO,Mut
 F cwdUsesFcntlPath stdlib/Sys/Platform.ax @bc3db68f15679b55 "Int"
 F dateAddDays stdlib/Chrono.ax @00d0bb7352bb9121 "(Chrono::Date -> (Int -> Err::Result Chrono::Date Err::Error))" #effects=Alloc
@@ -432,10 +421,10 @@ F eNotConn stdlib/Sys/Platform.ax @f806a7ff902efe71 "Int"
 F eOpNotSupp stdlib/Sys/Platform.ax @415e1c4ae3a8ca62 "Int"
 F eTimedOut stdlib/Sys/Platform.ax @aa549db068f60e37 "Int"
 F eXdev stdlib/Sys/Platform.ax @29287ef0ba89a22d "Int"
-F ed25519KeyExport stdlib/Crypto/Ed25519.ax @6e44fb64d13d9329 "(Crypto.Ed25519::Ed25519SecretKey -> Err::Result Crypto.Secret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
-F ed25519KeyFromSecret stdlib/Crypto/Ed25519.ax @3add2500aea2bfe7 "(Crypto.Secret::SecretBytes -> Err::Result Crypto.Ed25519::Ed25519SecretKey Err::Error)" #effects=Alloc,IO,Mut
+F ed25519KeyExport stdlib/Crypto/Ed25519.ax @6e44fb64d13d9329 "(Crypto.Ed25519::Ed25519SecretKey -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
+F ed25519KeyFromSecret stdlib/Crypto/Ed25519.ax @3add2500aea2bfe7 "(Internal.CryptoSecret::SecretBytes -> Err::Result Crypto.Ed25519::Ed25519SecretKey Err::Error)" #effects=Alloc,IO,Mut
 F ed25519KeyGenerate stdlib/Crypto/Ed25519.ax @8855bacb781c6d7c "Err::Result Crypto.Ed25519::Ed25519SecretKey Err::Error" #effects=Alloc,Entropy,IO,Mut
-F ed25519KeyWipe stdlib/Crypto/Ed25519.ax @9d64b18c1139d3a8 "(Crypto.Ed25519::Ed25519SecretKey -> Int)" #effects=Alloc,IO,Mut
+F ed25519KeyWipe stdlib/Crypto/Ed25519.ax @9d64b18c1139d3a8 "(Crypto.Ed25519::Ed25519SecretKey -> Int)" #effects=IO,Unsafe
 F ed25519PublicKey stdlib/Crypto/Ed25519.ax @ed4c04a2dea5a79c "(Crypto.Ed25519::Ed25519SecretKey -> Crypto.Ed25519::Ed25519PublicKey)" #effects=Alloc,Mut
 F ed25519PublicKeyBytes stdlib/Crypto/Ed25519.ax @408e30f913f4999f "(Crypto.Ed25519::Ed25519PublicKey -> String)"
 F ed25519PublicKeyFromBytes stdlib/Crypto/Ed25519.ax @6c84269197a4c2c7 "(String -> Err::Result Crypto.Ed25519::Ed25519PublicKey Err::Error)" #effects=Alloc,Mut
@@ -470,27 +459,7 @@ F fallibleIsSkipped stdlib/Fallible.ax @7793c4f8c82a116a "(Int -> Bool)"
 F fallibleSkip stdlib/Fallible.ax @3625ccfcfacf61d5 "(String -> Int)"
 F fallibleSkipped stdlib/Fallible.ax @da2e617cfae0b69e "Int"
 F fallibleTally stdlib/Fallible.ax @7535875284b25edc "Fallible::FallibleTally" #effects=Alloc
-F fe25519Add stdlib/Crypto/Field25519.ax @882826e99613737b "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
 F fe25519Bytes stdlib/Crypto/Field25519.ax @057a7f313b07f413 "Int"
-F fe25519CMov stdlib/Crypto/Field25519.ax @042706fb711b6935 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F fe25519CSwap stdlib/Crypto/Field25519.ax @8af34b64d3524962 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
-F fe25519Copy stdlib/Crypto/Field25519.ax @28a785fc163618c5 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519FromBytes stdlib/Crypto/Field25519.ax @38719512127ebae3 "(Int -> (Int -> Int))" #effects=Mut
-F fe25519Invert stdlib/Crypto/Field25519.ax @770ed4f0fbf6191c "(Int -> (Int -> Int))" #effects=Alloc,Mut
-F fe25519IsNegative stdlib/Crypto/Field25519.ax @18897faab394dfcf "(Int -> Int)" #effects=Alloc,Mut,Unsafe
-F fe25519IsZero stdlib/Crypto/Field25519.ax @00357586f67ebae2 "(Int -> Int)" #effects=Alloc,Mut,Unsafe
-F fe25519Mul stdlib/Crypto/Field25519.ax @67ba7ce98456e136 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F fe25519Mul121666 stdlib/Crypto/Field25519.ax @d55f93fed639adda "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519Neg stdlib/Crypto/Field25519.ax @6f089ce988172696 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519One stdlib/Crypto/Field25519.ax @7968c3e98e7413dc "(Int -> Int)" #effects=Mut
-F fe25519Pow22523 stdlib/Crypto/Field25519.ax @910a561df126938a "(Int -> (Int -> Int))" #effects=Alloc,Mut
-F fe25519Set stdlib/Crypto/Field25519.ax @269bf6e9f08af248 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int)))))))))))" #effects=Mut,Unsafe
-F fe25519Sq stdlib/Crypto/Field25519.ax @9500cf037af66550 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519Sq2 stdlib/Crypto/Field25519.ax @26c524e9f0ae4586 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519SqrtM1 stdlib/Crypto/Field25519.ax @9b571c5191145050 "(Int -> Int)" #effects=Mut
-F fe25519Sub stdlib/Crypto/Field25519.ax @26d30ce9f0ba5a1a "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F fe25519ToBytes stdlib/Crypto/Field25519.ax @c655f949bb6ca0f8 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F fe25519Zero stdlib/Crypto/Field25519.ax @2a707a375f02d76a "(Int -> Int)" #effects=Mut
 F fileClose stdlib/IO.ax @4c2fe4255d35a823 "(IO::File -> Err::Result Int Err::Error)" #effects=Alloc,IO,Unsafe
 F fileExists stdlib/IO.ax @957c6f005e5962fd "(String -> Bool)" #effects=Alloc,IO,Mut
 F fileRead stdlib/IO.ax @97b1cd2721c6a1e5 "(IO::File -> (IO::ReadBuffer -> (Int -> (Int -> Err::Result Int Err::Error))))" #effects=Alloc,IO,Mut
@@ -524,76 +493,41 @@ F fmtPadZerosLeft stdlib/Fmt.ax @5956b543e920a6f3 "(String -> (Int -> String))" 
 F fmtUIntWord stdlib/Fmt.ax @ea9bf50f836f6296 "(Int -> String)" #effects=Alloc,Mut
 F forkChildIsZero stdlib/Sys/Platform.ax @d2e5b0de4127a1a5 "Int"
 F fsyncUsesFullFsync stdlib/Sys/Platform.ax @0df4b1a93f4556b6 "Int"
-F ge25519Add stdlib/Crypto/Curve25519.ax @b1e915db5fd8f0ba "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut
-F ge25519Base stdlib/Crypto/Curve25519.ax @85f50fbca7ee3c82 "(Int -> Int)" #effects=Mut
 F ge25519CachedBytes stdlib/Crypto/Curve25519.ax @c76c19135c22be14 "Int"
-F ge25519CombTable stdlib/Crypto/Curve25519.ax @cbf17746f815a5e6 "(Int -> Int)" #effects=Mut
-F ge25519D stdlib/Crypto/Curve25519.ax @b37c47895f36c1a1 "(Int -> Int)" #effects=Mut
-F ge25519D2 stdlib/Crypto/Curve25519.ax @32ef216cca0aecc9 "(Int -> Int)" #effects=Mut
-F ge25519DoubleScalarMultVartime stdlib/Crypto/Curve25519.ax @76f415ff351ef160 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut,Unsafe
-F ge25519FromBytesVartime stdlib/Crypto/Curve25519.ax @0bdd8e8f9e6b227a "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F ge25519Madd stdlib/Crypto/Curve25519.ax @6217105e88db4465 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut
 F ge25519P1P1Bytes stdlib/Crypto/Curve25519.ax @ef71f261426ac242 "Int"
-F ge25519P1P1ToP2 stdlib/Crypto/Curve25519.ax @36afec9dcff9b14c "(Int -> (Int -> Int))" #effects=Mut
-F ge25519P1P1ToP3 stdlib/Crypto/Curve25519.ax @36afed9dcff9b2ff "(Int -> (Int -> Int))" #effects=Mut
 F ge25519P2Bytes stdlib/Crypto/Curve25519.ax @638e4cea16d3659c "Int"
-F ge25519P2Dbl stdlib/Crypto/Curve25519.ax @18accfa6a527fb75 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
-F ge25519P2Zero stdlib/Crypto/Curve25519.ax @bb756a9483f86d1b "(Int -> Int)" #effects=Mut
 F ge25519P3Bytes stdlib/Crypto/Curve25519.ax @846e5510cbc196c9 "Int"
-F ge25519P3Neg stdlib/Crypto/Curve25519.ax @675c0c9e451fd3a4 "(Int -> Int)" #effects=Mut
-F ge25519P3ToCached stdlib/Crypto/Curve25519.ax @08c57cdae726f645 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
-F ge25519P3Zero stdlib/Crypto/Curve25519.ax @af20cc54df8cd678 "(Int -> Int)" #effects=Mut
 F ge25519PrecompBytes stdlib/Crypto/Curve25519.ax @d56d06d3a035adea "Int"
-F ge25519ScalarMultBase stdlib/Crypto/Curve25519.ax @9228569ce5535208 "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F ge25519Sub stdlib/Crypto/Curve25519.ax @161cffdb07a2faf3 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut
-F ge25519ToBytes stdlib/Crypto/Curve25519.ax @aa378eb51ebb6939 "(Int -> (Int -> Int))" #effects=Alloc,Mut,Unsafe
-F ghashUpdate stdlib/Crypto/Ghash.ax @bd8870cc090d9ea5 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut
 F hexDecode stdlib/Crypto/Bytes.ax @221bd6612fec95ee "(String -> Err::Result String Err::Error)" #effects=Alloc,Mut,Unsafe
 F hexEncode stdlib/Crypto/Bytes.ax @33e7afc67ac987e6 "(String -> String)" #effects=Alloc,Mut,Unsafe
-F hkdfSha256 stdlib/Crypto/Hkdf.ax @11919297f3716c27 "(Crypto.Secret::SecretBytes -> (String -> (String -> (Int -> Err::Result Crypto.Secret::SecretBytes Err::Error))))" #effects=Alloc,IO,Mut
-F hkdfSha256Expand stdlib/Crypto/Hkdf.ax @fa198de839c95747 "(Crypto.Secret::SecretBytes -> (String -> (Int -> Err::Result Crypto.Secret::SecretBytes Err::Error)))" #effects=Alloc,IO,Mut
-F hkdfSha256ExpandRaw stdlib/Crypto/Hkdf.ax @f96f617e46314667 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Alloc,Mut,Unsafe
-F hkdfSha256Extract stdlib/Crypto/Hkdf.ax @7a1bfe70161f22c4 "(String -> (Crypto.Secret::SecretBytes -> Err::Result Crypto.Secret::SecretBytes Err::Error))" #effects=Alloc,IO,Mut
-F hkdfSha256Raw stdlib/Crypto/Hkdf.ax @92836414d7939687 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))" #effects=Alloc,Mut
-F hkdfSha512 stdlib/Crypto/Hkdf.ax @0a34e397efa3f66e "(Crypto.Secret::SecretBytes -> (String -> (String -> (Int -> Err::Result Crypto.Secret::SecretBytes Err::Error))))" #effects=Alloc,IO,Mut
-F hkdfSha512Expand stdlib/Crypto/Hkdf.ax @3b18a5d2013936ca "(Crypto.Secret::SecretBytes -> (String -> (Int -> Err::Result Crypto.Secret::SecretBytes Err::Error)))" #effects=Alloc,IO,Mut
-F hkdfSha512ExpandRaw stdlib/Crypto/Hkdf.ax @1daafef8383118d4 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Alloc,Mut,Unsafe
-F hkdfSha512Extract stdlib/Crypto/Hkdf.ax @b2b6b44792b6abe3 "(String -> (Crypto.Secret::SecretBytes -> Err::Result Crypto.Secret::SecretBytes Err::Error))" #effects=Alloc,IO,Mut
-F hkdfSha512Raw stdlib/Crypto/Hkdf.ax @3ca4b60ddfe6fb88 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))" #effects=Alloc,Mut
+F hkdfSha256 stdlib/Crypto/Hkdf.ax @11919297f3716c27 "(Internal.CryptoSecret::SecretBytes -> (String -> (String -> (Int -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error))))" #effects=Alloc,IO,Mut
+F hkdfSha256Expand stdlib/Crypto/Hkdf.ax @fa198de839c95747 "(Internal.CryptoSecret::SecretBytes -> (String -> (Int -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)))" #effects=Alloc,IO,Mut
+F hkdfSha256Extract stdlib/Crypto/Hkdf.ax @7a1bfe70161f22c4 "(String -> (Internal.CryptoSecret::SecretBytes -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error))" #effects=Alloc,IO,Mut
+F hkdfSha512 stdlib/Crypto/Hkdf.ax @0a34e397efa3f66e "(Internal.CryptoSecret::SecretBytes -> (String -> (String -> (Int -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error))))" #effects=Alloc,IO,Mut
+F hkdfSha512Expand stdlib/Crypto/Hkdf.ax @3b18a5d2013936ca "(Internal.CryptoSecret::SecretBytes -> (String -> (Int -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)))" #effects=Alloc,IO,Mut
+F hkdfSha512Extract stdlib/Crypto/Hkdf.ax @b2b6b44792b6abe3 "(String -> (Internal.CryptoSecret::SecretBytes -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error))" #effects=Alloc,IO,Mut
 F hmacSha256 stdlib/Crypto/Hmac.ax @671a9ebba7360253 "(Crypto.Hmac::HmacSha256Key -> (String -> String))" #effects=Alloc,Mut
-F hmacSha256Chains stdlib/Crypto/Hmac.ax @756ea5c6fc3d97d1 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
-F hmacSha256Copy stdlib/Crypto/Hmac.ax @e66bf676121ba05a "(Crypto.Hmac::HmacSha256 -> Crypto.Hmac::HmacSha256)" #effects=Alloc,Mut
-F hmacSha256Final stdlib/Crypto/Hmac.ax @b26da1ad0636ab79 "(Crypto.Hmac::HmacSha256 -> String)" #effects=Alloc,Mut
-F hmacSha256FinalAddr stdlib/Crypto/Hmac.ax @4d5faa279e3cab76 "(Crypto.Hmac::HmacSha256 -> (Int -> Int))" #effects=Alloc,Mut
-F hmacSha256KeyExport stdlib/Crypto/Hmac.ax @f0ec7b0762cb13c8 "(Crypto.Hmac::HmacSha256Key -> Err::Result Crypto.Secret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
-F hmacSha256KeyFromSecret stdlib/Crypto/Hmac.ax @ab09a6b31a649206 "(Crypto.Secret::SecretBytes -> Err::Result Crypto.Hmac::HmacSha256Key Err::Error)" #effects=Alloc,IO,Mut
+F hmacSha256Copy stdlib/Crypto/Hmac.ax @e66bf676121ba05a "(Internal.CryptoHmac::HmacSha256 -> Internal.CryptoHmac::HmacSha256)" #effects=Alloc,Mut
+F hmacSha256Final stdlib/Crypto/Hmac.ax @b26da1ad0636ab79 "(Internal.CryptoHmac::HmacSha256 -> String)" #effects=Alloc,Mut
+F hmacSha256KeyExport stdlib/Crypto/Hmac.ax @f0ec7b0762cb13c8 "(Crypto.Hmac::HmacSha256Key -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
+F hmacSha256KeyFromSecret stdlib/Crypto/Hmac.ax @ab09a6b31a649206 "(Internal.CryptoSecret::SecretBytes -> Err::Result Crypto.Hmac::HmacSha256Key Err::Error)" #effects=Alloc,IO,Mut
 F hmacSha256KeyGenerate stdlib/Crypto/Hmac.ax @c8df4ecc93c4e39d "Err::Result Crypto.Hmac::HmacSha256Key Err::Error" #effects=Alloc,Entropy,IO,Mut
-F hmacSha256KeyWipe stdlib/Crypto/Hmac.ax @09cb098b8b10db31 "(Crypto.Hmac::HmacSha256Key -> Int)" #effects=Alloc,IO,Mut
-F hmacSha256New stdlib/Crypto/Hmac.ax @b1e20d04a2ec36c3 "(Crypto.Hmac::HmacSha256Key -> Crypto.Hmac::HmacSha256)" #effects=Alloc,Mut
-F hmacSha256NewChains stdlib/Crypto/Hmac.ax @9135f2353cf142a1 "(Int -> Crypto.Hmac::HmacSha256)" #effects=Alloc,Mut
-F hmacSha256NewRaw stdlib/Crypto/Hmac.ax @f74aafbeb1aaade3 "(Int -> (Int -> Crypto.Hmac::HmacSha256))" #effects=Alloc,Mut
-F hmacSha256Raw stdlib/Crypto/Hmac.ax @c03f91041a507c93 "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))" #effects=Alloc,Mut
-F hmacSha256Update stdlib/Crypto/Hmac.ax @35ca2b915b7b77f2 "(Crypto.Hmac::HmacSha256 -> (String -> Int))" #effects=Mut
-F hmacSha256UpdateAddr stdlib/Crypto/Hmac.ax @e2c5fee2171d73a1 "(Crypto.Hmac::HmacSha256 -> (Int -> (Int -> Int)))" #effects=Mut
+F hmacSha256KeyWipe stdlib/Crypto/Hmac.ax @09cb098b8b10db31 "(Crypto.Hmac::HmacSha256Key -> Int)" #effects=IO,Unsafe
+F hmacSha256New stdlib/Crypto/Hmac.ax @b1e20d04a2ec36c3 "(Crypto.Hmac::HmacSha256Key -> Internal.CryptoHmac::HmacSha256)" #effects=Alloc,Mut
+F hmacSha256Update stdlib/Crypto/Hmac.ax @35ca2b915b7b77f2 "(Internal.CryptoHmac::HmacSha256 -> (String -> Int))" #effects=Mut
 F hmacSha256Verify stdlib/Crypto/Hmac.ax @e7956d882510b87e "(Crypto.Hmac::HmacSha256Key -> (String -> (String -> Bool)))" #effects=Alloc,Mut
-F hmacSha256Wipe stdlib/Crypto/Hmac.ax @7e293810620371a8 "(Crypto.Hmac::HmacSha256 -> Int)" #effects=Mut
+F hmacSha256Wipe stdlib/Crypto/Hmac.ax @7e293810620371a8 "(Internal.CryptoHmac::HmacSha256 -> Int)" #effects=Mut
 F hmacSha512 stdlib/Crypto/Hmac.ax @a4823fbbca35b442 "(Crypto.Hmac::HmacSha512Key -> (String -> String))" #effects=Alloc,Mut
-F hmacSha512Chains stdlib/Crypto/Hmac.ax @9978bf40857c9624 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
-F hmacSha512Copy stdlib/Crypto/Hmac.ax @4d7cf17c5b6e27ef "(Crypto.Hmac::HmacSha512 -> Crypto.Hmac::HmacSha512)" #effects=Alloc,Mut
-F hmacSha512Final stdlib/Crypto/Hmac.ax @51848a33ec4b50de "(Crypto.Hmac::HmacSha512 -> String)" #effects=Alloc,Mut
-F hmacSha512FinalAddr stdlib/Crypto/Hmac.ax @fc5a9895cb49901d "(Crypto.Hmac::HmacSha512 -> (Int -> Int))" #effects=Alloc,Mut
-F hmacSha512KeyExport stdlib/Crypto/Hmac.ax @a8d43718f21ecc1f "(Crypto.Hmac::HmacSha512Key -> Err::Result Crypto.Secret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
-F hmacSha512KeyFromSecret stdlib/Crypto/Hmac.ax @adee0d9e2b4dec25 "(Crypto.Secret::SecretBytes -> Err::Result Crypto.Hmac::HmacSha512Key Err::Error)" #effects=Alloc,IO,Mut
+F hmacSha512Copy stdlib/Crypto/Hmac.ax @4d7cf17c5b6e27ef "(Internal.CryptoHmac::HmacSha512 -> Internal.CryptoHmac::HmacSha512)" #effects=Alloc,Mut
+F hmacSha512Final stdlib/Crypto/Hmac.ax @51848a33ec4b50de "(Internal.CryptoHmac::HmacSha512 -> String)" #effects=Alloc,Mut
+F hmacSha512KeyExport stdlib/Crypto/Hmac.ax @a8d43718f21ecc1f "(Crypto.Hmac::HmacSha512Key -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
+F hmacSha512KeyFromSecret stdlib/Crypto/Hmac.ax @adee0d9e2b4dec25 "(Internal.CryptoSecret::SecretBytes -> Err::Result Crypto.Hmac::HmacSha512Key Err::Error)" #effects=Alloc,IO,Mut
 F hmacSha512KeyGenerate stdlib/Crypto/Hmac.ax @e6f109a9b6dc7356 "Err::Result Crypto.Hmac::HmacSha512Key Err::Error" #effects=Alloc,Entropy,IO,Mut
-F hmacSha512KeyWipe stdlib/Crypto/Hmac.ax @f00ac6687f23801a "(Crypto.Hmac::HmacSha512Key -> Int)" #effects=Alloc,IO,Mut
-F hmacSha512New stdlib/Crypto/Hmac.ax @97f695570039700c "(Crypto.Hmac::HmacSha512Key -> Crypto.Hmac::HmacSha512)" #effects=Alloc,Mut
-F hmacSha512NewChains stdlib/Crypto/Hmac.ax @1c315dd7aba969d2 "(Int -> Crypto.Hmac::HmacSha512)" #effects=Alloc,Mut
-F hmacSha512NewRaw stdlib/Crypto/Hmac.ax @fedfb1ec010cf522 "(Int -> (Int -> Crypto.Hmac::HmacSha512))" #effects=Alloc,Mut
-F hmacSha512Raw stdlib/Crypto/Hmac.ax @bc5d39571556c23c "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))" #effects=Alloc,Mut
-F hmacSha512Update stdlib/Crypto/Hmac.ax @a6eaf6435ab4bd3b "(Crypto.Hmac::HmacSha512 -> (String -> Int))" #effects=Mut
-F hmacSha512UpdateAddr stdlib/Crypto/Hmac.ax @90221fa4a0bfe334 "(Crypto.Hmac::HmacSha512 -> (Int -> (Int -> Int)))" #effects=Mut
+F hmacSha512KeyWipe stdlib/Crypto/Hmac.ax @f00ac6687f23801a "(Crypto.Hmac::HmacSha512Key -> Int)" #effects=IO,Unsafe
+F hmacSha512New stdlib/Crypto/Hmac.ax @97f695570039700c "(Crypto.Hmac::HmacSha512Key -> Internal.CryptoHmac::HmacSha512)" #effects=Alloc,Mut
+F hmacSha512Update stdlib/Crypto/Hmac.ax @a6eaf6435ab4bd3b "(Internal.CryptoHmac::HmacSha512 -> (String -> Int))" #effects=Mut
 F hmacSha512Verify stdlib/Crypto/Hmac.ax @dbecec3cf6d6797b "(Crypto.Hmac::HmacSha512Key -> (String -> (String -> Bool)))" #effects=Alloc,Mut
-F hmacSha512Wipe stdlib/Crypto/Hmac.ax @304db022be974319 "(Crypto.Hmac::HmacSha512 -> Int)" #effects=Mut
+F hmacSha512Wipe stdlib/Crypto/Hmac.ax @304db022be974319 "(Internal.CryptoHmac::HmacSha512 -> Int)" #effects=Mut
 F instantAdd stdlib/Chrono.ax @385416d4193cf9cb "(Chrono::Instant -> (Chrono::Duration -> Err::Result Chrono::Instant Err::Error))" #effects=Alloc
 F instantCompare stdlib/Chrono.ax @25f97a198c288ab7 "(Chrono::Instant -> (Chrono::Instant -> Int))"
 F instantElapsed stdlib/Chrono.ax @afd5192c77ac6020 "(Chrono::Instant -> Err::Result Chrono::Duration Err::Error)" #effects=Alloc,IO,Mut
@@ -601,17 +535,15 @@ F instantEq stdlib/Chrono.ax @478990ef6bcd3802 "(Chrono::Instant -> (Chrono::Ins
 F instantNow stdlib/Chrono.ax @1e6f9cd40a998060 "Err::Result Chrono::Instant Err::Error" #effects=Alloc,IO,Mut
 F instantUntil stdlib/Chrono.ax @09fa34b0088e7190 "(Chrono::Instant -> (Chrono::Instant -> Chrono::Duration))"
 F intMin stdlib/Err.ax @f0cd39212565a998 "Int"
-F internCap stdlib/Intern.ax @3c482e9ca4af6ba5 "(Int -> Int)"
-F internCount stdlib/Intern.ax @08a34d2974e1f73e "(Int -> Int)"
-F internFind stdlib/Intern.ax @f306270f42e9422c "(Int -> (String -> Option Int))"
-F internFree stdlib/Intern.ax @1ab32b0ec872e7a5 "(Int -> Int)" #effects=Unsafe
-F internIntern stdlib/Intern.ax @c0cfda926f640ae3 "(Int -> (String -> Int))" #effects=Alloc,Mut
-F internLookup stdlib/Intern.ax @9bf565b62b573151 "(Int -> (Int -> String))" #effects=Alloc,Mut
-F internNew stdlib/Intern.ax @679e049cbd3c8d47 "Int" #effects=Alloc,Mut
-F internNewTyped stdlib/Intern.ax @0eb420d92e5c9c21 "Intern::InternState" #effects=Alloc,Mut
+F internCap stdlib/Intern.ax @3c482e9ca4af6ba5 "(Internal.Intern::InternalInternState -> Int)"
+F internCount stdlib/Intern.ax @08a34d2974e1f73e "(Internal.Intern::InternalInternState -> Int)"
+F internFind stdlib/Intern.ax @f306270f42e9422c "(Internal.Intern::InternalInternState -> (String -> Option Int))"
+F internIntern stdlib/Intern.ax @c0cfda926f640ae3 "(Internal.Intern::InternalInternState -> (String -> Int))" #effects=Alloc,Mut
+F internLookup stdlib/Intern.ax @9bf565b62b573151 "(Internal.Intern::InternalInternState -> (Int -> String))" #effects=Alloc,Mut
+F internNew stdlib/Intern.ax @679e049cbd3c8d47 "Internal.Intern::InternalInternState" #effects=Alloc,Mut
+F internNewTyped stdlib/Intern.ax @0eb420d92e5c9c21 "Internal.Intern::InternalInternState" #effects=Alloc,Mut
 F internSlotOf stdlib/Intern.ax @bdbb2540203f874e "(String -> (Int -> Int))"
-F internWithCapacity stdlib/Intern.ax @49340d6b26eeec1b "(Int -> Int)" #effects=Alloc,Mut
-F internWordOf stdlib/Intern.ax @469f4cf251b1455e "(Intern::InternState -> Int)"
+F internWithCapacity stdlib/Intern.ax @49340d6b26eeec1b "(Int -> Internal.Intern::InternalInternState)" #effects=Alloc,Mut
 F ipBroadcast stdlib/Net.ax @b6e1a096237f5985 "Net::IpAddr" #effects=Alloc
 F ipCompare stdlib/Net.ax @565ce52d671e19b9 "(Net::IpAddr -> (Net::IpAddr -> Int))"
 F ipEq stdlib/Net.ax @b8b76d4485650e3c "(Net::IpAddr -> (Net::IpAddr -> Bool))"
@@ -647,29 +579,6 @@ F isNone stdlib/Err.ax @663ca817f9615dd1 "(Option a -> Bool)"
 F isOk stdlib/Err.ax @ae1736447ed221d1 "(Err::Result a e -> Bool)"
 F isSome stdlib/Err.ax @607c94fa42bbf2d3 "(Option a -> Bool)"
 F isTerminal stdlib/IO.ax @a295d8b125c4fe43 "(IO::File -> Bool)" #effects=Alloc,IO,Mut
-F jsonArr stdlib/Cereal.ax @68fd4aae235e9684 "Int" #effects=Alloc,Mut
-F jsonArrGet stdlib/Cereal.ax @9dc0bd1e8f64ad80 "(Int -> (Int -> Int))"
-F jsonArrLen stdlib/Cereal.ax @c917861ea7f36c0b "(Int -> Int)"
-F jsonArrPush stdlib/Cereal.ax @819eb37c323d1480 "(Int -> (Int -> Int))" #effects=Alloc,Mut
-F jsonBool stdlib/Cereal.ax @63bfe8fe663f3099 "(Int -> Int)" #effects=Alloc,Mut
-F jsonBoolVal stdlib/Cereal.ax @4f07fe2945c54ea8 "(Int -> Int)"
-F jsonFind stdlib/Cereal.ax @ce99511cdda83a36 "(Int -> (String -> Option Int))" #effects=Alloc
-F jsonGet stdlib/Cereal.ax @9b833cae3f92f92b "(Int -> (String -> Int))"
-F jsonGetInt stdlib/Cereal.ax @e1e94afcdb24e824 "(Int -> (String -> Int))"
-F jsonGetStr stdlib/Cereal.ax @9e2ac6fd451ece52 "(Int -> (String -> String))"
-F jsonInt stdlib/Cereal.ax @241000adfc6e73fa "(Int -> Int)"
-F jsonIsNull stdlib/Cereal.ax @88cdf14f2e462408 "(Int -> Bool)"
-F jsonNull stdlib/Cereal.ax @7dfed8da8fca8928 "Int" #effects=Alloc,Mut
-F jsonNum stdlib/Cereal.ax @5e1c24ae1c943007 "(Int -> Int)" #effects=Alloc,Mut
-F jsonNumText stdlib/Cereal.ax @9cd00a1ecdad5ec0 "(Int -> String)"
-F jsonObj stdlib/Cereal.ax @56f8f8ae18f75e2e "Int" #effects=Alloc,Mut
-F jsonObjLen stdlib/Cereal.ax @76ce7fbfd05c0055 "(Int -> Int)"
-F jsonObjPut stdlib/Cereal.ax @693cf1c059a50feb "(Int -> (String -> (Int -> Int)))" #effects=Alloc,Mut
-F jsonParse stdlib/Cereal.ax @583896fb23d65be0 "(String -> Int)" #effects=Alloc,Mut
-F jsonStr stdlib/Cereal.ax @04662cae7b3fb694 "(String -> Int)" #effects=Alloc,Mut
-F jsonStrVal stdlib/Cereal.ax @af44ac2e7c51150b "(Int -> String)"
-F jsonWrite stdlib/Cereal.ax @6e98a942b19afa70 "(Int -> String)" #effects=Alloc,Mut
-F keccakF1600 stdlib/Crypto/Sha3.ax @e5686239a25dce4a "(Int -> Int)" #effects=Mut,Unsafe
 F keyCompare stdlib/Axqlite/Record.ax @67ec61d1f6411949 "(String -> (String -> Int))"
 F keyCsiEnd stdlib/Tui/Keys.ax @f5e74cd22e414608 "(String -> (Int -> (Int -> Int)))"
 F keyCsiMax stdlib/Tui/Keys.ax @b0b2ead20714f813 "Int"
@@ -704,10 +613,6 @@ F keyTildeKind stdlib/Tui/Keys.ax @57656a2699cd70f6 "(Int -> Int)"
 F keyWithRowid stdlib/Axqlite/Record.ax @44bce01039b4ffff "(String -> (Int -> String))" #effects=Alloc,Mut
 F kindIndex stdlib/Axqlite/AxqlSchema.ax @164697723c716557 "String"
 F kindTable stdlib/Axqlite/AxqlSchema.ax @25d3578d428b407b "String"
-F ld32be stdlib/Crypto/Ct.ax @c77b4ae4ead2239b "(Int -> (Int -> Int))" #effects=Unsafe
-F ld32le stdlib/Crypto/Ct.ax @c78f2ee4eae29d11 "(Int -> (Int -> Int))" #effects=Unsafe
-F ld64be stdlib/Crypto/Ct.ax @c8a4030f19790064 "(Int -> (Int -> Int))"
-F ld64le stdlib/Crypto/Ct.ax @c8c5f70f1995d266 "(Int -> (Int -> Int))"
 F ledApply stdlib/Tui/Edit.ax @8b03e50a0b3383c0 "(Tui.Edit::LineEd -> (Tui.Keys::KeyEv -> (Vec String -> Int)))" #effects=Alloc,Mut
 F ledBackspace stdlib/Tui/Edit.ax @6c1e68eca5648c63 "(Tui.Edit::LineEd -> Int)" #effects=Mut
 F ledByWord stdlib/Tui/Edit.ax @e61076c572c7b419 "(Tui.Keys::KeyEv -> Bool)"
@@ -809,16 +714,9 @@ F mutexLockTimeout stdlib/Sync.ax @00fc2e99b279a4b4 "(Sync::Mutex -> (Int -> Err
 F mutexNew stdlib/Sync.ax @7049a14b29ba3408 "Err::Result Sync::Mutex Err::Error" #effects=Alloc,IO,Mut
 F mutexOwnerDead stdlib/Sync.ax @635d9ba2c4d32b5b "(Sync::Mutex -> Bool)"
 F mutexTryLock stdlib/Sync.ax @d459e601a67517b0 "(Sync::Mutex -> Option Sync::MutexGuard)" #effects=Alloc,IO,Mut
-F netAddr4 stdlib/Sys.ax @4ad9d34e7db15afb "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))" #effects=Mut
 F netAddr4Bytes stdlib/Sys.ax @973e1cebca08db8e "Int"
-F netAddr6 stdlib/Sys.ax @4ad9d54e7db15e61 "(Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> (Int -> Int))))))))))" #effects=Mut
 F netAddr6Bytes stdlib/Sys.ax @2111a3e8ab253338 "Int"
-F netAddrFamily stdlib/Sys.ax @49a9661cbdbe4a51 "(Int -> Int)"
 F netAddrMaxBytes stdlib/Sys.ax @ba5d073b0ea5ae48 "Int"
-F netAddrPort stdlib/Sys.ax @6b7955d8ce0d3b1e "(Int -> Int)"
-F netAddrSize stdlib/Sys.ax @430910e4a91c3d44 "(Int -> Int)"
-F netAddrText stdlib/Sys.ax @7bdbffbb2ce89d36 "(Int -> String)" #effects=Alloc,Mut
-F netAddrTextPort stdlib/Sys.ax @95961b37b6f26d61 "(Int -> String)" #effects=Alloc,Mut
 F netWouldBlock stdlib/Sys.ax @c706a365e1f7ebac "(Int -> Bool)"
 F nonceSequenceNew stdlib/Crypto/Aead.ax @5020483ad48b4563 "(String -> Err::Result Crypto.Aead::NonceSequence Err::Error)" #effects=Alloc,Mut
 F nonceSequenceNext stdlib/Crypto/Aead.ax @b24be0f728cbb8ca "(Crypto.Aead::NonceSequence -> Err::Result Crypto.Aead::AeadNonce Err::Error)" #effects=Alloc,Mut
@@ -834,10 +732,10 @@ F oRdonly stdlib/Sys/Platform.ax @bea12e59bc90ac1c "Int"
 F oRdwr stdlib/Sys/Platform.ax @57f3cb9c9339bfff "Int"
 F oWronlyCreateAppend stdlib/Sys/Platform.ax @26a10abfaabe5f03 "Int"
 F oWronlyCreateTrunc stdlib/Sys/Platform.ax @20f55868f574f56b "Int"
-F obfuscationKeyFromSecret stdlib/Crypto/Obfuscate.ax @4c5d2c2077cbae75 "(Crypto.Secret::SecretBytes -> Err::Result Crypto.Obfuscate::ObfuscationKey Err::Error)" #effects=Alloc,IO,Mut
+F obfuscationKeyFromSecret stdlib/Crypto/Obfuscate.ax @4c5d2c2077cbae75 "(Internal.CryptoSecret::SecretBytes -> Err::Result Crypto.Obfuscate::ObfuscationKey Err::Error)" #effects=Alloc,IO,Mut
 F obfuscationKeyFromShares stdlib/Crypto/Obfuscate.ax @8fb7821bf9377525 "(String -> (String -> Err::Result Crypto.Obfuscate::ObfuscationKey Err::Error))" #effects=Alloc,IO,Mut,Unsafe
 F obfuscationKeyGenerate stdlib/Crypto/Obfuscate.ax @8a69b3bc1b0c2d26 "Err::Result Crypto.Obfuscate::ObfuscationKey Err::Error" #effects=Alloc,Entropy,IO,Mut
-F obfuscationKeyWipe stdlib/Crypto/Obfuscate.ax @63060b0bb196da6a "(Crypto.Obfuscate::ObfuscationKey -> Int)" #effects=Alloc,IO,Mut
+F obfuscationKeyWipe stdlib/Crypto/Obfuscate.ax @63060b0bb196da6a "(Crypto.Obfuscate::ObfuscationKey -> Int)" #effects=IO,Unsafe
 F obfuscationMaxBytes stdlib/Crypto/Obfuscate.ax @25a9c8975f5f8d57 "Int"
 F obfuscationOpen stdlib/Crypto/Obfuscate.ax @d38dc3f6980e033a "(Crypto.Obfuscate::ObfuscationKey -> (String -> (String -> Err::Result String Err::Error)))" #effects=Alloc,IO,Mut
 F obfuscationSeal stdlib/Crypto/Obfuscate.ax @0fad860e25e77b8f "(Crypto.Obfuscate::ObfuscationKey -> (String -> (String -> Err::Result String Err::Error)))" #effects=Alloc,Entropy,IO,Mut
@@ -925,61 +823,18 @@ F pathListSep stdlib/Sys/Platform.ax @afd463b0707d8fc0 "Int"
 F pathReplaceExt stdlib/Path.ax @b0eb325012347d8f "(String -> (String -> String))" #effects=Alloc,Mut
 F pathStem stdlib/Path.ax @c5c84c8412c10e45 "(String -> String)" #effects=Alloc,Mut
 F pathWithSlash stdlib/Path.ax @2c8fe884b1e54f8d "(String -> String)" #effects=Alloc,Mut
-F platformAccept stdlib/Sys/Platform.ax @ad847db1feb0faac "(Int -> Int)"
-F platformBind stdlib/Sys/Platform.ax @356922533140578b "(Int -> (Int -> (Int -> Int)))"
 F platformChildExited stdlib/Sys/Platform.ax @85d5af2c5b5f1f4b "(Int -> Int)"
-F platformClose stdlib/Sys/Platform.ax @639ad148c34d19a8 "(Int -> Int)"
-F platformConnect stdlib/Sys/Platform.ax @4922b2b04c2613ea "(Int -> (Int -> (Int -> Int)))"
-F platformConsoleMode stdlib/Sys/Platform.ax @4a01757a3fa6c6da "(Int -> Int)"
-F platformConsoleSetMode stdlib/Sys/Platform.ax @937ea4173cc96ac4 "(Int -> (Int -> Int))"
-F platformConsoleSize stdlib/Sys/Platform.ax @77122075299c3be4 "(Int -> Int)"
 F platformExitWith stdlib/Sys/Platform.ax @becafad07ae354fc "(Int -> Int)"
-F platformFlock stdlib/Sys/Platform.ax @45178b76a76d3781 "(Int -> (Int -> Int))"
-F platformFsync stdlib/Sys/Platform.ax @6ab710c4e7bc1d55 "(Int -> Int)"
-F platformFtruncate stdlib/Sys/Platform.ax @9ec45c58364cfeec "(Int -> (Int -> Int))"
-F platformGetCwd stdlib/Sys/Platform.ax @b845c0b5814785da "(Int -> (Int -> Int))"
-F platformGetSockOpt stdlib/Sys/Platform.ax @50d1b0ea92c46841 "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))"
 F platformHasClock stdlib/Sys/Platform.ax @30e381516ea1f532 "Int"
 F platformHasEntropy stdlib/Sys/Platform.ax @956e424fd0e22b05 "Int"
-F platformIsConsole stdlib/Sys/Platform.ax @e67801ae434011c5 "(Int -> Int)"
 F platformKill stdlib/Sys/Platform.ax @e511bc9b6d41b4e4 "(Int -> (Int -> Int))"
-F platformListen stdlib/Sys/Platform.ax @a8966ddd6bef9f2f "(Int -> (Int -> Int))"
-F platformMapPrivate stdlib/Sys/Platform.ax @a63990e13fa9aff9 "(Int -> Err::Result Int Err::Error)" #effects=Alloc
-F platformMapShared stdlib/Sys/Platform.ax @f12e5205cdeb716f "(Int -> Err::Result Int Err::Error)" #effects=Alloc
-F platformMkdir stdlib/Sys/Platform.ax @5018453539866287 "(Int -> (Int -> Int))"
-F platformMlock stdlib/Sys/Platform.ax @e59c0f70d621d654 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc
 F platformMonotonicNanos stdlib/Sys/Platform.ax @b49f29dfbb1a3b9f "Err::Result Int Err::Error" #effects=Alloc
-F platformMunlock stdlib/Sys/Platform.ax @f618183bf0773383 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc
 F platformNullPath stdlib/Sys/Platform.ax @e683f1aa6c79b5da "String"
-F platformOpen stdlib/Sys/Platform.ax @937e077d03f60d14 "(Int -> (Int -> (Int -> Int)))"
 F platformPid stdlib/Sys/Platform.ax @177e918be9abce01 "Int"
-F platformPoll stdlib/Sys/Platform.ax @85b26fbe04658c99 "(Int -> (Int -> (Int -> Int)))"
-F platformPread stdlib/Sys/Platform.ax @ec836ec3f738b9e0 "(Int -> (Int -> (Int -> (Int -> Int))))"
-F platformPwrite stdlib/Sys/Platform.ax @a8177ee89ea80a1b "(Int -> (Int -> (Int -> (Int -> Int))))"
-F platformRandomBytes stdlib/Sys/Platform.ax @afc7e3d8a09b4bce "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc
-F platformReadDir stdlib/Sys/Platform.ax @f8ccf36a2410d8ff "(Int -> (Int -> (Int -> Int)))"
-F platformReadFd stdlib/Sys/Platform.ax @27c65d2cf874d88a "(Int -> (Int -> (Int -> Err::Result Int Err::Error)))" #effects=Alloc
 F platformRealtimeNanos stdlib/Sys/Platform.ax @b271bccaefbfd6a8 "Err::Result Int Err::Error" #effects=Alloc
-F platformRename stdlib/Sys/Platform.ax @a2fb436763cde5f6 "(Int -> (Int -> Int))"
-F platformRmdir stdlib/Sys/Platform.ax @733f21ad35b1479c "(Int -> Int)"
-F platformSeek stdlib/Sys/Platform.ax @5d2ef6d5e008b2dc "(Int -> (Int -> (Int -> Int)))"
-F platformSend stdlib/Sys/Platform.ax @5d4ddbd5e023358a "(Int -> (Int -> (Int -> Int)))"
-F platformSetNonBlocking stdlib/Sys/Platform.ax @427be10cab0675a8 "(Int -> (Bool -> Int))"
-F platformSetSockOpt stdlib/Sys/Platform.ax @91e43de20eaff4cd "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))"
-F platformSetStd stdlib/Sys/Platform.ax @468c007662bcd4dd "(Int -> (Int -> Int))"
-F platformShutdown stdlib/Sys/Platform.ax @fe061fd8b0cd619e "(Int -> (Int -> Int))"
-F platformSignalBlock stdlib/Sys/Platform.ax @ca6d8b00fb159a61 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc
+F platformSignalBlock stdlib/Sys/Platform.ax @ca6d8b00fb159a61 "(Int -> Err::Result Int Err::Error)" #effects=Alloc
 F platformSleepNanos stdlib/Sys/Platform.ax @5097431e77a9b9ea "(Int -> Err::Result Int Err::Error)" #effects=Alloc
-F platformSocket stdlib/Sys/Platform.ax @ad1981892e881545 "(Int -> (Int -> (Int -> Int)))"
-F platformSocketAddr stdlib/Sys/Platform.ax @58d52c3a4aadefd2 "(Int -> (Bool -> (Int -> (Int -> Int))))"
-F platformSpawn stdlib/Sys/Platform.ax @211eda196a17998b "(Int -> (Int -> (Int -> Int)))"
-F platformUnlink stdlib/Sys/Platform.ax @99908c018efbebbb "(Int -> Int)"
-F platformUnmapPrivate stdlib/Sys/Platform.ax @5634a8f305aa4c62 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc
-F platformUnmapShared stdlib/Sys/Platform.ax @c12a2725af45202e "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc
 F platformWait stdlib/Sys/Platform.ax @d63be9b36167c665 "(Int -> Int)"
-F platformWaitWord stdlib/Sys/Platform.ax @3491b3c16c1d1e5d "(Int -> (Int -> (Int -> Int)))"
-F platformWakeWord stdlib/Sys/Platform.ax @e4ca8b49bc23403c "(Int -> Int)"
-F platformWriteFd stdlib/Sys/Platform.ax @06b4d89d48f5eb21 "(Int -> (Int -> (Int -> Err::Result Int Err::Error)))" #effects=Alloc
 F pollAddOp stdlib/Sys/Platform.ax @8ded25e2f48c404e "Int"
 F pollDelOp stdlib/Sys/Platform.ax @b9dceb68276454ac "Int"
 F pollEventFdOffset stdlib/Sys/Platform.ax @a82e65073201e547 "Int"
@@ -1001,15 +856,9 @@ F pollerRemoveStream stdlib/Net.ax @e9f04af056186fc5 "(IO::Poller -> (Net::TcpSt
 F pollerSignal stdlib/IO.ax @7d75dcd23811dcc1 "(IO::Poller -> (Int -> Option Int))" #effects=Alloc,IO
 F pollerToken stdlib/IO.ax @fb91557b71a4497a "(IO::Poller -> (Int -> Int))"
 F pollerWait stdlib/IO.ax @baf2a30941e804f8 "(IO::Poller -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Mut,Unsafe
-F poly1305AbsorbPadded stdlib/Crypto/Poly1305.ax @c341985161adc351 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F poly1305Blocks stdlib/Crypto/Poly1305.ax @da52428fa4f93f54 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Mut,Unsafe
-F poly1305Finish stdlib/Crypto/Poly1305.ax @783d8e04f0d17455 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F poly1305Init stdlib/Crypto/Poly1305.ax @516933a943a15ce0 "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F poly1305Mac stdlib/Crypto/Poly1305.ax @e6b8c05cda4e0b5d "(Int -> (Int -> (Int -> (Int -> (Int -> Int)))))" #effects=Mut,Unsafe
 F poly1305StateBytes stdlib/Crypto/Poly1305.ax @ab703bb7e2b6b0aa "Int"
 F randomAvailable stdlib/Crypto/Random.ax @0a52e6b10cea72bf "Bool" #effects=Entropy,Mut
 F randomBelow stdlib/Crypto/Random.ax @627d92e27b2a0999 "(Int -> Err::Result Int Err::Error)" #effects=Alloc,Entropy,IO,Mut
-F randomFill stdlib/Crypto/Random.ax @89adad555544cce5 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,Entropy,IO,Mut
 F randomIsGetentropy stdlib/Sys/Platform.ax @e644f15320868f39 "Int"
 F randomMaxChunk stdlib/Sys/Platform.ax @671fe1e243b8cebf "Int"
 F randomRange stdlib/Crypto/Random.ax @791b362bacf38821 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,Entropy,IO,Mut
@@ -1065,99 +914,58 @@ F rowValue stdlib/Axqlite.ax @c4adc17b0e68b53e "(Axqlite::Row -> (Int -> Err::Re
 F rowValueNamed stdlib/Axqlite.ax @7fbd5bd2c40fd53b "(Axqlite::Row -> (String -> Err::Result Axqlite.Value::Value Err::Error))" #effects=Alloc,Mut
 F rpcRead stdlib/Rpc.ax @71be0acbedd462ce "(Int -> Option String)" #effects=Alloc,IO,Mut
 F rpcWrite stdlib/Rpc.ax @8401ff9bdbad5391 "(IO::File -> (String -> Int))" #effects=Alloc,IO,Mut
-F sc25519IsCanonical stdlib/Crypto/Curve25519Scalar.ax @4f392b8d96ceb63d "(Int -> Int)" #effects=Alloc,Mut
-F sc25519MulAdd stdlib/Crypto/Curve25519Scalar.ax @0d6ce6f542838310 "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut,Unsafe
-F sc25519Reduce stdlib/Crypto/Curve25519Scalar.ax @e2eec26cf43bf21f "(Int -> (Int -> Int))" #effects=Alloc,Mut
-F secretAddr stdlib/Crypto/Secret.ax @ac484dd54c841524 "(Crypto.Secret::SecretBytes -> Int)"
-F secretBlockAddr stdlib/Crypto/Secret.ax @4f5d444009e2fcb7 "(Int -> (Int -> Int))" #effects=Unsafe
-F secretBlockFree stdlib/Crypto/Secret.ax @0b4031275f7d9c9a "(Int -> (Int -> Int))" #effects=Alloc,IO,Mut,Unsafe
-F secretBlockFrom stdlib/Crypto/Secret.ax @0b2b05275f6af5cc "(Int -> (Int -> (Int -> Err::Result Int Err::Error)))" #effects=Alloc,IO,Mut
-F secretBlockLen stdlib/Crypto/Secret.ax @806d5296dc19196b "(Int -> (Int -> Int))" #effects=Unsafe
-F secretBlockLocked stdlib/Crypto/Secret.ax @8fe290feac567aea "(Int -> (Int -> Bool))" #effects=Unsafe
-F secretBlockNew stdlib/Crypto/Secret.ax @927eab96e68ae802 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Mut,Unsafe
-F secretBlockRandom stdlib/Crypto/Secret.ax @a3dfb6b852366dab "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,Entropy,IO,Mut
-F secretEq stdlib/Crypto/Secret.ax @02e4e00e7e51c4c1 "(Crypto.Secret::SecretBytes -> (Crypto.Secret::SecretBytes -> Bool))" #effects=Mut
-F secretExposeCopy stdlib/Crypto/Secret.ax @511c2a4b15fe3042 "(Crypto.Secret::SecretBytes -> String)" #effects=Alloc,Mut
-F secretFromAddr stdlib/Crypto/Secret.ax @9b2082f99e3b7020 "(Int -> (Int -> Err::Result Crypto.Secret::SecretBytes Err::Error))" #effects=Alloc,IO,Mut
-F secretFromString stdlib/Crypto/Secret.ax @dc3a0d4a51024d12 "(String -> Err::Result Crypto.Secret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
-F secretIsLocked stdlib/Crypto/Secret.ax @fad866d3e2163f49 "(Crypto.Secret::SecretBytes -> Bool)"
-F secretLen stdlib/Crypto/Secret.ax @fee746a081a1c86a "(Crypto.Secret::SecretBytes -> Int)"
-F secretRandom stdlib/Crypto/Secret.ax @97ad3231c7602f5c "(Int -> Err::Result Crypto.Secret::SecretBytes Err::Error)" #effects=Alloc,Entropy,IO,Mut
-F secretWipe stdlib/Crypto/Secret.ax @da312a6f48daf3d0 "(Crypto.Secret::SecretBytes -> Int)" #effects=Alloc,IO,Mut
+F secretEq stdlib/Crypto/Secret.ax @02e4e00e7e51c4c1 "(Internal.CryptoSecret::SecretBytes -> (Internal.CryptoSecret::SecretBytes -> Bool))" #effects=Mut
+F secretExposeCopy stdlib/Crypto/Secret.ax @511c2a4b15fe3042 "(Internal.CryptoSecret::SecretBytes -> String)" #effects=Alloc,Mut
+F secretFromString stdlib/Crypto/Secret.ax @dc3a0d4a51024d12 "(String -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
+F secretIsLocked stdlib/Crypto/Secret.ax @fad866d3e2163f49 "(Internal.CryptoSecret::SecretBytes -> Bool)"
+F secretLen stdlib/Crypto/Secret.ax @fee746a081a1c86a "(Internal.CryptoSecret::SecretBytes -> Int)"
+F secretRandom stdlib/Crypto/Secret.ax @97ad3231c7602f5c "(Int -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)" #effects=Alloc,Entropy,IO,Mut
+F secretWipe stdlib/Crypto/Secret.ax @da312a6f48daf3d0 "(Internal.CryptoSecret::SecretBytes -> Int)" #effects=IO
 F secureRandomBytes stdlib/Crypto/Random.ax @5cb60a7c4dbbbb74 "(Int -> Err::Result String Err::Error)" #effects=Alloc,Entropy,IO,Mut
 F seekEnd stdlib/Sys/Platform.ax @ffd6d76db53ee6f4 "Int"
 F seekSet stdlib/Sys/Platform.ax @9bb0af6e0d80b0bd "Int"
 F sha256 stdlib/Crypto/Sha2.ax @275cbf7b993b876c "(String -> String)" #effects=Alloc,Mut
-F sha256Addr stdlib/Crypto/Sha2.ax @ed44c1abb15c877f "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
-F sha256Copy stdlib/Crypto/Sha2.ax @19d98fbd747e1771 "(Crypto.Sha2::Sha256 -> Crypto.Sha2::Sha256)" #effects=Alloc,Mut
-F sha256Final stdlib/Crypto/Sha2.ax @6839523a431c0c04 "(Crypto.Sha2::Sha256 -> String)" #effects=Alloc,Mut
-F sha256New stdlib/Crypto/Sha2.ax @e6c4b56be21f3b4a "Crypto.Sha2::Sha256" #effects=Alloc,Mut
-F sha256RawChain stdlib/Crypto/Sha2.ax @edfb82d7c1ad5bbf "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F sha256RawFinal stdlib/Crypto/Sha2.ax @1a90e4c32521955e "(Int -> (Int -> Int))" #effects=Mut
-F sha256RawInit stdlib/Crypto/Sha2.ax @d82e5aee293beca8 "(Int -> Int)" #effects=Mut
-F sha256RawResume stdlib/Crypto/Sha2.ax @fa71e46618f8e38d "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F sha256RawSize stdlib/Crypto/Sha2.ax @0674b11d97f5dcab "Int"
-F sha256RawUpdate stdlib/Crypto/Sha2.ax @1d2d57a0eecb22bb "(Int -> (Int -> (Int -> Int)))" #effects=Mut
-F sha256Update stdlib/Crypto/Sha2.ax @95c8e2aec74876ed "(Crypto.Sha2::Sha256 -> (String -> Int))" #effects=Mut
-F sha256UpdateAddr stdlib/Crypto/Sha2.ax @6b4b9c95bf23fcda "(Crypto.Sha2::Sha256 -> (Int -> (Int -> Int)))" #effects=Mut
-F sha256Wipe stdlib/Crypto/Sha2.ax @35849221d7535767 "(Crypto.Sha2::Sha256 -> Int)" #effects=Mut
+F sha256Copy stdlib/Crypto/Sha2.ax @19d98fbd747e1771 "(Internal.CryptoSha2::Sha256 -> Internal.CryptoSha2::Sha256)" #effects=Alloc,Mut
+F sha256Final stdlib/Crypto/Sha2.ax @6839523a431c0c04 "(Internal.CryptoSha2::Sha256 -> String)" #effects=Alloc,Mut
+F sha256New stdlib/Crypto/Sha2.ax @e6c4b56be21f3b4a "Internal.CryptoSha2::Sha256" #effects=Alloc,Mut
+F sha256Update stdlib/Crypto/Sha2.ax @95c8e2aec74876ed "(Internal.CryptoSha2::Sha256 -> (String -> Int))" #effects=Mut
+F sha256Wipe stdlib/Crypto/Sha2.ax @35849221d7535767 "(Internal.CryptoSha2::Sha256 -> Int)" #effects=Mut
 F sha384 stdlib/Crypto/Sha2.ax @1e57a47b9405cd34 "(String -> String)" #effects=Alloc,Mut
-F sha384Addr stdlib/Crypto/Sha2.ax @bcb8049341e518a7 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
-F sha384Copy stdlib/Crypto/Sha2.ax @729d52a5526fcc19 "(Crypto.Sha2::Sha384 -> Crypto.Sha2::Sha384)" #effects=Alloc,Mut
-F sha384Final stdlib/Crypto/Sha2.ax @93402a377d1b09cc "(Crypto.Sha2::Sha384 -> String)" #effects=Alloc,Mut
-F sha384New stdlib/Crypto/Sha2.ax @d25d24dbf270ce52 "Crypto.Sha2::Sha384" #effects=Alloc,Mut
-F sha384Update stdlib/Crypto/Sha2.ax @afb104947c4b9175 "(Crypto.Sha2::Sha384 -> (String -> Int))" #effects=Mut
-F sha384UpdateAddr stdlib/Crypto/Sha2.ax @e078796dbcfbe522 "(Crypto.Sha2::Sha384 -> (Int -> (Int -> Int)))" #effects=Mut
-F sha384Wipe stdlib/Crypto/Sha2.ax @795743fe5132341f "(Crypto.Sha2::Sha384 -> Int)" #effects=Mut
-F sha3Copy stdlib/Crypto/Sha3.ax @ab121e8845bbabdd "(Crypto.Sha3::Sha3 -> Crypto.Sha3::Sha3)" #effects=Alloc,Mut
-F sha3Final stdlib/Crypto/Sha3.ax @d6f9c85b2f2a08c8 "(Crypto.Sha3::Sha3 -> String)" #effects=Alloc,Mut,Unsafe
-F sha3Update stdlib/Crypto/Sha3.ax @4d1588aa5394d961 "(Crypto.Sha3::Sha3 -> (String -> Int))" #effects=Mut
-F sha3UpdateAddr stdlib/Crypto/Sha3.ax @674c1b9a969a48fe "(Crypto.Sha3::Sha3 -> (Int -> (Int -> Int)))" #effects=Mut
-F sha3Wipe stdlib/Crypto/Sha3.ax @8000612f31e99e0b "(Crypto.Sha3::Sha3 -> Int)" #effects=Mut,Unsafe
+F sha384Copy stdlib/Crypto/Sha2.ax @729d52a5526fcc19 "(Internal.CryptoSha2::Sha384 -> Internal.CryptoSha2::Sha384)" #effects=Alloc,Mut
+F sha384Final stdlib/Crypto/Sha2.ax @93402a377d1b09cc "(Internal.CryptoSha2::Sha384 -> String)" #effects=Alloc,Mut
+F sha384New stdlib/Crypto/Sha2.ax @d25d24dbf270ce52 "Internal.CryptoSha2::Sha384" #effects=Alloc,Mut
+F sha384Update stdlib/Crypto/Sha2.ax @afb104947c4b9175 "(Internal.CryptoSha2::Sha384 -> (String -> Int))" #effects=Mut
+F sha384Wipe stdlib/Crypto/Sha2.ax @795743fe5132341f "(Internal.CryptoSha2::Sha384 -> Int)" #effects=Mut
+F sha3Copy stdlib/Crypto/Sha3.ax @ab121e8845bbabdd "(Internal.CryptoSha3::Sha3 -> Internal.CryptoSha3::Sha3)" #effects=Alloc,Mut
+F sha3Final stdlib/Crypto/Sha3.ax @d6f9c85b2f2a08c8 "(Internal.CryptoSha3::Sha3 -> String)" #effects=Alloc,Mut,Unsafe
+F sha3Update stdlib/Crypto/Sha3.ax @4d1588aa5394d961 "(Internal.CryptoSha3::Sha3 -> (String -> Int))" #effects=Mut
+F sha3Wipe stdlib/Crypto/Sha3.ax @8000612f31e99e0b "(Internal.CryptoSha3::Sha3 -> Int)" #effects=Mut,Unsafe
 F sha3_224 stdlib/Crypto/Sha3.ax @e06b25721aaa831b "(String -> String)" #effects=Alloc,Mut
-F sha3_224Addr stdlib/Crypto/Sha3.ax @0fb5ab71d4ec9554 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
-F sha3_224New stdlib/Crypto/Sha3.ax @0ff91796d2c2a9cb "Crypto.Sha3::Sha3" #effects=Alloc,Mut
+F sha3_224New stdlib/Crypto/Sha3.ax @0ff91796d2c2a9cb "Internal.CryptoSha3::Sha3" #effects=Alloc,Mut
 F sha3_256 stdlib/Crypto/Sha3.ax @e05325721a95f13a "(String -> String)" #effects=Alloc,Mut
-F sha3_256Addr stdlib/Crypto/Sha3.ax @619f372b6864f9e9 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
-F sha3_256New stdlib/Crypto/Sha3.ax @fae4a9ab38727004 "Crypto.Sha3::Sha3" #effects=Alloc,Mut
+F sha3_256New stdlib/Crypto/Sha3.ax @fae4a9ab38727004 "Internal.CryptoSha3::Sha3" #effects=Alloc,Mut
 F sha3_384 stdlib/Crypto/Sha3.ax @d732ee7215493fb6 "(String -> String)" #effects=Alloc,Mut
-F sha3_384Addr stdlib/Crypto/Sha3.ax @b037cb9f9b61c055 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
-F sha3_384New stdlib/Crypto/Sha3.ax @6420006b7d278720 "Crypto.Sha3::Sha3" #effects=Alloc,Mut
+F sha3_384New stdlib/Crypto/Sha3.ax @6420006b7d278720 "Internal.CryptoSha3::Sha3" #effects=Alloc,Mut
 F sha3_512 stdlib/Crypto/Sha3.ax @a2eb8471f7963f4b "(String -> String)" #effects=Alloc,Mut
-F sha3_512Addr stdlib/Crypto/Sha3.ax @046a4bf611288224 "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
-F sha3_512New stdlib/Crypto/Sha3.ax @bcaca1566442b83b "Crypto.Sha3::Sha3" #effects=Alloc,Mut
+F sha3_512New stdlib/Crypto/Sha3.ax @bcaca1566442b83b "Internal.CryptoSha3::Sha3" #effects=Alloc,Mut
 F sha512 stdlib/Crypto/Sha2.ax @52a51a7bb1bd4db1 "(String -> String)" #effects=Alloc,Mut
-F sha512Addr stdlib/Crypto/Sha2.ax @0fec5075ea5ded6e "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Mut
-F sha512Copy stdlib/Crypto/Sha2.ax @72470a87cc762f98 "(Crypto.Sha2::Sha512 -> Crypto.Sha2::Sha512)" #effects=Alloc,Mut
-F sha512Final stdlib/Crypto/Sha2.ax @fb1c3eb56c6eea83 "(Crypto.Sha2::Sha512 -> String)" #effects=Alloc,Mut
-F sha512New stdlib/Crypto/Sha2.ax @42462002e98393fd "Crypto.Sha2::Sha512" #effects=Alloc,Mut
-F sha512RawChain stdlib/Crypto/Sha2.ax @44137dbdd3907e5e "(Int -> (Int -> Int))" #effects=Mut,Unsafe
-F sha512RawFinal stdlib/Crypto/Sha2.ax @b70ecbd35b6dd23f "(Int -> (Int -> Int))" #effects=Mut
-F sha512RawInit stdlib/Crypto/Sha2.ax @113fb232087afdab "(Int -> Int)" #effects=Mut
-F sha512RawResume stdlib/Crypto/Sha2.ax @1c167b9c71633722 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F sha512RawSize stdlib/Crypto/Sha2.ax @405699099eabeca4 "Int"
-F sha512RawUpdate stdlib/Crypto/Sha2.ax @e163e8b7367797fc "(Int -> (Int -> (Int -> Int)))" #effects=Mut
-F sha512Update stdlib/Crypto/Sha2.ax @42fb2f949f4c0cb0 "(Crypto.Sha2::Sha512 -> (String -> Int))" #effects=Mut
-F sha512UpdateAddr stdlib/Crypto/Sha2.ax @f75874cba3221913 "(Crypto.Sha2::Sha512 -> (Int -> (Int -> Int)))" #effects=Mut
-F sha512Wipe stdlib/Crypto/Sha2.ax @fbb4a822a505c212 "(Crypto.Sha2::Sha512 -> Int)" #effects=Mut
+F sha512Copy stdlib/Crypto/Sha2.ax @72470a87cc762f98 "(Internal.CryptoSha2::Sha512 -> Internal.CryptoSha2::Sha512)" #effects=Alloc,Mut
+F sha512Final stdlib/Crypto/Sha2.ax @fb1c3eb56c6eea83 "(Internal.CryptoSha2::Sha512 -> String)" #effects=Alloc,Mut
+F sha512New stdlib/Crypto/Sha2.ax @42462002e98393fd "Internal.CryptoSha2::Sha512" #effects=Alloc,Mut
+F sha512Update stdlib/Crypto/Sha2.ax @42fb2f949f4c0cb0 "(Internal.CryptoSha2::Sha512 -> (String -> Int))" #effects=Mut
+F sha512Wipe stdlib/Crypto/Sha2.ax @fbb4a822a505c212 "(Internal.CryptoSha2::Sha512 -> Int)" #effects=Mut
 F shake128 stdlib/Crypto/Sha3.ax @76a64fea51f50f48 "(String -> (Int -> String))" #effects=Alloc,Mut
-F shake128Absorb stdlib/Crypto/Sha3.ax @258ec5c49bf136d5 "(Crypto.Sha3::Shake128 -> (String -> Int))" #effects=Mut
-F shake128AbsorbAddr stdlib/Crypto/Sha3.ax @e35b9ac591682ec2 "(Crypto.Sha3::Shake128 -> (Int -> (Int -> Int)))" #effects=Mut
-F shake128Addr stdlib/Crypto/Sha3.ax @227728f8fbecfeab "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut
-F shake128Copy stdlib/Crypto/Sha3.ax @db71870b0f169f25 "(Crypto.Sha3::Shake128 -> Crypto.Sha3::Shake128)" #effects=Alloc,Mut
-F shake128New stdlib/Crypto/Sha3.ax @e3c514328a6d7b46 "Crypto.Sha3::Shake128" #effects=Alloc,Mut
-F shake128Squeeze stdlib/Crypto/Sha3.ax @3ee74a3e518aef7c "(Crypto.Sha3::Shake128 -> (Int -> String))" #effects=Alloc,Mut
-F shake128SqueezeAddr stdlib/Crypto/Sha3.ax @25a34f38c6129def "(Crypto.Sha3::Shake128 -> (Int -> (Int -> Int)))" #effects=Mut
-F shake128Wipe stdlib/Crypto/Sha3.ax @9dbcb9b1606ec923 "(Crypto.Sha3::Shake128 -> Int)" #effects=Mut
+F shake128Absorb stdlib/Crypto/Sha3.ax @258ec5c49bf136d5 "(Internal.CryptoSha3::Shake128 -> (String -> Int))" #effects=Mut
+F shake128Copy stdlib/Crypto/Sha3.ax @db71870b0f169f25 "(Internal.CryptoSha3::Shake128 -> Internal.CryptoSha3::Shake128)" #effects=Alloc,Mut
+F shake128New stdlib/Crypto/Sha3.ax @e3c514328a6d7b46 "Internal.CryptoSha3::Shake128" #effects=Alloc,Mut
+F shake128Squeeze stdlib/Crypto/Sha3.ax @3ee74a3e518aef7c "(Internal.CryptoSha3::Shake128 -> (Int -> String))" #effects=Alloc,Mut
+F shake128Wipe stdlib/Crypto/Sha3.ax @9dbcb9b1606ec923 "(Internal.CryptoSha3::Shake128 -> Int)" #effects=Mut
 F shake256 stdlib/Crypto/Sha3.ax @6df2b4ea4d0485b8 "(String -> (Int -> String))" #effects=Alloc,Mut
-F shake256Absorb stdlib/Crypto/Sha3.ax @8a7b3ac4d2ef04c5 "(Crypto.Sha3::Shake256 -> (String -> Int))" #effects=Mut
-F shake256AbsorbAddr stdlib/Crypto/Sha3.ax @92ebfd82965d9752 "(Crypto.Sha3::Shake256 -> (Int -> (Int -> Int)))" #effects=Mut
-F shake256Addr stdlib/Crypto/Sha3.ax @fdc15e003eb7953b "(Int -> (Int -> (Int -> (Int -> Int))))" #effects=Alloc,Mut
-F shake256Copy stdlib/Crypto/Sha3.ax @8b167c1116cbeed5 "(Crypto.Sha3::Shake256 -> Crypto.Sha3::Shake256)" #effects=Alloc,Mut
-F shake256New stdlib/Crypto/Sha3.ax @7659bf18a90de7b6 "Crypto.Sha3::Shake256" #effects=Alloc,Mut
-F shake256Squeeze stdlib/Crypto/Sha3.ax @bef59214b979a98c "(Crypto.Sha3::Shake256 -> (Int -> String))" #effects=Alloc,Mut
-F shake256SqueezeAddr stdlib/Crypto/Sha3.ax @2cb21f94bbd485df "(Crypto.Sha3::Shake256 -> (Int -> (Int -> Int)))" #effects=Mut
-F shake256Wipe stdlib/Crypto/Sha3.ax @4ee5cdaca2258753 "(Crypto.Sha3::Shake256 -> Int)" #effects=Mut
+F shake256Absorb stdlib/Crypto/Sha3.ax @8a7b3ac4d2ef04c5 "(Internal.CryptoSha3::Shake256 -> (String -> Int))" #effects=Mut
+F shake256Copy stdlib/Crypto/Sha3.ax @8b167c1116cbeed5 "(Internal.CryptoSha3::Shake256 -> Internal.CryptoSha3::Shake256)" #effects=Alloc,Mut
+F shake256New stdlib/Crypto/Sha3.ax @7659bf18a90de7b6 "Internal.CryptoSha3::Shake256" #effects=Alloc,Mut
+F shake256Squeeze stdlib/Crypto/Sha3.ax @bef59214b979a98c "(Internal.CryptoSha3::Shake256 -> (Int -> String))" #effects=Alloc,Mut
+F shake256Wipe stdlib/Crypto/Sha3.ax @4ee5cdaca2258753 "(Internal.CryptoSha3::Shake256 -> Int)" #effects=Mut
 F shlChecked stdlib/Err.ax @554de2a593269cfd "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc
 F shrChecked stdlib/Err.ax @d6fbeaead7a43037 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc
 F shrU stdlib/Axqlite/Record.ax @29db59f7cac64d39 "(Int -> (Int -> Int))"
@@ -1182,6 +990,7 @@ F sockStream stdlib/Sys/Platform.ax @bfebe0265f896953 "Int"
 F sockaddrHasLenByte stdlib/Sys/Platform.ax @ef72f44767bfc769 "Int"
 F socketAccept stdlib/IO.ax @aae02cbb1540dbba "(IO::File -> Err::Result IO::File Err::Error)" #effects=Alloc,IO,Mut,Unsafe
 F socketAddr stdlib/IO.ax @244a1aa3a84c6e99 "(IO::File -> (Bool -> Err::Result String Err::Error))" #effects=Alloc,IO,Mut,Unsafe
+F socketAddrBytes stdlib/Net.ax @2518206b9f097d70 "(Net::SocketAddr -> String)" #effects=Alloc,Mut
 F socketAddrCompare stdlib/Net.ax @9a7f909fc4c7b558 "(Net::SocketAddr -> (Net::SocketAddr -> Int))" #effects=Alloc,Mut
 F socketAddrEq stdlib/Net.ax @7b842c0a9842855f "(Net::SocketAddr -> (Net::SocketAddr -> Bool))" #effects=Alloc,Mut
 F socketAddrIp stdlib/Net.ax @7b5b230a981f7100 "(Net::SocketAddr -> Net::IpAddr)" #effects=Alloc,Mut
@@ -1207,10 +1016,6 @@ F socketSetTimeout stdlib/IO.ax @e8e6e7d69e1ee73d "(IO::File -> (Int -> (Int -> 
 F socketShutdown stdlib/IO.ax @81d96cde04bff00c "(IO::File -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Mut,Unsafe
 F solSocket stdlib/Sys/Platform.ax @dc009c67cc64ce6a "Int"
 F spawnUsesPosixSpawn stdlib/Sys/Platform.ax @7f321f2729051480 "Int"
-F st32be stdlib/Crypto/Ct.ax @04253c97ba567810 "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F st32le stdlib/Crypto/Ct.ax @042c5097ba5cb8ba "(Int -> (Int -> (Int -> Int)))" #effects=Mut,Unsafe
-F st64be stdlib/Crypto/Ct.ax @b039a86dedceb4bb "(Int -> (Int -> (Int -> Int)))" #effects=Mut
-F st64le stdlib/Crypto/Ct.ax @b04d8c6deddf2e31 "(Int -> (Int -> (Int -> Int)))" #effects=Mut
 F stderr stdlib/IO.ax @08a866f6d6bcc7af "IO::File" #effects=Alloc,IO
 F stdin stdlib/IO.ax @a5fa19f690215d8f "IO::File" #effects=Alloc,IO
 F stdout stdlib/IO.ax @5f3d08f707c41b14 "IO::File" #effects=Alloc,IO
@@ -1269,15 +1074,12 @@ F sysAcceptNum stdlib/Sys/Platform.ax @ec78a2fc609b0378 "Int"
 F sysArg stdlib/Sys.ax @3db1f17248f803ec "(Int -> String)" #effects=Alloc,IO,Mut
 F sysArgc stdlib/Sys.ax @cd60d431fd6e0bfd "Int" #effects=IO
 F sysBindNum stdlib/Sys/Platform.ax @fac8fabade48ff55 "Int"
-F sysChildExited stdlib/Sys.ax @32707fcabbdbbaaf "(Int -> (Int -> Err::Result Bool Err::Error))" #effects=Alloc,Block,IO,Mut,Unsafe
-F sysChildPollBytes stdlib/Sys.ax @f4a7d83ac58468e2 "Int"
+F sysChildExited stdlib/Sys.ax @32707fcabbdbbaaf "(Int -> Err::Result Bool Err::Error)" #effects=Alloc,Block,IO,Mut
 F sysClockNum stdlib/Sys/Platform.ax @338b1a845ae4c6ae "Int"
 F sysCloseNum stdlib/Sys/Platform.ax @7aff60026a820f04 "Int"
 F sysConnectNum stdlib/Sys/Platform.ax @6d5f94b6d491b24e "Int"
 F sysCwdNum stdlib/Sys/Platform.ax @9f128b205b538472 "Int"
 F sysEnv stdlib/Sys.ax @5e45a6725ad5781f "(String -> String)" #effects=Alloc,IO,Mut
-F sysEnvp stdlib/Sys.ax @05d2435058bba49d "Int" #effects=Alloc,IO,Mut
-F sysExcludeFromCore stdlib/Sys.ax @b35cd6afab991271 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Unsafe
 F sysExecveNum stdlib/Sys/Platform.ax @d476182d1fb836c8 "Int"
 F sysExitCode stdlib/Sys.ax @03ef401d22e32095 "(Int -> Int)"
 F sysExitNum stdlib/Sys/Platform.ax @dbb0f7785410ecc0 "Int"
@@ -1286,7 +1088,7 @@ F sysFcntlNum stdlib/Sys/Platform.ax @5756ae47a61687bd "Int"
 F sysFlockNum stdlib/Sys/Platform.ax @62729c550e0319eb "Int"
 F sysForkArg stdlib/Sys/Platform.ax @ccc826600e295ed8 "Int"
 F sysForkNum stdlib/Sys/Platform.ax @6ec2795fd943505c "Int" #effects=Spawn
-F sysForkProcess stdlib/Sys.ax @2798e558cdcba191 "Int" #effects=IO,Spawn,Unsafe
+F sysForkProcess stdlib/Sys.ax @2798e558cdcba191 "Int" #effects=IO,Spawn
 F sysFsyncNum stdlib/Sys/Platform.ax @80413c03b0700517 "Int"
 F sysFtruncateNum stdlib/Sys/Platform.ax @132bfaf744f6ada0 "Int"
 F sysGetPeerNameNum stdlib/Sys/Platform.ax @a89f3c015da40411 "Int"
@@ -1301,19 +1103,15 @@ F sysKillNum stdlib/Sys/Platform.ax @6302c2903fe03690 "Int"
 F sysListenNum stdlib/Sys/Platform.ax @2270bc9aee4f5729 "Int"
 F sysLseekNum stdlib/Sys/Platform.ax @a212d5fc90a5433c "Int"
 F sysMadviseNum stdlib/Sys/Platform.ax @70319b177d8ee011 "Int"
-F sysMapPrivate stdlib/Sys.ax @b4920fec832c36e5 "(Int -> Err::Result Int Err::Error)" #effects=Alloc,IO,Unsafe
-F sysMapShared stdlib/Sys.ax @4c3b01682d2e6e4b "(Int -> Err::Result Int Err::Error)" #effects=Alloc,IO,Unsafe
 F sysMkdirNum stdlib/Sys/Platform.ax @d70958f5f657e079 "Int"
-F sysMlock stdlib/Sys.ax @0533f65a7d9701f0 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Unsafe
 F sysMlockNum stdlib/Sys/Platform.ax @61730157418e3990 "Int"
 F sysMmapNum stdlib/Sys/Platform.ax @60cbe8282a0d1e35 "Int"
-F sysMunlock stdlib/Sys.ax @b6cc7cf42c1340bf "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Unsafe
 F sysMunlockNum stdlib/Sys/Platform.ax @3869d737ea0f439d "Int"
 F sysMunmapNum stdlib/Sys/Platform.ax @0e70e8ae7f6c36b6 "Int"
-F sysNowMicros stdlib/Sys.ax @f477dcfff2a87b25 "(Int -> Err::Result Int Err::Error)" #effects=Alloc,IO,Unsafe
-F sysNowMonotonic stdlib/Sys.ax @5b284a6b7a397474 "(Int -> Err::Result Int Err::Error)" #effects=Alloc,IO,Mut
-F sysNowMonotonicNanos stdlib/Sys.ax @9dc0ab558d6c3773 "(Int -> Err::Result Int Err::Error)" #effects=Alloc,IO,Mut,Unsafe
-F sysNowRealtimeNanos stdlib/Sys.ax @7ce67812eba712e4 "(Int -> Err::Result Int Err::Error)" #effects=Alloc,IO,Unsafe
+F sysNowMicros stdlib/Sys.ax @f477dcfff2a87b25 "Err::Result Int Err::Error" #effects=Alloc,IO
+F sysNowMonotonic stdlib/Sys.ax @5b284a6b7a397474 "Err::Result Int Err::Error" #effects=Alloc,IO,Mut
+F sysNowMonotonicNanos stdlib/Sys.ax @9dc0ab558d6c3773 "Err::Result Int Err::Error" #effects=Alloc,IO,Mut
+F sysNowRealtimeNanos stdlib/Sys.ax @7ce67812eba712e4 "Err::Result Int Err::Error" #effects=Alloc,IO
 F sysOpenNum stdlib/Sys/Platform.ax @1666c256d691e7e8 "Int"
 F sysOpenatNum stdlib/Sys/Platform.ax @5423791dcf40fffb "Int"
 F sysPid stdlib/Sys.ax @a9864b71f4c8e59d "Int" #effects=IO,Unsafe
@@ -1323,41 +1121,36 @@ F sysPollWaitNum stdlib/Sys/Platform.ax @9ede20211dc34918 "Int"
 F sysPosixSpawnNum stdlib/Sys/Platform.ax @79ab59d50293d73e "Int" #effects=Spawn
 F sysPreadNum stdlib/Sys/Platform.ax @818a0e876692ad04 "Int"
 F sysPwriteNum stdlib/Sys/Platform.ax @fce813a8d050cbad "Int"
-F sysRandomBytes stdlib/Sys.ax @91774dfa9d848ea2 "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,Entropy,IO,Unsafe
 F sysRandomNum stdlib/Sys/Platform.ax @41dc832f2b0bd645 "Int" #effects=Entropy
 F sysReadNum stdlib/Sys/Platform.ax @b4a7042dacd8da94 "Int"
 F sysRenameNum stdlib/Sys/Platform.ax @2f71f22a53ea2a9a "Int"
 F sysResult stdlib/Sys.ax @3818c32f161c6ea9 "(String -> (Int -> Err::Result Int Err::Error))" #effects=Alloc
 F sysRmdirNum stdlib/Sys/Platform.ax @624e8f20729e9500 "Int"
-F sysRun stdlib/Sys.ax @bbbf9371ff5be965 "(Int -> (Int -> (Int -> Err::Result Int Err::Error)))" #effects=Alloc,Block,IO,Mut,Spawn
-F sysRunPath stdlib/Sys.ax @745fd42209866396 "(String -> (Int -> (Int -> Err::Result Int Err::Error)))" #effects=Alloc,Block,IO,Mut,Spawn
-F sysRunPathErrTo stdlib/Sys.ax @548b24a8bc298658 "(String -> (Int -> (Int -> (String -> Err::Result Int Err::Error))))" #effects=Alloc,Block,IO,Mut,Spawn,Unsafe
+F sysRun stdlib/Sys.ax @bbbf9371ff5be965 "(String -> (Vec String -> Err::Result Int Err::Error))" #effects=Alloc,Block,IO,Mut,Spawn
+F sysRunPath stdlib/Sys.ax @745fd42209866396 "(String -> (Vec String -> Err::Result Int Err::Error))" #effects=Alloc,Block,IO,Mut,Spawn
+F sysRunPathErrTo stdlib/Sys.ax @548b24a8bc298658 "(String -> (Vec String -> (String -> Err::Result Int Err::Error)))" #effects=Alloc,Block,IO,Mut,Spawn
 F sysSendToNum stdlib/Sys/Platform.ax @98b0f91877c90ef1 "Int"
 F sysSetSockOptNum stdlib/Sys/Platform.ax @15fecfbd37170e5f "Int"
 F sysShutdownNum stdlib/Sys/Platform.ax @0af83866f8239352 "Int"
 F sysSigBit stdlib/Sys.ax @2af0675112c87a80 "(Int -> Int)"
 F sysSigProcMaskNum stdlib/Sys/Platform.ax @82b597fafe8fd6ab "Int"
-F sysSignalBlock stdlib/Sys.ax @f89f270d0d99a59d "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Mut,Unsafe
+F sysSignalBlock stdlib/Sys.ax @f89f270d0d99a59d "(Int -> Err::Result Int Err::Error)" #effects=Alloc,IO,Mut
 F sysSignalFdNum stdlib/Sys/Platform.ax @3df0630ac7abf0ae "Int"
 F sysSleepNanos stdlib/Sys.ax @4ccf6ccec9492126 "(Int -> Err::Result Int Err::Error)" #effects=Alloc,Block,IO,Mut
 F sysSleepUntilNanos stdlib/Sys.ax @ea44bba0bd5de904 "(Int -> Err::Result Int Err::Error)" #effects=Alloc,Block,IO,Mut
 F sysSocketNum stdlib/Sys/Platform.ax @d42ebb17e38c1a17 "Int"
-F sysSpawn stdlib/Sys.ax @eae08a8f17ffb87f "(Int -> (Int -> (Int -> Err::Result Int Err::Error)))" #effects=Alloc,IO,Mut,Spawn,Unsafe
-F sysSpawnOutErrTo stdlib/Sys.ax @e36b185768bffda1 "(Int -> (Int -> (Int -> (String -> (String -> Err::Result Int Err::Error)))))" #effects=Alloc,IO,Mut,Spawn,Unsafe
+F sysSpawn stdlib/Sys.ax @eae08a8f17ffb87f "(String -> (Vec String -> Err::Result Int Err::Error))" #effects=Alloc,IO,Mut,Spawn
+F sysSpawnChild stdlib/Sys.ax @b64e5421b05653ef "(String -> (Vec String -> Err::Result Sys::Child Err::Error))" #effects=Alloc,Block,IO,Mut,Spawn,Unsafe
+F sysSpawnOutErrTo stdlib/Sys.ax @e36b185768bffda1 "(String -> (Vec String -> (String -> (String -> Err::Result Int Err::Error))))" #effects=Alloc,IO,Mut,Spawn
 F sysSymlinkNum stdlib/Sys/Platform.ax @a1658f19134fc529 "Int"
 F sysTermSignal stdlib/Sys.ax @0a5f760df90adcd2 "(Int -> Int)"
 F sysTimedOut stdlib/Sys.ax @88e8ea7f0a2d54c9 "Int"
-F sysTimeoutMicros stdlib/Sys.ax @faf887d86c26c616 "(Int -> Int)" #effects=Alloc,IO,Mut
+F sysTimeoutMicros stdlib/Sys.ax @faf887d86c26c616 "Int" #effects=Alloc,IO,Mut
 F sysUnlinkNum stdlib/Sys/Platform.ax @ba296983f73bf8b5 "Int"
-F sysUnmapPrivate stdlib/Sys.ax @c40be455336f165e "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Unsafe
-F sysUnmapShared stdlib/Sys.ax @198479cbdb7da82a "(Int -> (Int -> Err::Result Int Err::Error))" #effects=Alloc,IO,Unsafe
 F sysWait4Num stdlib/Sys/Platform.ax @7afeb1a425aa405d "Int" #effects=Block
 F sysWaitIdNum stdlib/Sys/Platform.ax @15abe68cb6e46534 "Int" #effects=Block
-F sysWaitPid stdlib/Sys.ax @ea532200609a4d1e "(Int -> Err::Result Int Err::Error)" #effects=Alloc,Block,IO,Mut,Unsafe
-F sysWaitWord stdlib/Sys.ax @077e74cde8583831 "(Int -> (Int -> Int))" #effects=Block,IO
+F sysWaitPid stdlib/Sys.ax @ea532200609a4d1e "(Int -> Err::Result Int Err::Error)" #effects=Alloc,Block,IO,Mut
 F sysWaitWordNum stdlib/Sys/Platform.ax @bd7f1e8eb1584dbf "Int" #effects=Block
-F sysWaitWordTimeout stdlib/Sys.ax @ef8fb5199232000c "(Int -> (Int -> (Int -> Int)))" #effects=Alloc,Block,IO,Mut
-F sysWakeWord stdlib/Sys.ax @8b1683cc724fb770 "(Int -> Int)" #effects=IO
 F sysWakeWordNum stdlib/Sys/Platform.ax @9279c2c6c3847610 "Int"
 F sysWriteNum stdlib/Sys/Platform.ax @483ca63fb47bd45d "Int"
 F taskArgvVector stdlib/Task.ax @72b4eb6dc9cbf3b3 "(Vec String -> Int)" #effects=Alloc,Mut
@@ -1554,12 +1347,12 @@ F writeFile stdlib/IO.ax @02446b7fc8d23e18 "(String -> (String -> Err::Result In
 F writeOut stdlib/IO.ax @fbb119e9ce55c282 "(String -> Int)" #effects=Alloc,IO
 F writeSlice stdlib/IO.ax @d3bd93d5924b0c2c "(IO::File -> (String -> (Int -> (Int -> Int))))" #effects=Alloc,IO
 F writeStr stdlib/IO.ax @d7ac81e9b98b4f11 "(IO::File -> (String -> Int))" #effects=Alloc,IO
-F x25519 stdlib/Crypto/X25519.ax @5d89bfd6b7c05ef5 "(Crypto.X25519::X25519SecretKey -> (Crypto.X25519::X25519PublicKey -> Err::Result Crypto.Secret::SecretBytes Err::Error))" #effects=Alloc,IO,Mut,Unsafe
+F x25519 stdlib/Crypto/X25519.ax @5d89bfd6b7c05ef5 "(Crypto.X25519::X25519SecretKey -> (Crypto.X25519::X25519PublicKey -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error))" #effects=Alloc,IO,Mut,Unsafe
 F x25519BasePoint stdlib/Crypto/X25519.ax @24989903515d44de "String" #effects=Alloc,Mut,Unsafe
-F x25519KeyExport stdlib/Crypto/X25519.ax @be1504a1089069ea "(Crypto.X25519::X25519SecretKey -> Err::Result Crypto.Secret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
-F x25519KeyFromSecret stdlib/Crypto/X25519.ax @7b8133032b151b28 "(Crypto.Secret::SecretBytes -> Err::Result Crypto.X25519::X25519SecretKey Err::Error)" #effects=Alloc,IO,Mut
+F x25519KeyExport stdlib/Crypto/X25519.ax @be1504a1089069ea "(Crypto.X25519::X25519SecretKey -> Err::Result Internal.CryptoSecret::SecretBytes Err::Error)" #effects=Alloc,IO,Mut
+F x25519KeyFromSecret stdlib/Crypto/X25519.ax @7b8133032b151b28 "(Internal.CryptoSecret::SecretBytes -> Err::Result Crypto.X25519::X25519SecretKey Err::Error)" #effects=Alloc,IO,Mut
 F x25519KeyGenerate stdlib/Crypto/X25519.ax @aaf10ffa01c7e1eb "Err::Result Crypto.X25519::X25519SecretKey Err::Error" #effects=Alloc,Entropy,IO,Mut
-F x25519KeyWipe stdlib/Crypto/X25519.ax @4ecb599ea55eefd7 "(Crypto.X25519::X25519SecretKey -> Int)" #effects=Alloc,IO,Mut
+F x25519KeyWipe stdlib/Crypto/X25519.ax @4ecb599ea55eefd7 "(Crypto.X25519::X25519SecretKey -> Int)" #effects=IO,Unsafe
 F x25519PublicKey stdlib/Crypto/X25519.ax @e6c624e56243e30f "(Crypto.X25519::X25519SecretKey -> Crypto.X25519::X25519PublicKey)" #effects=Alloc,Mut
 F x25519PublicKeyBytes stdlib/Crypto/X25519.ax @3d7727a20b109efa "(Crypto.X25519::X25519PublicKey -> String)"
 F x25519PublicKeyFromBytes stdlib/Crypto/X25519.ax @491c09f45f0ca596 "(String -> Err::Result Crypto.X25519::X25519PublicKey Err::Error)" #effects=Alloc,Mut
@@ -1594,35 +1387,32 @@ M format stdlib/Str.ax @f0b2b594fd323246 "macro format"
 M println stdlib/IO.ax @6385b2ebf0ca5c02 "macro println"
 S Addr stdlib/Mem.ax @074d77c38bf9a023 "struct Addr" #fields=slot:Int
 S AeadNonce stdlib/Crypto/Aead.ax @e120aea5f55b032e "struct AeadNonce" #fields=bytes:String
-S Aes128GcmKey stdlib/Crypto/AesGcm.ax @46e1e3ed94ba5938 "struct Aes128GcmKey" #fields=slot:Int
-S Aes256GcmKey stdlib/Crypto/AesGcm.ax @a1a0e88882cddeb8 "struct Aes256GcmKey" #fields=slot:Int
-S Blake2b stdlib/Crypto/Blake2b.ax @1eb2cbeea5e31ba5 "struct Blake2b" #fields=state:String
+S Aes128GcmKey stdlib/Crypto/AesGcm.ax @46e1e3ed94ba5938 "struct Aes128GcmKey" #fields=slot:Int,owner:Handle
+S Aes256GcmKey stdlib/Crypto/AesGcm.ax @a1a0e88882cddeb8 "struct Aes256GcmKey" #fields=slot:Int,owner:Handle
 S CancelToken stdlib/Task.ax @5f62076175038f8f "struct CancelToken" #fields=owner:Handle
 S CerealLimits stdlib/Cereal.ax @fe343cd230a4a980 "struct CerealLimits" #fields=depth:Int,bytes:Int,nodes:Int
 S CerealMember stdlib/Cereal.ax @3a7c134293cc7a82 "struct CerealMember" #fields=key:String,value:Cereal::CerealValue
-S ChaCha20Poly1305Key stdlib/Crypto/ChaCha20Poly1305.ax @19932ba4fa0ba756 "struct ChaCha20Poly1305Key" #fields=slot:Int
+S ChaCha20Poly1305Key stdlib/Crypto/ChaCha20Poly1305.ax @19932ba4fa0ba756 "struct ChaCha20Poly1305Key" #fields=slot:Int,owner:Handle
 S Chan stdlib/Chan.ax @5e8b71d04e1c5018 "struct Chan" #fields=owner:Handle
+S Child stdlib/Sys.ax @085f1cf4e1343e36 "struct Child" #fields=pid:Int,owner:Handle
 S ColumnDef stdlib/Axqlite/AxqlAst.ax @ed671bac4e819a01 "struct ColumnDef" #fields=name:String,ctype:Int,notNull:Bool,primaryKey:Bool,link:String,dflt:Option Axqlite.AxqlAst::Expr,check:Option Axqlite.AxqlAst::Expr,text:String,linkAt:Int
 S ColumnInfo stdlib/Axqlite.ax @741c226b1967af12 "struct ColumnInfo" #fields=name:String,columnType:String,notNull:Bool,primaryKey:Bool,link:String,text:String
 S Connection stdlib/Axqlite.ax @1a241178c387c578 "struct Connection" #fields=slot:Int,owner:Handle
 S Date stdlib/Chrono.ax @a1d1dfdb44fb4614 "struct Date" #fields=slot:Int
 S Duration stdlib/Chrono.ax @9134bc5755881d80 "struct Duration" #fields=slot:Int
 S Ed25519PublicKey stdlib/Crypto/Ed25519.ax @958c3bab3f619bd7 "struct Ed25519PublicKey" #fields=bytes:String
-S Ed25519SecretKey stdlib/Crypto/Ed25519.ax @089284930a860e10 "struct Ed25519SecretKey" #fields=slot:Int
+S Ed25519SecretKey stdlib/Crypto/Ed25519.ax @089284930a860e10 "struct Ed25519SecretKey" #fields=slot:Int,owner:Handle
 S Ed25519Signature stdlib/Crypto/Ed25519.ax @2247e5fb39969d05 "struct Ed25519Signature" #fields=bytes:String
 S Error stdlib/Err.ax @0805ae0b9077d3a6 "struct Error" #fields=code:Int,message:String,context:String
 S Exec stdlib/Axqlite/AxqlExec.ax @3f13c2e1e6b4c899 "struct Exec" #fields=pager:Axqlite.Pager::Pager,src:String,params:Vec Axqlite.Value::Value,logging:Bool,undo:Vec Axqlite.AxqlExec::Undo,changes:Int,lastRowid:Int,inserted:Bool,written:Vec Axqlite.AxqlExec::RowRef
 S FallibleTally stdlib/Fallible.ax @9210e7e1fba61d59 "struct FallibleTally" #fields=count:Int
 S File stdlib/IO.ax @539207ed547524d6 "struct File" #fields=owner:Handle,marker:Option IO::FileMarker
 S GroupPlan stdlib/Axqlite/AxqlExec.ax @31807bc82945087c "struct GroupPlan" #fields=keys:Vec Axqlite.AxqlAst::Expr,aggs:Vec Axqlite.AxqlAst::Expr,outputs:Vec Axqlite.AxqlAst::Expr,having:Option Axqlite.AxqlAst::Expr,order:Vec Axqlite.AxqlAst::OrderTerm
-S HmacSha256 stdlib/Crypto/Hmac.ax @a38e1fa66e2429ac "struct HmacSha256" #fields=state:String
-S HmacSha256Key stdlib/Crypto/Hmac.ax @af12b0bce0334fbb "struct HmacSha256Key" #fields=slot:Int
-S HmacSha512 stdlib/Crypto/Hmac.ax @ced67aa686a5eff1 "struct HmacSha512" #fields=state:String
-S HmacSha512Key stdlib/Crypto/Hmac.ax @0a87814ece93ed78 "struct HmacSha512Key" #fields=slot:Int
+S HmacSha256Key stdlib/Crypto/Hmac.ax @af12b0bce0334fbb "struct HmacSha256Key" #fields=slot:Int,owner:Handle
+S HmacSha512Key stdlib/Crypto/Hmac.ax @0a87814ece93ed78 "struct HmacSha512Key" #fields=slot:Int,owner:Handle
 S IndexDef stdlib/Axqlite/AxqlSchema.ax @23499afcfe6a49a3 "struct IndexDef" #fields=name:String,root:Int,unique:Bool,cols:Vec Int
 S IndexInfo stdlib/Axqlite.ax @5cd65ac740d96000 "struct IndexInfo" #fields=name:String,unique:Bool,columns:Vec String
 S Instant stdlib/Chrono.ax @cd1fab4a27cef6b9 "struct Instant" #fields=slot:Int
-S InternState stdlib/Intern.ax @55e1c37f3741bc11 "struct InternState" #fields=strings:Strings,capacity:Int,slots:Intern::InternWords,identity:Int
 S IpAddr stdlib/Net.ax @fd650b7c98fedabe "struct IpAddr" #fields=v6:Bool,hi:Int,lo:Int
 S KeyEv stdlib/Tui/Keys.ax @c7134ee844fc41c8 "struct KeyEv" #fields=kind:Int,cp:Int,mods:Int,used:Int
 S LineEd stdlib/Tui/Edit.ax @9283db2d483e336b "struct LineEd" #fields=left:Vec Int,right:Vec Int,ring:Vec String,ringIdx:Int,lastKill:Int,yankLen:Int,cols:Int,height:Int,rows:Int,curRow:Int,prompt:String,pcols:Int,wordChars:String
@@ -1633,7 +1423,7 @@ S Mutex stdlib/Sync.ax @95730931805ef563 "struct Mutex" #fields=owner:Handle
 S MutexGuard stdlib/Sync.ax @2b2afeabeef38a50 "struct MutexGuard" #fields=owner:Handle
 S NaiveDateTime stdlib/Chrono.ax @a7298e69c2012518 "struct NaiveDateTime" #fields=date:Chrono::Date,time:Chrono::Time
 S NonceSequence stdlib/Crypto/Aead.ax @a065a36e34a79ae6 "struct NonceSequence" #fields=state:String
-S ObfuscationKey stdlib/Crypto/Obfuscate.ax @93607d8eee43dc02 "struct ObfuscationKey" #fields=slot:Int
+S ObfuscationKey stdlib/Crypto/Obfuscate.ax @93607d8eee43dc02 "struct ObfuscationKey" #fields=slot:Int,owner:Handle
 S OpenOptions stdlib/Axqlite.ax @4d31f0964f4a0b76 "struct OpenOptions" #fields=create:Bool,readOnly:Bool,cachePages:Int
 S OrderTerm stdlib/Axqlite/AxqlAst.ax @6c61543afc8e4f5a "struct OrderTerm" #fields=expr:Axqlite.AxqlAst::Expr,desc:Bool
 S Pager stdlib/Axqlite/Pager.ax @94533eac7f15fcdb "struct Pager" #fields=slot:Int
@@ -1648,16 +1438,9 @@ S RowRef stdlib/Axqlite/AxqlExec.ax @3e1c8133c5938c79 "struct RowRef" #fields=ro
 S Rows stdlib/Axqlite.ax @1d544c4d9111fe95 "struct Rows" #fields=columns:Vec String,rows:Vec Axqlite::Row
 S Schema stdlib/Axqlite/AxqlSchema.ax @85bd04b76edcba5b "struct Schema" #fields=entries:Vec Axqlite.AxqlSchema::SchemaEntry
 S SchemaEntry stdlib/Axqlite/AxqlSchema.ax @29d7946cc8131d85 "struct SchemaEntry" #fields=rowid:Int,kind:String,name:String,table:String,root:Int,text:String
-S SecretBytes stdlib/Crypto/Secret.ax @034c0a6aba6dc42f "struct SecretBytes" #fields=slot:Int
 S Select stdlib/Axqlite/AxqlAst.ax @f468426f39f05468 "struct Select" #fields=star:Bool,items:Vec Axqlite.AxqlAst::SelectItem,from:String,where:Option Axqlite.AxqlAst::Expr,groupBy:Vec Axqlite.AxqlAst::Expr,having:Option Axqlite.AxqlAst::Expr,orderBy:Vec Axqlite.AxqlAst::OrderTerm,limit:Option Axqlite.AxqlAst::Expr,offset:Option Axqlite.AxqlAst::Expr
 S SelectItem stdlib/Axqlite/AxqlAst.ax @e669a29a6ce37ed7 "struct SelectItem" #fields=expr:Axqlite.AxqlAst::Expr,alias:String,text:String
 S SelectPlan stdlib/Axqlite/AxqlExec.ax @60f088591908fabb "struct SelectPlan" #fields=table:Option Axqlite.AxqlSchema::TableDef,names:Vec String,outputs:Vec Axqlite.AxqlAst::Expr,terms:Vec Axqlite.AxqlAst::Expr,access:Axqlite.AxqlExec::Access,order:Vec Axqlite.AxqlAst::OrderTerm,sorted:Bool,limit:Int,offset:Int,fetch:Vec Bool,group:Option Axqlite.AxqlExec::GroupPlan
-S Sha256 stdlib/Crypto/Sha2.ax @ae2a1847d637f6d7 "struct Sha256" #fields=state:String
-S Sha3 stdlib/Crypto/Sha3.ax @b2f41f58257827df "struct Sha3" #fields=state:String
-S Sha384 stdlib/Crypto/Sha2.ax @b72faf47db6e83c3 "struct Sha384" #fields=state:String
-S Sha512 stdlib/Crypto/Sha2.ax @a51ae947d0f9c61e "struct Sha512" #fields=state:String
-S Shake128 stdlib/Crypto/Sha3.ax @d0f914ff6836f227 "struct Shake128" #fields=state:String
-S Shake256 stdlib/Crypto/Sha3.ax @b6121fff58b7b1e7 "struct Shake256" #fields=state:String
 S SocketAddr stdlib/Net.ax @d5c629c91176dde6 "struct SocketAddr" #fields=bytes:String
 S Statement stdlib/Axqlite.ax @14bcc2a352b3d9bd "struct Statement" #fields=slot:Int,owner:Handle,connection:Axqlite::Connection
 S StrBuilder stdlib/Str.ax @79bd3a0fc7a0a256 "struct StrBuilder" #fields=bytes:String,len:Int
@@ -1676,4 +1459,4 @@ S WorkerCancelToken stdlib/Task/Worker.ax @43e274fcabfac7d1 "struct WorkerCancel
 S WorkerContext stdlib/Task/Worker.ax @6d1add4e0f7218c9 "struct WorkerContext" #fields=mapping:Internal.WorkerProcess::WorkerMapping
 S WorkerOpts stdlib/Task/Worker.ax @b51adb90ddea775c "struct WorkerOpts" #fields=width:Int,inputLimit:Int,resultLimit:Int,deadline:Int,grace:Int,failFast:Bool,token:Option Task.Worker::WorkerCancelToken,keep:Int,memory:Int,stack:Task.Worker::WorkerStack
 S X25519PublicKey stdlib/Crypto/X25519.ax @54c5ddf840b8fc5a "struct X25519PublicKey" #fields=bytes:String
-S X25519SecretKey stdlib/Crypto/X25519.ax @a87c103cb019e771 "struct X25519SecretKey" #fields=slot:Int
+S X25519SecretKey stdlib/Crypto/X25519.ax @a87c103cb019e771 "struct X25519SecretKey" #fields=slot:Int,owner:Handle

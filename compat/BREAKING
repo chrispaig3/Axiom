@@ -1954,353 +1954,353 @@
 0.8.0  S  Poller  gains the registration table a target without kqueue or epoll polls through WSAPoll (regs, nregs); construct one only with pollerNew
 0.8.0  S  File  gains an owned lifetime marker so a closed Windows poll registration cannot revive when a HANDLE is reused; construct files through IO's checked operations
 0.8.0  D  Expr  gains EPath for multi-step AXQL links; exhaustive expression matches must handle the new constructor
-0.8.1  F  sysNowMicros  takes no buffer address; the clock owns and releases its scratch storage
-0.8.1  F  sysNowMonotonic  takes no buffer address; the clock owns and releases its scratch storage
-0.8.1  F  sysNowMonotonicNanos  takes no buffer address; the clock owns and releases its scratch storage
-0.8.1  F  sysNowRealtimeNanos  takes no buffer address; the clock owns and releases its scratch storage
-0.8.1  F  sysTimeoutMicros  takes no buffer address; the clock owns and releases its scratch storage
-0.8.1  F  sysRandomBytes  raw entropy fill is internal; use Crypto.Random.secureRandomBytes for owned bytes
-0.8.1  F  randomFill  raw entropy fill is internal; use Crypto.Random.secureRandomBytes for owned bytes
-0.8.1  F  platformRandomBytes  platform entropy fill is internal; use Crypto.Random.secureRandomBytes
-0.8.1  F  sysChildExited  takes only a process ID; the call owns and releases its kernel scratch buffer
-0.8.1  F  sysChildPollBytes  scratch sizing is private; sysChildExited needs no caller allocation
-0.8.1  F  sysSignalBlock  takes only the signal mask; the call owns and releases its kernel scratch buffer
-0.8.1  F  platformSignalBlock  takes only the signal mask; the unused caller-buffer argument is removed
-0.8.1  F  netAddr4  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
-0.8.1  F  netAddr6  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
-0.8.1  F  netAddrFamily  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
-0.8.1  F  netAddrPort  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
-0.8.1  F  netAddrSize  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
-0.8.1  F  netAddrText  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
-0.8.1  F  netAddrTextPort  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
-0.8.1  F  sysWaitWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  sysWakeWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  sysWaitWordTimeout  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  platformWaitWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  platformWakeWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  sysMapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  sysUnmapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  sysMapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  sysUnmapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  sysMlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  sysMunlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  sysExcludeFromCore  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  platformMapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  platformUnmapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  platformMapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  platformUnmapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  platformMlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  platformMunlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
-0.8.1  F  platformWriteFd  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformReadFd  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformOpen  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformClose  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformSeek  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformPread  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformPwrite  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformFsync  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformFtruncate  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformFlock  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformUnlink  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformRename  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformMkdir  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformRmdir  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformReadDir  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformGetCwd  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformSpawn  internal; use Sys.sysSpawn with a String path and Vec String arguments
-0.8.1  F  platformSetStd  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformSocket  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformBind  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformListen  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformAccept  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformConnect  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformSend  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformShutdown  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformSetSockOpt  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformGetSockOpt  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformSetNonBlocking  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformSocketAddr  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformPoll  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformIsConsole  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformConsoleMode  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformConsoleSetMode  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformConsoleSize  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  sysNowMicros  takes no buffer address; the clock owns and releases its scratch storage
+0.8.0  F  sysNowMonotonic  takes no buffer address; the clock owns and releases its scratch storage
+0.8.0  F  sysNowMonotonicNanos  takes no buffer address; the clock owns and releases its scratch storage
+0.8.0  F  sysNowRealtimeNanos  takes no buffer address; the clock owns and releases its scratch storage
+0.8.0  F  sysTimeoutMicros  takes no buffer address; the clock owns and releases its scratch storage
+0.8.0  F  sysRandomBytes  raw entropy fill is internal; use Crypto.Random.secureRandomBytes for owned bytes
+0.8.0  F  randomFill  raw entropy fill is internal; use Crypto.Random.secureRandomBytes for owned bytes
+0.8.0  F  platformRandomBytes  platform entropy fill is internal; use Crypto.Random.secureRandomBytes
+0.8.0  F  sysChildExited  takes only a process ID; the call owns and releases its kernel scratch buffer
+0.8.0  F  sysChildPollBytes  scratch sizing is private; sysChildExited needs no caller allocation
+0.8.0  F  sysSignalBlock  takes only the signal mask; the call owns and releases its kernel scratch buffer
+0.8.0  F  platformSignalBlock  takes only the signal mask; the unused caller-buffer argument is removed
+0.8.0  F  netAddr4  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.0  F  netAddr6  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.0  F  netAddrFamily  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.0  F  netAddrPort  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.0  F  netAddrSize  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.0  F  netAddrText  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.0  F  netAddrTextPort  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.0  F  sysWaitWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  sysWakeWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  sysWaitWordTimeout  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  platformWaitWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  platformWakeWord  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  sysMapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  sysUnmapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  sysMapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  sysUnmapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  sysMlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  sysMunlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  sysExcludeFromCore  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  platformMapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  platformUnmapShared  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  platformMapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  platformUnmapPrivate  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  platformMlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  platformMunlock  internal; use owned Chan, Sync and Crypto.Secret interfaces; custom raw storage requires your own unsafe boundary
+0.8.0  F  platformWriteFd  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformReadFd  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformOpen  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformClose  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformSeek  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformPread  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformPwrite  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformFsync  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformFtruncate  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformFlock  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformUnlink  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformRename  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformMkdir  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformRmdir  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformReadDir  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformGetCwd  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformSpawn  internal; use Sys.sysSpawn with a String path and Vec String arguments
+0.8.0  F  platformSetStd  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformSocket  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformBind  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformListen  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformAccept  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformConnect  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformSend  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformShutdown  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformSetSockOpt  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformGetSockOpt  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformSetNonBlocking  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformSocketAddr  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformPoll  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformIsConsole  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformConsoleMode  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformConsoleSetMode  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.0  F  platformConsoleSize  internal; use typed IO file, socket, directory and terminal interfaces
 
-0.8.1  F  sysSpawn  takes a String path and Vec String argv including argv[0]; inherits the environment; remove raw pointer encoding and envp argument
-0.8.1  F  sysRun  takes a String path and Vec String argv including argv[0]; inherits the environment; remove raw pointer encoding and envp argument
-0.8.1  F  sysRunPath  takes a String path and Vec String argv including argv[0]; inherits the environment; remove raw pointer encoding and envp argument
-0.8.1  F  sysRunPathErrTo  takes a String path, Vec String argv and a String stderr path; inherits the environment; remove raw pointer encoding and envp argument
-0.8.1  F  sysSpawnOutErrTo  takes a String path, Vec String argv and String stdout and stderr paths; inherits the environment; remove raw pointer encoding and envp argument
-0.8.1  F  sysEnvp  internal; typed Sys launch calls inherit the environment without an address
+0.8.0  F  sysSpawn  takes a String path and Vec String argv including argv[0]; inherits the environment; remove raw pointer encoding and envp argument
+0.8.0  F  sysRun  takes a String path and Vec String argv including argv[0]; inherits the environment; remove raw pointer encoding and envp argument
+0.8.0  F  sysRunPath  takes a String path and Vec String argv including argv[0]; inherits the environment; remove raw pointer encoding and envp argument
+0.8.0  F  sysRunPathErrTo  takes a String path, Vec String argv and a String stderr path; inherits the environment; remove raw pointer encoding and envp argument
+0.8.0  F  sysSpawnOutErrTo  takes a String path, Vec String argv and String stdout and stderr paths; inherits the environment; remove raw pointer encoding and envp argument
+0.8.0  F  sysEnvp  internal; typed Sys launch calls inherit the environment without an address
 
-0.8.1  F  bytesFromAddr  internal; use strDup or strSlice on typed String bytes; custom address reads require an explicit unsafe boundary
-0.8.1  F  ld32le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  ld32be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  ld64le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  ld64be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  st32le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  st32be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  st64le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  st64be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  ctEqAddr  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  ctWipe  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  ctCopy  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
-0.8.1  F  ctSwapWords  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  bytesFromAddr  internal; use strDup or strSlice on typed String bytes; custom address reads require an explicit unsafe boundary
+0.8.0  F  ld32le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  ld32be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  ld64le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  ld64be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  st32le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  st32be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  st64le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  st64be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  ctEqAddr  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  ctWipe  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  ctCopy  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.0  F  ctSwapWords  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
 
 # Interner ownership and internal representation.
-0.8.1  F  internNew  uses counted InternState owners; raw storage is internal
-0.8.1  F  internNewTyped  uses counted InternState owners; raw storage is internal
-0.8.1  F  internWithCapacity  uses counted InternState owners; raw storage is internal
-0.8.1  F  internCap  uses counted InternState owners; raw storage is internal
-0.8.1  F  internCount  uses counted InternState owners; raw storage is internal
-0.8.1  F  internLookup  uses counted InternState owners; raw storage is internal
-0.8.1  F  internFind  uses counted InternState owners; raw storage is internal
-0.8.1  F  internIntern  uses counted InternState owners; raw storage is internal
-0.8.1  F  internWordOf  internal; keep an InternState owner and let its last reference release storage
-0.8.1  F  internFree  internal; keep an InternState owner and let its last reference release storage
-0.8.1  S  InternState  sealed storage moves behind an alias to the internal owner
+0.8.0  F  internNew  uses counted InternState owners; raw storage is internal
+0.8.0  F  internNewTyped  uses counted InternState owners; raw storage is internal
+0.8.0  F  internWithCapacity  uses counted InternState owners; raw storage is internal
+0.8.0  F  internCap  uses counted InternState owners; raw storage is internal
+0.8.0  F  internCount  uses counted InternState owners; raw storage is internal
+0.8.0  F  internLookup  uses counted InternState owners; raw storage is internal
+0.8.0  F  internFind  uses counted InternState owners; raw storage is internal
+0.8.0  F  internIntern  uses counted InternState owners; raw storage is internal
+0.8.0  F  internWordOf  internal; keep an InternState owner and let its last reference release storage
+0.8.0  F  internFree  internal; keep an InternState owner and let its last reference release storage
+0.8.0  S  InternState  sealed storage moves behind an alias to the internal owner
 
-0.8.1  L  closure-map-capacity  AX3029 refuses more than 46 closure capture slots, including scalar values and hidden evidence; group captures in a typed struct
+0.8.0  L  closure-map-capacity  AX3029 refuses more than 46 closure capture slots, including scalar values and hidden evidence; group captures in a typed struct
 
-0.8.1  F  jsonArr  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonArrGet  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonArrLen  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonArrPush  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonBool  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonBoolVal  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonFind  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonGet  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonGetInt  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonGetStr  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonInt  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonIsNull  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonNull  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonNum  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonNumText  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonObj  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonObjLen  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonObjPut  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonParse  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonStr  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonStrVal  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
-0.8.1  F  jsonWrite  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonArr  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonArrGet  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonArrLen  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonArrPush  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonBool  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonBoolVal  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonFind  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonGet  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonGetInt  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonGetStr  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonInt  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonIsNull  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonNull  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonNum  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonNumText  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonObj  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonObjLen  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonObjPut  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonParse  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonStr  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonStrVal  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.0  F  jsonWrite  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
 
-0.8.1  F  aesKeyExpand  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  aesEncryptBlocks  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  aesDecryptBlocks  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  aesCtr32Xor  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  chacha20Block  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  chacha20Xor  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ghashUpdate  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  poly1305Init  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  poly1305Blocks  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  poly1305AbsorbPadded  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  poly1305Finish  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  poly1305Mac  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Set  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Zero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519One  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Copy  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519SqrtM1  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Add  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Sub  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Neg  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Mul  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Sq  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Sq2  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Mul121666  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Invert  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519Pow22523  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519CSwap  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519CMov  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519FromBytes  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519ToBytes  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519IsNegative  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  fe25519IsZero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  sc25519Reduce  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  sc25519MulAdd  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  sc25519IsCanonical  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519D  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519D2  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519Base  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519P3Zero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519P2Zero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519P1P1ToP2  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519P1P1ToP3  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519P3ToCached  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519P2Dbl  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519Add  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519Sub  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519Madd  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519ToBytes  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519FromBytesVartime  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519P3Neg  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519CombTable  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519ScalarMultBase  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
-0.8.1  F  ge25519DoubleScalarMultVartime  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  aesKeyExpand  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  aesEncryptBlocks  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  aesDecryptBlocks  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  aesCtr32Xor  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  chacha20Block  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  chacha20Xor  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ghashUpdate  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  poly1305Init  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  poly1305Blocks  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  poly1305AbsorbPadded  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  poly1305Finish  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  poly1305Mac  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Set  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Zero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519One  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Copy  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519SqrtM1  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Add  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Sub  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Neg  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Mul  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Sq  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Sq2  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Mul121666  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Invert  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519Pow22523  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519CSwap  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519CMov  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519FromBytes  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519ToBytes  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519IsNegative  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  fe25519IsZero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  sc25519Reduce  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  sc25519MulAdd  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  sc25519IsCanonical  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519D  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519D2  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519Base  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519P3Zero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519P2Zero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519P1P1ToP2  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519P1P1ToP3  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519P3ToCached  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519P2Dbl  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519Add  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519Sub  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519Madd  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519ToBytes  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519FromBytesVartime  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519P3Neg  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519CombTable  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519ScalarMultBase  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.0  F  ge25519DoubleScalarMultVartime  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
 
-0.8.1  L  drop-effects-at-store  storing over a field counts the released value's drop effects at the store; a restrict claim over such a store may now warn AX3051 and a strict one is refused AX3057; drop or narrow the claim
+0.8.0  L  drop-effects-at-store  storing over a field counts the released value's drop effects at the store; a restrict claim over such a store may now warn AX3051 and a strict one is refused AX3057; drop or narrow the claim
 
-0.8.1  S  Blake2b  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
-0.8.1  S  HmacSha256  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
-0.8.1  S  HmacSha512  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
-0.8.1  S  SecretBytes  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
-0.8.1  S  Sha256  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
-0.8.1  S  Sha3  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
-0.8.1  S  Sha384  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
-0.8.1  S  Sha512  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
-0.8.1  S  Shake128  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
-0.8.1  S  Shake256  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
-0.8.1  F  blake2bAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  blake2bCompress  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  blake2bUpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hkdfSha256ExpandRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hkdfSha256Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hkdfSha512ExpandRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hkdfSha512Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha256Chains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha256FinalAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha256NewChains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha256NewRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha256Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha256UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha512Chains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha512FinalAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha512NewChains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha512NewRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha512Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  hmacSha512UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  keccakF1600  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  secretAddr  the secret store is internal; use SecretBytes and the typed key APIs
-0.8.1  F  secretBlockAddr  the secret store is internal; use SecretBytes and the typed key APIs
-0.8.1  F  secretBlockFree  the secret store is internal; use SecretBytes and the typed key APIs
-0.8.1  F  secretBlockFrom  the secret store is internal; use SecretBytes and the typed key APIs
-0.8.1  F  secretBlockLen  the secret store is internal; use SecretBytes and the typed key APIs
-0.8.1  F  secretBlockLocked  the secret store is internal; use SecretBytes and the typed key APIs
-0.8.1  F  secretBlockNew  the secret store is internal; use SecretBytes and the typed key APIs
-0.8.1  F  secretBlockRandom  the secret store is internal; use SecretBytes and the typed key APIs
-0.8.1  F  secretFromAddr  the secret store is internal; use SecretBytes and the typed key APIs
-0.8.1  F  sha256Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha256RawChain  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha256RawFinal  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha256RawInit  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha256RawResume  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha256RawSize  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha256RawUpdate  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha256UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha384Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha384UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha3UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha3_224Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha3_256Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha3_384Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha3_512Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha512Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha512RawChain  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha512RawFinal  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha512RawInit  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha512RawResume  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha512RawSize  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha512RawUpdate  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  sha512UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  shake128AbsorbAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  shake128Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  shake128SqueezeAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  shake256AbsorbAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  shake256Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  shake256SqueezeAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
-0.8.1  F  aes128GcmKeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  aes128GcmKeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  aes256GcmKeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  aes256GcmKeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  blake2bCopy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  blake2bFinal  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  blake2bNew  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  blake2bNewKeyed  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  blake2bNewKeyedSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  blake2bUpdate  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  blake2bWipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  chacha20Poly1305KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  chacha20Poly1305KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  ed25519KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  ed25519KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hkdfSha256  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hkdfSha256Expand  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hkdfSha256Extract  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hkdfSha512  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hkdfSha512Expand  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hkdfSha512Extract  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha256Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha256Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha256KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha256KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha256Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha256Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha512Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha512Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha512KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha512KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha512New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha512Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  hmacSha512Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  obfuscationKeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  secretEq  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  secretExposeCopy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  secretFromString  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  secretIsLocked  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  secretLen  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  secretRandom  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  secretWipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha256Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha256Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha256Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha256Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha3_224New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha3_256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha3_384New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha3_512New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha384Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha384Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha384New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha384Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha384Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha3Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha3Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha3Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha3Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha512Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha512Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha512New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha512Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  sha512Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  shake128Absorb  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  shake128Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  shake128New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  shake128Squeeze  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  shake128Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  shake256Absorb  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  shake256Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  shake256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  shake256Squeeze  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  shake256Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  x25519  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  x25519KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  F  x25519KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
-0.8.1  S  Aes128GcmKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
-0.8.1  S  Aes256GcmKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
-0.8.1  S  ChaCha20Poly1305Key  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
-0.8.1  S  Ed25519SecretKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
-0.8.1  S  HmacSha256Key  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
-0.8.1  S  HmacSha512Key  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
-0.8.1  S  ObfuscationKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
-0.8.1  S  X25519SecretKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
-0.8.1  F  aes128GcmKeyWipe  claims the key's drop cleanup through the owner it carries
-0.8.1  F  aes256GcmKeyWipe  claims the key's drop cleanup through the owner it carries
-0.8.1  F  chacha20Poly1305KeyWipe  claims the key's drop cleanup through the owner it carries
-0.8.1  F  ed25519KeyWipe  claims the key's drop cleanup through the owner it carries
-0.8.1  F  hmacSha256KeyWipe  claims the key's drop cleanup through the owner it carries
-0.8.1  F  hmacSha512KeyWipe  claims the key's drop cleanup through the owner it carries
-0.8.1  F  obfuscationKeyWipe  claims the key's drop cleanup through the owner it carries
-0.8.1  F  x25519KeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.0  S  Blake2b  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.0  S  HmacSha256  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.0  S  HmacSha512  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.0  S  SecretBytes  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.0  S  Sha256  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.0  S  Sha3  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.0  S  Sha384  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.0  S  Sha512  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.0  S  Shake128  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.0  S  Shake256  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.0  F  blake2bAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  blake2bCompress  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  blake2bUpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hkdfSha256ExpandRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hkdfSha256Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hkdfSha512ExpandRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hkdfSha512Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha256Chains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha256FinalAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha256NewChains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha256NewRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha256Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha256UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha512Chains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha512FinalAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha512NewChains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha512NewRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha512Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  hmacSha512UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  keccakF1600  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  secretAddr  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.0  F  secretBlockAddr  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.0  F  secretBlockFree  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.0  F  secretBlockFrom  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.0  F  secretBlockLen  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.0  F  secretBlockLocked  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.0  F  secretBlockNew  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.0  F  secretBlockRandom  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.0  F  secretFromAddr  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.0  F  sha256Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha256RawChain  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha256RawFinal  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha256RawInit  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha256RawResume  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha256RawSize  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha256RawUpdate  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha256UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha384Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha384UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha3UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha3_224Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha3_256Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha3_384Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha3_512Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha512Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha512RawChain  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha512RawFinal  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha512RawInit  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha512RawResume  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha512RawSize  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha512RawUpdate  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  sha512UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  shake128AbsorbAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  shake128Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  shake128SqueezeAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  shake256AbsorbAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  shake256Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  shake256SqueezeAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.0  F  aes128GcmKeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  aes128GcmKeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  aes256GcmKeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  aes256GcmKeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  blake2bCopy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  blake2bFinal  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  blake2bNew  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  blake2bNewKeyed  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  blake2bNewKeyedSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  blake2bUpdate  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  blake2bWipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  chacha20Poly1305KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  chacha20Poly1305KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  ed25519KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  ed25519KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hkdfSha256  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hkdfSha256Expand  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hkdfSha256Extract  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hkdfSha512  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hkdfSha512Expand  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hkdfSha512Extract  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha256Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha256Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha256KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha256KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha256Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha256Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha512Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha512Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha512KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha512KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha512New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha512Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  hmacSha512Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  obfuscationKeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  secretEq  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  secretExposeCopy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  secretFromString  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  secretIsLocked  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  secretLen  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  secretRandom  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  secretWipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha256Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha256Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha256Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha256Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha3_224New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha3_256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha3_384New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha3_512New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha384Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha384Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha384New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha384Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha384Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha3Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha3Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha3Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha3Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha512Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha512Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha512New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha512Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  sha512Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  shake128Absorb  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  shake128Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  shake128New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  shake128Squeeze  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  shake128Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  shake256Absorb  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  shake256Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  shake256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  shake256Squeeze  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  shake256Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  x25519  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  x25519KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  F  x25519KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.0  S  Aes128GcmKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.0  S  Aes256GcmKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.0  S  ChaCha20Poly1305Key  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.0  S  Ed25519SecretKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.0  S  HmacSha256Key  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.0  S  HmacSha512Key  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.0  S  ObfuscationKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.0  S  X25519SecretKey  carries an owner beside its handle word; the typed APIs that make and use it are unchanged
+0.8.0  F  aes128GcmKeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.0  F  aes256GcmKeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.0  F  chacha20Poly1305KeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.0  F  ed25519KeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.0  F  hmacSha256KeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.0  F  hmacSha512KeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.0  F  obfuscationKeyWipe  claims the key's drop cleanup through the owner it carries
+0.8.0  F  x25519KeyWipe  claims the key's drop cleanup through the owner it carries
