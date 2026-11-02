@@ -41,6 +41,7 @@
 ; cores Axiom supports multiply in constant time. The processors'
 ; carry-less multiply instructions (PMULL, PCLMULQDQ) are not used:
 ; Axiom has no way to reach them.
+(import Internal.CryptoCt)
 (import Crypto.Ct)
 
 ; ------------------------------------------------------------------

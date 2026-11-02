@@ -78,7 +78,7 @@ for t in "${tests[@]}"; do
   ran=$((ran + 1))
   for lvl in $opts; do
     bin="$work/$name.O$lvl"
-    if ! (cd "$repo_root/tests/crypto" && "$axc" --diagnostic-format=ai build --input "$name.ax" --output "$bin" --opt "$lvl") >"$work/$name.build.log" 2>&1; then
+    if ! (cd "$repo_root/tests/crypto" && gate_fixture_axc "$axc" --diagnostic-format=ai build --input "$name.ax" --output "$bin" --opt "$lvl") >"$work/$name.build.log" 2>&1; then
       bad "$name --opt $lvl: does not build"
       sed 's/^/    /' "$work/$name.build.log" | head -20
       continue
@@ -169,7 +169,7 @@ else
   for t in "${tests[@]}"; do
     name="$(basename "$t" .ax)"
     [[ -n "$filter" && "$name" != "$filter"* ]] && continue
-    if ! (cd "$repo_root/tests/crypto" && "$axc" emit-llvm "$name.ax" -o "$work/ct/$name.ll") >/dev/null 2>&1; then
+    if ! (cd "$repo_root/tests/crypto" && gate_fixture_axc "$axc" emit-llvm "$name.ax" -o "$work/ct/$name.ll") >/dev/null 2>&1; then
       continue
     fi
     for lvl in $ct_opts; do

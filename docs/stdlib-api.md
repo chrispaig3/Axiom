@@ -825,14 +825,13 @@ Crypto.Blake2b - BLAKE2b, unkeyed and keyed.
 
 ## `Crypto.Bytes`
 
-`stdlib/Crypto/Bytes.ax` — 16 public names
+`stdlib/Crypto/Bytes.ax` — 15 public names
 
 Crypto.Bytes - byte strings as the Crypto modules pass them around.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
 | `bytesNew` | value | `(-> Int String)` | `Alloc,Mut` |  | `n` zero bytes, as a fresh string a caller may write into through `strData` before handing it on. |
-| `bytesFromAddr` | value | `(-> Int Int String)` | `Alloc,Mut` |  | A fresh copy of `n` bytes at `p`. |
 | `bytesU32Be` | value | `(-> Int String)` | `Alloc,Mut` |  | The 4 bytes of `v`'s low 32 bits, most significant first. |
 | `bytesU32Le` | value | `(-> Int String)` | `Alloc,Mut` |  | The 4 bytes of `v`'s low 32 bits, least significant first. |
 | `bytesU64Be` | value | `(-> Int String)` | `Alloc,Mut` |  | The 8 bytes of `v`, most significant first. |
@@ -899,7 +898,7 @@ one message at a time.
 
 ## `Crypto.Ct`
 
-`stdlib/Crypto/Ct.ax` — 27 public names
+`stdlib/Crypto/Ct.ax` — 15 public names
 
 Crypto.Ct - the constant-time building blocks every Crypto module
 shares.
@@ -921,18 +920,6 @@ shares.
 | `rotl32` | value | `(-> Int Int Int)` |  |  | A 32-bit rotation left by `n`, for 1 <= n <= 31, of a word in 0..2^32-1. The answer is in the same range. |
 | `rotr32` | value | `(-> Int Int Int)` |  |  | A 32-bit rotation right by `n`, for 1 <= n <= 31. |
 | `add32` | value | `(-> Int Int Int)` |  |  | `a + b` modulo 2^32, for words in 0..2^32-1. |
-| `ld32le` | value | `(-> Int Int Int)` | `Unsafe` |  | The 32-bit little-endian word at byte `off` of the block at `p`, read in constant time. |
-| `ld32be` | value | `(-> Int Int Int)` | `Unsafe` |  | The 32-bit big-endian word at byte `off` of the block at `p`, read in constant time. |
-| `ld64le` | value | `(-> Int Int Int)` |  |  | The 64-bit little-endian word at byte `off` of the block at `p`, read in constant time. |
-| `ld64be` | value | `(-> Int Int Int)` |  |  | The 64-bit big-endian word at byte `off` of the block at `p`, read in constant time. |
-| `st32le` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  | Store the low 32 bits of `v` little-endian at byte `off` of the block at `p`, in constant time. Answers 0. |
-| `st32be` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  | Store the low 32 bits of `v` big-endian at byte `off` of the block at `p`, in constant time. Answers 0. |
-| `st64le` | value | `(-> Int Int Int Int)` | `Mut` |  | Store `v` little-endian at byte `off` of the block at `p`, in constant time. Answers 0. |
-| `st64be` | value | `(-> Int Int Int Int)` | `Mut` |  | Store `v` big-endian at byte `off` of the block at `p`, in constant time. Answers 0. |
-| `ctEqAddr` | value | `(-> Int Int Int Bool)` | `Mut,Unsafe` |  | Whether `n` bytes at `a` and at `b` are equal, taking the same time whichever bytes differ. `n` is public; the contents are not. The running difference passes through the barrier once per byte, so the loop cannot be rewritten to stop at the first difference. |
-| `ctWipe` | value | `(-> Int Int Int)` | `Mut,Unsafe` |  | Overwrite `n` bytes at `p` with zeros, in a way the optimiser may not delete. Answers 0. |
-| `ctCopy` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  | Copy `n` bytes from `src` to `dst`, which must not overlap. The same loop as `rawCopy`; here so a Crypto module needs one import for its memory work. |
-| `ctSwapWords` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` |  | Conditionally swap `n` words at `a` and `b`: swapped where `m` is -1, left alone where `m` is 0. The Montgomery ladder's step, and any other choice between two buffers a secret makes. |
 
 ## `Crypto.Curve25519`
 

@@ -1,0 +1,17 @@
+;;! Internal.CryptoBytes - copies from library-owned byte storage.
+; The caller keeps n readable bytes at p live through the copy.
+(import Internal.CryptoCt)
+(import Crypto.Bytes)
+(import Crypto.Ct)
+(import Str)
+
+;; A fresh copy of `n` bytes at `p`.
+(pub :: bytesFromAddr (-> Int Int String))
+(pub fn (bytesFromAddr p n)
+  {
+    (let s (bytesNew n))
+    {
+      (ctCopy (strData s) p n)
+      s
+    }
+  })

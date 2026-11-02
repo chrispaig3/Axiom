@@ -57,11 +57,13 @@ def main():
         library = work / 'stdlib'
         shutil.copytree(Path(os.environ.get('AXIOM_STDLIB', ROOT / 'stdlib')).resolve(), library)
         (library / 'InternalProbeFixture.ax').write_text(
-            '(import Internal.Wait)\n(import Internal.Mapping)\n(import Internal.Platform)\n(import Internal.ProcessRaw)\n' + transformed)
+            '(import Internal.Wait)\n(import Internal.Mapping)\n(import Internal.Platform)\n(import Internal.ProcessRaw)\n(import Internal.CryptoBytes)\n(import Internal.CryptoCt)\n' + transformed)
         entry = work / 'probe.ax'
         entry.write_text('(import InternalProbeFixture)\n' + entry_tags +
                          '(fn (main) internalProbeMain)\n')
         env = dict(os.environ, AXIOM_STDLIB=str(library))
+        # Fixture-local helpers stay resolvable when its entry moves into the library.
+        env['AXIOM_PATH'] = str(source.parent) + (os.pathsep + env['AXIOM_PATH'] if env.get('AXIOM_PATH') else '')
         arguments[index] = str(entry)
         return subprocess.call([compiler, *arguments], env=env)
 

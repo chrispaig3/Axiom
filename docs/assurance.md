@@ -296,7 +296,7 @@ the neighbourhood of the corpus.
   applies to user files (`MM-EXEC-9d`). A function result can't erase
   its type (`MM-VAL-24`).
 - Public raw-address interfaces remain in interning, JSON and low-level
-  crypto. For example, `Intern.internCap` and `Crypto.Ct.ctCopy` accept
+  crypto. For example, `Intern.internCap` and `Crypto.Secret.secretFromAddr` accept
   unchecked addresses (`MM-EXEC-9d`, [roadmap](roadmap.md)). Clock reads take no
   address and release their own scratch storage
   (`tests/stdlib/1005-clock-owned-scratch.ax`). Entropy returns owned
@@ -314,7 +314,9 @@ the neighbourhood of the corpus.
   typed paths and argument vectors, inherits the environment and owns
   its native buffers (`tests/stdlib/301-process-argv.ax`). Raw launch
   addresses and `sysEnvp` are refused
-  (`tests/diagnostics/1519-process-addresses.ax`).
+  (`tests/diagnostics/1519-process-addresses.ax`). Byte copies and
+  constant-time address kernels are internal
+  (`tests/diagnostics/1520-crypto-byte-addresses.ax`).
 - A closure with more than 46 captures retains counted captures without
   a reference map to release them (`MM-LIFE-2c`,
   `tests/stdlib/1004-capture-map-limit.ax`).

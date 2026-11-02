@@ -47,6 +47,8 @@
 ; STANDARD. The nonce is the 96-bit IV of SP 800-38D (section 5.2.1.1,
 ; and the deterministic construction of 8.2.1: a fixed field and an
 ; invocation field) and the 96-bit nonce of RFC 8439 section 2.8.
+(import Internal.CryptoCt)
+(import Internal.CryptoBytes)
 (import Str)
 (import Err)
 (import Crypto.Ct)

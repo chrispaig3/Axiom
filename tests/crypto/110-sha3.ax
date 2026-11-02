@@ -169,7 +169,7 @@
 (fn (monte alg seed)
   {
     (let d (strLen seed))
-    (let a (bytesFromAddr (strData seed) (strLen seed)))
+    (let a (strDup seed))
     (let b (bytesNew (strLen seed)))
     {
       (let pa (strData a))

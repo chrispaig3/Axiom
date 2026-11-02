@@ -46,6 +46,7 @@
 ; kernel removes the timing channels software can see; the hardware
 ; ones (an instruction whose latency varies with its operands, a
 ; shared cache line) are listed in docs/crypto.md.
+(import Internal.CryptoCt)
 (import Crypto.Ct)
 
 ; ------------------------------------------------------------------

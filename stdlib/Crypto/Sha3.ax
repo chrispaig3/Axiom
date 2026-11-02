@@ -50,6 +50,8 @@
 ; any byte string and an output any length an `Int` can hold. Erasure
 ; reaches the state blob and the one-shot forms' scratch memory, not
 ; values held in registers or spilled to the stack.
+(import Internal.CryptoCt)
+(import Internal.CryptoBytes)
 (import Internal.Raw)
 (import Str)
 (import Crypto.Ct)

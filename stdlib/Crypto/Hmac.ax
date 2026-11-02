@@ -49,6 +49,8 @@
 ; `hmacSha256Wipe`. The `...Raw` and `...Chains` functions are the
 ; hazardous layer for other Crypto modules, such as HKDF: they take
 ; the key, or its precomputed states, by address and check nothing.
+(import Internal.CryptoCt)
+(import Internal.CryptoBytes)
 (import Internal.Raw)
 (import Str)
 (import Err)

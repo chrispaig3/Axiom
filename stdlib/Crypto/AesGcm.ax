@@ -60,6 +60,7 @@
 ; it early is the mistake this API exists to prevent. Split a large
 ; payload into messages, each with its own nonce, and authenticate
 ; their order in the associated data. 192-bit keys are not offered.
+(import Internal.CryptoCt)
 (import Str)
 (import Err)
 (import Crypto.Ct)

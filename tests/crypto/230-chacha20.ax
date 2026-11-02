@@ -17,7 +17,7 @@
 (fn (chacha inPlace key nonce counter text)
   {
     (let n (strLen text))
-    (let out (bytesFromAddr (strData text) (strLen text)))
+    (let out (strDup text))
     (let work (strAlloc chacha20BlockBytes))
     {
       (let src

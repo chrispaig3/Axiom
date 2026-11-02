@@ -1,0 +1,24 @@
+; Raw byte conversion cannot be reached through Crypto.Bytes.
+(import Crypto.Bytes)
+(import Crypto.Hmac)
+(import Crypto.Ct)
+
+(:: main Int)
+(fn (main)
+  {
+    (bytesFromAddr 0 0)
+    (Internal.CryptoBytes::bytesFromAddr 0 0)
+    ld32le
+    ld32be
+    ld64le
+    ld64be
+    st32le
+    st32be
+    st64le
+    st64be
+    ctEqAddr
+    ctWipe
+    ctCopy
+    ctSwapWords
+    0
+  })

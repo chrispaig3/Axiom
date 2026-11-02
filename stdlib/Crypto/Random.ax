@@ -24,6 +24,7 @@
 ; about n^2/2^97 after n messages; `Crypto.Aead` states the limit that
 ; implies. Uniqueness is a property of how nonces are managed, not of
 ; how good the randomness is.
+(import Internal.CryptoCt)
 (import Internal.Raw)
 (import Str)
 (import Vec)

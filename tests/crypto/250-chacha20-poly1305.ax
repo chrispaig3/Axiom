@@ -92,7 +92,7 @@
 ;@axiom:effect(unsafe)
 (fn (flip s i)
   {
-    (let c (bytesFromAddr (strData s) (strLen s)))
+    (let c (strDup s))
     {
       (__store8 (strData c) i (^ (strByte s i) 1))
       c

@@ -2032,3 +2032,17 @@
 0.8.1  F  sysRunPathErrTo  takes a String path, Vec String argv and a String stderr path; inherits the environment; remove raw pointer encoding and envp argument
 0.8.1  F  sysSpawnOutErrTo  takes a String path, Vec String argv and String stdout and stderr paths; inherits the environment; remove raw pointer encoding and envp argument
 0.8.1  F  sysEnvp  internal; typed Sys launch calls inherit the environment without an address
+
+0.8.1  F  bytesFromAddr  internal; use strDup or strSlice on typed String bytes; custom address reads require an explicit unsafe boundary
+0.8.1  F  ld32le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  ld32be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  ld64le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  ld64be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  st32le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  st32be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  st64le  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  st64be  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  ctEqAddr  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  ctWipe  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  ctCopy  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+0.8.1  F  ctSwapWords  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary

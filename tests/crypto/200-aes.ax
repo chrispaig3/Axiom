@@ -26,7 +26,7 @@
         (let sched (strAlloc (aesScheduleBytes kl)))
         (let work (strAlloc aesKeyWorkBytes))
         (let q (strAlloc aesStateBytes))
-        (let out (bytesFromAddr (strData data) (strLen data)))
+        (let out (strDup data))
         {
           (let nr (aesKeyExpand (strData sched) (strData key) kl (strData work)))
           (let src

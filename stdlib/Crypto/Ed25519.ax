@@ -56,6 +56,8 @@
 ; hands it back when it returns. Erasure does not reach values that were
 ; in registers or spilled to the stack while signing ran
 ; (`Crypto.Secret`).
+(import Internal.CryptoCt)
+(import Internal.CryptoBytes)
 (import Internal.Raw)
 (import Str)
 (import Err)

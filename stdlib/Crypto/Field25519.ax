@@ -61,6 +61,7 @@
 ; wiped before the function returns. The operations in `Crypto.X25519`
 ; and `Crypto.Ed25519` hand it back with a `region`; code calling these
 ; functions in a loop should do the same.
+(import Internal.CryptoCt)
 (import Internal.Raw)
 (import Crypto.Ct)
 

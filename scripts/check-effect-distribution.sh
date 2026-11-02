@@ -395,6 +395,9 @@ have() { # have <got> <want> <what>
 # launch implementations to Internal.ProcessRaw. Five Sys wrappers lose lexical
 # Unsafe; all existing IO, Block and Spawn requirements remain. CommandScratch
 # becomes reachable from the compiler. New wrappers account for added rows.
+# Moving raw crypto bytes and constant-time kernels inside Internal preserves
+# every existing effect row. bytesFromAddr is no longer reached by the compiler,
+# removing one Alloc,Mut row there; the full-library view is unchanged.
 echo "== compiler view: symbols --calls core/main.ax =="
 "$axc" --diagnostic-format=ai symbols --calls core/main.ax > "$work/main.axsym" 2>"$work/main.err" \
   || { fail "could not read symbols over core/main.ax"; echo "check-effect-distribution: $failed failed"; exit 1; }
@@ -492,7 +495,7 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 # typed Crypto.Random import reaches 82 more rows: its random operations and
 # byte/constant-time helpers. entropyAvailable adds one Entropy,Mut row to the
 # full library view; the public randomAvailable wrapper keeps its effects.
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3664 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3663 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 510 "Alloc,IO,Mut"
 # The explicit platform facade adds 179 rows; implementation rows keep their
 # effects (same-compiler comparison). Constants carry their syscall refinements.

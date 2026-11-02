@@ -26,7 +26,7 @@
 ;@axiom:effect(unsafe)
 (fn (flip s i bit)
   {
-    (let t (bytesFromAddr (strData s) (strLen s)))
+    (let t (strDup s))
     {
       (__store8 (strData t) i (^ (strByte s i) (<< 1 bit)))
       t

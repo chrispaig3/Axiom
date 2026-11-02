@@ -16,6 +16,10 @@ its changelog too.
 
 ## Unreleased
 
+- Raw byte copies, constant-time memory loads, stores, comparison, wiping
+  and swapping are internal. Typed crypto APIs retain their behaviour.
+  Tested by `tests/diagnostics/1520-crypto-byte-addresses.ax`.
+
 - Process launch takes typed paths and argument vectors, inherits the
   environment and owns its native buffers. `sysEnvp` is removed. Empty
   argument vectors and embedded NUL bytes answer `Err` 22 before launch.

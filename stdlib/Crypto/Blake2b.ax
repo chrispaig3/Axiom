@@ -47,6 +47,8 @@
 ; is erased by `blake2bWipe`, not by the arena. Erasure reaches the
 ; blob and the one-shot forms' scratch memory, not values held in
 ; registers or spilled to the stack.
+(import Internal.CryptoCt)
+(import Internal.CryptoBytes)
 (import Internal.Raw)
 (import Str)
 (import Err)

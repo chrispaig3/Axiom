@@ -54,6 +54,7 @@
 ; from a seal and `cryptoAuthFailed` from an open. There is no
 ; streaming form, for the reason `Crypto.AesGcm` gives: split a large
 ; payload into messages, each with its own nonce.
+(import Internal.CryptoCt)
 (import Str)
 (import Err)
 (import Crypto.Ct)

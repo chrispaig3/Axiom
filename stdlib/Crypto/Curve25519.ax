@@ -63,6 +63,7 @@
 ; back with a `region` (entering one costs about a microsecond, so they
 ; take one per operation, not one per step); code calling these
 ; functions in a loop should do the same.
+(import Internal.CryptoCt)
 (import Internal.Raw)
 (import Crypto.Ct)
 (import Crypto.Field25519)

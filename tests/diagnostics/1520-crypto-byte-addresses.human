@@ -1,0 +1,127 @@
+[1;31merror[AX5002][0m[1m: `bytesFromAddr` belongs to `Internal.CryptoBytes`, which is internal to the standard library[0m
+ [1;34m--> [0m1520-crypto-byte-addresses.ax:9:6
+[1;34m  |[0m
+[1;34m9 |[0m     (bytesFromAddr 0 0)
+[1;34m  |[0m      [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `Internal.CryptoBytes::bytesFromAddr` belongs to `Internal.CryptoBytes`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:10:6
+[1;34m   |[0m
+[1;34m10 |[0m     (Internal.CryptoBytes::bytesFromAddr 0 0)
+[1;34m   |[0m      [1;31m^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `ld32le` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:11:5
+[1;34m   |[0m
+[1;34m11 |[0m     ld32le
+[1;34m   |[0m     [1;31m^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `ld32be` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:12:5
+[1;34m   |[0m
+[1;34m12 |[0m     ld32be
+[1;34m   |[0m     [1;31m^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `ld64le` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:13:5
+[1;34m   |[0m
+[1;34m13 |[0m     ld64le
+[1;34m   |[0m     [1;31m^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `ld64be` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:14:5
+[1;34m   |[0m
+[1;34m14 |[0m     ld64be
+[1;34m   |[0m     [1;31m^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `st32le` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:15:5
+[1;34m   |[0m
+[1;34m15 |[0m     st32le
+[1;34m   |[0m     [1;31m^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `st32be` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:16:5
+[1;34m   |[0m
+[1;34m16 |[0m     st32be
+[1;34m   |[0m     [1;31m^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `st64le` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:17:5
+[1;34m   |[0m
+[1;34m17 |[0m     st64le
+[1;34m   |[0m     [1;31m^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `st64be` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:18:5
+[1;34m   |[0m
+[1;34m18 |[0m     st64be
+[1;34m   |[0m     [1;31m^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `ctEqAddr` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:19:5
+[1;34m   |[0m
+[1;34m19 |[0m     ctEqAddr
+[1;34m   |[0m     [1;31m^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `ctWipe` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:20:5
+[1;34m   |[0m
+[1;34m20 |[0m     ctWipe
+[1;34m   |[0m     [1;31m^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `ctCopy` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:21:5
+[1;34m   |[0m
+[1;34m21 |[0m     ctCopy
+[1;34m   |[0m     [1;31m^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `ctSwapWords` belongs to `Internal.CryptoCt`, which is internal to the standard library[0m
+  [1;34m--> [0m1520-crypto-byte-addresses.ax:22:5
+[1;34m   |[0m
+[1;34m22 |[0m     ctSwapWords
+[1;34m   |[0m     [1;31m^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+compilation failed due to 14 previous errors

@@ -35,6 +35,7 @@
 ; groups joined by hyphens, 36 characters. `uuidParse` accepts upper
 ; case too and refuses everything else, including the 32-digit form
 ; with no hyphens and the braced form.
+(import Internal.CryptoCt)
 (import Internal.Raw)
 (import Str)
 (import Err)

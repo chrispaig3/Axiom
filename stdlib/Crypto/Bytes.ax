@@ -15,6 +15,7 @@
 ; still answers `Err` for bad input, but it looks at every character
 ; before it does, so the answer's timing does not say where the bad
 ; one was.
+(import Internal.CryptoCt)
 (import Str)
 (import Err)
 (import Crypto.Ct)
@@ -31,17 +32,6 @@
     (if (< n 0)
       0
       n)))
-
-;; A fresh copy of `n` bytes at `p`.
-(pub :: bytesFromAddr (-> Int Int String))
-(pub fn (bytesFromAddr p n)
-  {
-    (let s (bytesNew n))
-    {
-      (ctCopy (strData s) p n)
-      s
-    }
-  })
 
 ;; The 4 bytes of `v`'s low 32 bits, most significant first.
 (pub :: bytesU32Be (-> Int String))

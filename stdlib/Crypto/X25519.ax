@@ -45,6 +45,8 @@
 ; all-zero check and answer plain bytes. Values that were in registers
 ; or on the stack during the ladder are beyond what erasure reaches
 ; (`Crypto.Secret`).
+(import Internal.CryptoCt)
+(import Internal.CryptoBytes)
 (import Internal.Raw)
 (import Str)
 (import Err)

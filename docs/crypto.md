@@ -124,6 +124,10 @@ Tested by `tests/crypto/030-secret.ax` and
 
 ## Byte strings
 
+Use `strDup` to copy a string. Raw byte copies and constant-time address
+kernels belong to internal modules. Tested by
+`tests/diagnostics/1520-crypto-byte-addresses.ax`.
+
 A `String` holds any bytes, so the suite uses it for public byte data:
 messages, ciphertexts, digests and encoded keys. `Crypto.Bytes` has
 what you need around them:
@@ -606,6 +610,9 @@ row says "none yet", the calls that need it answer an availability
 error.
 
 ## Limits
+
+Not yet: other low-level crypto address interfaces remain public
+([roadmap](roadmap.md#memory-and-resource-safety)).
 
 - On Windows (`windows-x86_64`, `windows-aarch64`) a secret's pages are
   pinned in memory but not kept out of a crash dump, which the POSIX

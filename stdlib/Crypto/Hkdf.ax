@@ -32,6 +32,7 @@
 ; `cryptoInvalidLength`. The `...Raw` functions are the hazardous
 ; layer for other Crypto modules: they take keys by address and check
 ; nothing.
+(import Internal.CryptoCt)
 (import Internal.Raw)
 (import Str)
 (import Err)

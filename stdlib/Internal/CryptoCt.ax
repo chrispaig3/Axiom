@@ -1,0 +1,187 @@
+;;! Internal.CryptoCt - constant-time access to library-owned memory.
+(import Crypto.Ct)
+
+; A compiler fence over the memory at `p`: every store before it is
+; performed, because the block could read `p`. `ctWipe` ends with one,
+; which is what keeps a zeroing loop over memory nobody reads again
+; from being deleted as dead.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: ctFence (-> Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+(fn (ctFence p)
+  (asm
+    (aarch64 "// {a}" (in a p))
+    (x86_64 "# {a}" (in a p))))
+
+; ------------------------------------------------------------------
+; Byte order. Each reads or writes at `p + off` a byte at a time, so
+; none needs an aligned address. The compiler combines the bytes into
+; one load or store where the target allows it.
+; ------------------------------------------------------------------
+;; The 32-bit little-endian word at byte `off` of the block at `p`,
+;; read in constant time.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ld32le (-> Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+(pub fn (ld32le p off)
+  (| (__load8 p off)
+    (| (<< (__load8 p (+ off 1)) 8)
+      (| (<< (__load8 p (+ off 2)) 16) (<< (__load8 p (+ off 3)) 24)))))
+
+;; The 32-bit big-endian word at byte `off` of the block at `p`, read
+;; in constant time.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ld32be (-> Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+(pub fn (ld32be p off)
+  (| (<< (__load8 p off) 24)
+    (| (<< (__load8 p (+ off 1)) 16) (| (<< (__load8 p (+ off 2)) 8) (__load8 p (+ off 3))))))
+
+;; The 64-bit little-endian word at byte `off` of the block at `p`,
+;; read in constant time.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ld64le (-> Int Int Int))
+;@axiom:ct(*p)
+(pub fn (ld64le p off)
+  (| (ld32le p off) (<< (ld32le p (+ off 4)) 32)))
+
+;; The 64-bit big-endian word at byte `off` of the block at `p`, read
+;; in constant time.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ld64be (-> Int Int Int))
+;@axiom:ct(*p)
+(pub fn (ld64be p off)
+  (| (<< (ld32be p off) 32) (ld32be p (+ off 4))))
+
+;; Store the low 32 bits of `v` little-endian at byte `off` of the
+;; block at `p`, in constant time. Answers 0.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: st32le (-> Int Int Int Int))
+;@axiom:ct(*p, v)
+;@axiom:effect(unsafe)
+(pub fn (st32le p off v)
+  {
+    (__store8 p off (& v 255))
+    (__store8 p (+ off 1) (& (>> v 8) 255))
+    (__store8 p (+ off 2) (& (>> v 16) 255))
+    (__store8 p (+ off 3) (& (>> v 24) 255))
+    0
+  })
+
+;; Store the low 32 bits of `v` big-endian at byte `off` of the block
+;; at `p`, in constant time. Answers 0.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: st32be (-> Int Int Int Int))
+;@axiom:ct(*p, v)
+;@axiom:effect(unsafe)
+(pub fn (st32be p off v)
+  {
+    (__store8 p off (& (>> v 24) 255))
+    (__store8 p (+ off 1) (& (>> v 16) 255))
+    (__store8 p (+ off 2) (& (>> v 8) 255))
+    (__store8 p (+ off 3) (& v 255))
+    0
+  })
+
+;; Store `v` little-endian at byte `off` of the block at `p`, in
+;; constant time. Answers 0.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: st64le (-> Int Int Int Int))
+;@axiom:ct(*p, v)
+(pub fn (st64le p off v)
+  {
+    (st32le p off (& v 4294967295))
+    (st32le p (+ off 4) (shrU v 32))
+  })
+
+;; Store `v` big-endian at byte `off` of the block at `p`, in constant
+;; time. Answers 0.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: st64be (-> Int Int Int Int))
+;@axiom:ct(*p, v)
+(pub fn (st64be p off v)
+  {
+    (st32be p off (shrU v 32))
+    (st32be p (+ off 4) (& v 4294967295))
+  })
+
+; ------------------------------------------------------------------
+; Memory.
+; ------------------------------------------------------------------
+;; Whether `n` bytes at `a` and at `b` are equal, taking the same time
+;; whichever bytes differ. `n` is public; the contents are not. The
+;; running difference passes through the barrier once per byte, so the
+;; loop cannot be rewritten to stop at the first difference.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctEqAddr (-> Int Int Int Bool))
+;@axiom:ct(*a, *b)
+;@axiom:effect(unsafe)
+(pub fn (ctEqAddr a b n)
+  {
+    (let mut d 0)
+    {
+      (for i in 0..n
+        (set d (ctBarrier (| d (^ (__load8 a i) (__load8 b i))))))
+      (== d 0)
+    }
+  })
+
+;; Overwrite `n` bytes at `p` with zeros, in a way the optimiser may not
+;; delete. Answers 0.
+;
+; A zeroing loop over memory that nothing reads afterwards is a dead
+; store, and removing dead stores is exactly what `opt` is for. The
+; fence at the end hands `p` to an assembly block that may read any
+; memory, so every store above it has to happen first.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctWipe (-> Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+(pub fn (ctWipe p n)
+  {
+    (for i in 0..n
+      (__store8 p i 0))
+    (ctFence p)
+    0
+  })
+
+;; Copy `n` bytes from `src` to `dst`, which must not overlap. The same
+;; loop as `rawCopy`; here so a Crypto module needs one import for its
+;; memory work.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctCopy (-> Int Int Int Int))
+;@axiom:ct(*dst, *src)
+;@axiom:effect(unsafe)
+(pub fn (ctCopy dst src n)
+  {
+    (for i in 0..n
+      (__store8 dst i (__load8 src i)))
+    dst
+  })
+
+;; Conditionally swap `n` words at `a` and `b`: swapped where `m` is -1,
+;; left alone where `m` is 0. The Montgomery ladder's step, and any
+;; other choice between two buffers a secret makes.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: ctSwapWords (-> Int Int Int Int Int))
+;@axiom:ct(m, *a, *b)
+;@axiom:effect(unsafe)
+(pub fn (ctSwapWords m a b n)
+  {
+    (for i in 0..n
+      {
+        (let x (__load64 a i))
+        (let y (__load64 b i))
+        {
+          (let t (& m (^ x y)))
+          {
+            (__store64 a i (^ x t))
+            (__store64 b i (^ y t))
+          }
+        }
+      })
+    0
+  })

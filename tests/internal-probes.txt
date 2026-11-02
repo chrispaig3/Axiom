@@ -22,3 +22,11 @@ tests/stdlib/952-task-ranges-lifecycle.ax
 tests/stdlib/960-task-launch-cancellation.ax
 tests/stdlib/305-path-search.ax
 tests/platform/windows-command-pools.ax
+
+# Crypto implementation probes retain raw-kernel coverage.
+tests/crypto/040-ct.ax
+tests/crypto/100-sha2.ax
+tests/crypto/110-sha3.ax
+tests/crypto/120-blake2b.ax
+tests/crypto/200-aes.ax
+tests/crypto/230-chacha20.ax

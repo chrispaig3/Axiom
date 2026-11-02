@@ -51,6 +51,8 @@
 ; values the processor held in registers or spilled to the stack. The
 ; `...Addr` and `...Raw...` functions are the hazardous layer for other
 ; Crypto modules: they take addresses and trust them.
+(import Internal.CryptoCt)
+(import Internal.CryptoBytes)
 (import Internal.Raw)
 (import Str)
 (import Crypto.Ct)

@@ -54,10 +54,16 @@
 (fn (unclaimed k)
   (public k))
 
+(:: publicCount (-> Int Int Int))
+;@axiom:ct(*p)
+;@axiom:effect(unsafe)
+(fn (publicCount p count)
+  (__load8 p count))
+
 (:: publicParam (-> Int Int Int))
 ;@axiom:ct(*p, k)
 (fn (publicParam p k)
-  (ctWipe p k))
+  (publicCount p k))
 
 (:: carried (-> Int Int))
 ;@axiom:ct(k)

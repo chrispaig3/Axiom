@@ -34,6 +34,7 @@
 ;
 ; LIMITS. Only the whole-message form and the building blocks the AEAD
 ; needs; there is no incremental API for arbitrary chunk sizes.
+(import Internal.CryptoCt)
 (import Crypto.Ct)
 
 ;; The state, 16 words:
