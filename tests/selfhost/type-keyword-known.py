@@ -85,8 +85,8 @@ def check(compiler, root, work):
 
     def mutation(label, before, after, failures):
         assert body.count(before) == 1, (label, body.count(before))
-        folder = work / (label + '-core')
-        folder.mkdir()
+        folder = work / (label + '-core/core')
+        folder.mkdir(parents=True)
         for path in (snapshot / 'core').iterdir():
             if path.name == 'parser.ax':
                 (folder / path.name).write_text(parser_source[:start] + body.replace(before, after)

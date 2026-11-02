@@ -92,6 +92,7 @@
 
 (:: growthChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (growthChecks)
   {
     (let cg newCG)
@@ -109,6 +110,7 @@
   })
 
 (:: retainedReset (-> CG String Bool))
+;@axiom:effect(unsafe)
 (fn (retainedReset cg value)
   {
     (probePendingPush cg value)

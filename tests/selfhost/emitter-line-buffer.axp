@@ -50,6 +50,7 @@
 
 (:: snapshotChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (snapshotChecks)
   {
     (let cg newCG)
@@ -75,6 +76,7 @@
 
 (:: allocaChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (allocaChecks)
   {
     (let cg newCG)
@@ -132,6 +134,7 @@
 
 (:: hoistedChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (hoistedChecks)
   {
     (let cg newCG)
@@ -168,6 +171,7 @@
 
 (:: hoistedOverwriteChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (hoistedOverwriteChecks)
   {
     (let cg newCG)
@@ -191,6 +195,7 @@
 
 (:: hoistedAllocaChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (hoistedAllocaChecks)
   {
     (let cg newCG)
@@ -231,6 +236,7 @@
 ; alias while a nested emission uses the context, then restores it.
 (:: nestedHoistedChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (nestedHoistedChecks)
   {
     (let cg newCG)
@@ -284,6 +290,7 @@
 
 (:: payloadChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (payloadChecks)
   {
     (let cg newCG)
@@ -352,6 +359,7 @@
 ; not confused with an ordinary producer or getter share that escaped.
 (:: payloadIteration (-> CG Int Bool Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (payloadIteration cg i hoist)
   {
     (if hoist

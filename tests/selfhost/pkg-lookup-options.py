@@ -74,7 +74,7 @@ def entry_disappears(compiler, root, work, sources, baseline=None):
         changed = fn[:body[0]] + '(pub fn (pkgEntryFile dir) { (let observed (pkgFindManifest dir)) ' + missing + ' })'
         edits = dict(edits, **{'pkg.ax': replace_once(pkg, fn, changed, 'vanished-entry')})
         label = 'vanished-entry-' + version
-        folder = work / (label + '-modules'); folder.mkdir(exist_ok=True)
+        folder = work / (label + '-modules/core'); folder.mkdir(parents=True, exist_ok=True)
         for path in (root / 'core').iterdir():
             dest = folder / path.name
             if path.name in edits: dest.write_text(edits[path.name])
@@ -130,7 +130,7 @@ def check(compiler, root, work, baseline=None):
     (nested / 'child/axiom.pkg').write_text('name child\n')
 
     def modules(label, edits):
-        folder = work / (label + '-modules'); folder.mkdir(exist_ok=True)
+        folder = work / (label + '-modules/core'); folder.mkdir(parents=True, exist_ok=True)
         for path in (root / 'core').iterdir():
             dest = folder / path.name
             if path.name in edits:

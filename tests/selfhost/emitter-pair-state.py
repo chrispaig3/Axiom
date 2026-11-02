@@ -59,8 +59,8 @@ def check(axiom, repo, work, baseline=None):
                 env=env, stdout=work / 'fmt.stdout', stderr=work / 'fmt.stderr')
 
     def modules_for(label, source):
-        modules = work / f'{label}-modules'
-        modules.mkdir(exist_ok=True)
+        modules = work / f'{label}-modules/core'
+        modules.mkdir(parents=True, exist_ok=True)
         for path in (repo / 'core').iterdir():
             destination = modules / path.name
             if path.name == 'codegen.ax':
@@ -149,8 +149,8 @@ def check_emission(axiom, repo, work, original, baseline):
     report = []
 
     def modules(label, text, bridge=False):
-        directory = work / (label + '-emit-modules')
-        directory.mkdir(exist_ok=True)
+        directory = work / (label + '-emit-modules/core')
+        directory.mkdir(parents=True, exist_ok=True)
         (directory / 'codegen.ax').write_text(text)
         return dict(env, AXIOM_PATH=os.pathsep.join((str(directory), str(repo / 'core'))))
 

@@ -73,8 +73,8 @@ def check(compiler, root, work, baseline_path=None):
                 stdout=work / 'fmt.stdout', stderr=work / 'fmt.stderr')
 
     def modules(label, contents, bridge=True):
-        directory = work / (label + '-modules')
-        directory.mkdir()
+        directory = work / (label + '-modules/core')
+        directory.mkdir(parents=True)
         for path in (root / 'core').iterdir():
             out = directory / path.name
             if path.name == 'codegen.ax':

@@ -3,6 +3,8 @@
 
 Only the copied codegen module changes in negative probes. Each probe is an
 ordinary executable fixture, not a rebuilt compiler or bootstrap ladder.
+Compiler overlays retain their core/ directory; executable fixtures stay
+outside it and declare their own unsafe ownership observations.
 """
 import argparse
 import os
@@ -236,8 +238,8 @@ def check(axiom, repo, work):
                 env=env, stdout=work / "fixture.fmt.stdout", stderr=work / "fixture.fmt.stderr")
 
     def prepare_module(label, source):
-        module_root = work / f"{label}-modules"
-        module_root.mkdir(exist_ok=True)
+        module_root = work / f"{label}-modules/core"
+        module_root.mkdir(parents=True, exist_ok=True)
         for path in (repo / "core").iterdir():
             destination = module_root / path.name
             if path.name == "codegen.ax":

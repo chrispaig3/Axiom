@@ -71,8 +71,8 @@ def main():
                 ("empty-presence-lost", "(if (== (vecLen tvs) 0) (mkDDataAt dataName acc nameSpan) " + old + ")"),
             )
             for name, replacement in controls:
-                overlay = work / (name + "-core")
-                overlay.mkdir()
+                overlay = work / (name + "-core/core")
+                overlay.mkdir(parents=True)
                 for path in (root / "core").iterdir():
                     if path.name == "parser.ax":
                         (overlay / path.name).write_text(original.replace(old, replacement))

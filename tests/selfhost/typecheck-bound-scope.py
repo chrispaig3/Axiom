@@ -48,8 +48,8 @@ def check(axiom, repo, dependencies, work):
                 env=env, stdout=work / 'fmt.stdout', stderr=work / 'fmt.stderr')
 
     def modules_for(label, content):
-        modules = work / f'{label}-modules'
-        modules.mkdir(exist_ok=True)
+        modules = work / f'{label}-modules/core'
+        modules.mkdir(parents=True, exist_ok=True)
         for path in dependencies.iterdir():
             destination = modules / path.name
             if path.name == 'typecheck.ax':

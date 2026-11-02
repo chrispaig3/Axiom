@@ -110,8 +110,8 @@ def main():
             for name, (file, old, new, affected) in changes.items():
                 original = (root / "core" / file).read_text()
                 assert original.count(old) == 1, (name, original.count(old))
-                overlay = work / (name + "-core")
-                overlay.mkdir()
+                overlay = work / (name + "-core/core")
+                overlay.mkdir(parents=True)
                 for path in (root / "core").iterdir():
                     target = overlay / path.name
                     if path.name == file:

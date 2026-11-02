@@ -105,8 +105,8 @@ def main():
                     assert body.count(old) >= 1, (name, body.count(old))
                     changed_body = body.replace(old, new)
                 changed = original[:start] + changed_body + original[end:]
-                overlay = work / (name + "-core")
-                overlay.mkdir()
+                overlay = work / (name + "-core/core")
+                overlay.mkdir(parents=True)
                 for path in module_root.iterdir():
                     if path.name == "typecheck.ax":
                         (overlay / path.name).write_text(changed)

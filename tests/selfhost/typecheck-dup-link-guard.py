@@ -108,8 +108,8 @@ def check(compiler, root, work):
                 stdout=work / 'fmt.stdout', stderr=work / 'fmt.stderr')
 
     def modules(label, contents):
-        directory = work / (label + '-modules')
-        directory.mkdir()
+        directory = work / (label + '-modules/core')
+        directory.mkdir(parents=True)
         for path in (root / 'core').iterdir():
             out = directory / path.name
             if path.name == 'typecheck.ax':

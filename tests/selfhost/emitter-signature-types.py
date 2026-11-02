@@ -57,8 +57,8 @@ def check(compiler, root, work):
     }
 
     def build_run(label, level, text, program=fixture, failures=()):
-        modules = work / (label + '-modules')
-        modules.mkdir(exist_ok=True)
+        modules = work / (label + '-modules/core')
+        modules.mkdir(parents=True, exist_ok=True)
         (modules / 'codegen.ax').write_text(text + BRIDGE)
         local = dict(env, AXIOM_PATH=os.pathsep.join((str(modules), str(root / 'core'))))
         path = work / (label + '.ax')
@@ -117,7 +117,7 @@ def check(compiler, root, work):
     report['counterexamples'].append({'name': 'unchecked-required-signature', 'missing_metadata_accepted': True})
     print('ok   counterexample unchecked-required-signature: missing metadata accepted', flush=True)
 
-    local = dict(env, AXIOM_PATH=os.pathsep.join((str(work / 'positive-O0-modules'), str(root / 'core'))))
+    local = dict(env, AXIOM_PATH=os.pathsep.join((str(work / 'positive-O0-modules/core'), str(root / 'core'))))
     for label, declaration, code in [
         ('raw-signature-type', '(:: bad (-> FSig ASTNode)) (fn (bad entry) entry.sigTy)', 'AX3004'),
         ('raw-result-type', '(:: bad ASTNode) (fn (bad) (fnDeclaredResultTy None (Some 1)))', 'AX3004'),

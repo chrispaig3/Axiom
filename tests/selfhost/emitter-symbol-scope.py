@@ -65,8 +65,8 @@ def check(axiom, repo, work):
         ("application-shares", app, (37, 38)),
     ]
     for label, source, negative in variants:
-        modules = work / f"{label}-modules"
-        modules.mkdir(exist_ok=True)
+        modules = work / f"{label}-modules/core"
+        modules.mkdir(parents=True, exist_ok=True)
         for path in (repo / "core").iterdir():
             destination = modules / path.name
             if path.name == "codegen.ax":

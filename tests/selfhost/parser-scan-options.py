@@ -33,8 +33,8 @@ def check(compiler, root, work):
                          'No held M5 code or lifetime/escape/fixpoint algorithm is inspected or changed.']}
 
     def modules(label, changes):
-        folder = work / (label + '-modules')
-        folder.mkdir()
+        folder = work / (label + '-modules/core')
+        folder.mkdir(parents=True)
         for path in (root / 'core').iterdir():
             if path.stem in changes:
                 (folder / path.name).write_text(changes[path.stem])

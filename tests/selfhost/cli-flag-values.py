@@ -228,7 +228,7 @@ def check(compiler, root, work, baseline=None):
         if kind=='valid':(folder/'Main.ax').write_text('(:: main Int) (fn (main) 0)\n')
 
     def modules(label, edits):
-        folder=work/(label+'-modules');folder.mkdir(exist_ok=True)
+        folder=work/(label+'-modules/core');folder.mkdir(parents=True, exist_ok=True)
         for path in (root/'core').iterdir():
             dest=folder/path.name
             if path.name in edits:dest.write_text(edits[path.name])

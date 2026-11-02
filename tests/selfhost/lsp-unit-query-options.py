@@ -94,8 +94,8 @@ def main():
                 want = 1
                 assert len(pattern.findall(body)) == want, (name, len(pattern.findall(body)))
                 changed = original[:start] + pattern.sub(lambda match: new, body) + original[end:]
-                overlay = work / (name + "-core")
-                overlay.mkdir()
+                overlay = work / (name + "-core/core")
+                overlay.mkdir(parents=True)
                 for path in (root / "core").iterdir():
                     if path.name == "lsp.ax":
                         (overlay / path.name).write_text(changed)

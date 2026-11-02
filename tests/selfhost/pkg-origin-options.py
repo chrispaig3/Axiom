@@ -60,8 +60,8 @@ def check(compiler, root, work):
     }
 
     def modules(label, pkg_source):
-        folder = work / (label + "-core")
-        folder.mkdir()
+        folder = work / (label + "-core/core")
+        folder.mkdir(parents=True)
         for path in (root / "core").iterdir():
             dest = folder / path.name
             if path.name == "pkg.ax":

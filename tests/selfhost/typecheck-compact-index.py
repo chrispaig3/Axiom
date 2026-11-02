@@ -76,8 +76,8 @@ def check(compiler, root, work):
                     env=environment, stdout=work / (fixture.stem + '.fmt.stdout'), stderr=work / (fixture.stem + '.fmt.stderr'))
 
     def modules(label, contents):
-        directory = work / (label + '-modules')
-        directory.mkdir()
+        directory = work / (label + '-modules/core')
+        directory.mkdir(parents=True)
         for path in (root / 'core').iterdir():
             destination = directory / path.name
             if path.name == 'typecheck.ax':

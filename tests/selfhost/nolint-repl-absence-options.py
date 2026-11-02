@@ -73,8 +73,8 @@ def main():
             for label, filename, old, new, failure in controls:
                 original = (root / "core" / filename).read_text()
                 assert original.count(old) == 1, (label, original.count(old))
-                overlay = work / (label + "-core")
-                overlay.mkdir()
+                overlay = work / (label + "-core/core")
+                overlay.mkdir(parents=True)
                 for path in (root / "core").iterdir():
                     target = overlay / path.name
                     if path.name == filename:

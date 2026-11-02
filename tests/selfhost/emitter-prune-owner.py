@@ -218,7 +218,7 @@ def check(axiom, repo, source_root, work):
     semantic_reference = []
 
     def build_run(label, level, emitter, negative=None):
-        modules = private_modules(work / (label + '-modules'), source_root, emitter)
+        modules = private_modules(work / (label + '-modules/core'), source_root, emitter)
         local = dict(env, AXIOM_PATH=str(modules))
         binary = work / label
         run_checked([str(axiom), '--diagnostic-format=ai', 'build', str(fixture),

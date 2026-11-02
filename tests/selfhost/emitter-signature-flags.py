@@ -49,8 +49,8 @@ def check(compiler, root, work):
     }
 
     def build_run(label, level, text, program=fixture, failures=()):
-        modules = work / (label + '-modules')
-        modules.mkdir(exist_ok=True)
+        modules = work / (label + '-modules/core')
+        modules.mkdir(parents=True, exist_ok=True)
         (modules / 'codegen.ax').write_text(text + BRIDGE)
         local = dict(env, AXIOM_PATH=os.pathsep.join((str(modules), str(root / 'core'))))
         path = work / (label + '.ax')
@@ -86,7 +86,7 @@ def check(compiler, root, work):
     failed = build_run('duplicate-flags-share', 0, source, changed_fixture, {10})
     report['counterexamples'].append({'name': 'duplicate-flags-share', 'failed_cases': sorted(failed)})
     print(f'ok   counterexample duplicate-flags-share: cases {sorted(failed)} fail', flush=True)
-    local = dict(env, AXIOM_PATH=os.pathsep.join((str(work / 'positive-O0-modules'), str(root / 'core'))))
+    local = dict(env, AXIOM_PATH=os.pathsep.join((str(work / 'positive-O0-modules/core'), str(root / 'core'))))
     for label, body, code in [
         ('raw-flags-vector', '(:: bad (-> FSig Ints)) (fn (bad entry) entry.flags)', 'AX3004'),
         ('raw-flags-field', '(:: bad (-> FSig Int)) (fn (bad entry) (vecLen entry.flags))', 'AX3004'),

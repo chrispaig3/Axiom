@@ -153,8 +153,8 @@ def check(axiom, repo, work, positive_only):
     env = dict(os.environ, AXIOM_STDLIB=str(repo / 'stdlib'))
 
     def build(label, level, codegen, fixture):
-        modules = work / (label + '-modules')
-        modules.mkdir(exist_ok=True)
+        modules = work / (label + '-modules/core')
+        modules.mkdir(parents=True, exist_ok=True)
         for path in (repo / 'core').iterdir():
             destination = modules / path.name
             if path.name == 'codegen.ax':

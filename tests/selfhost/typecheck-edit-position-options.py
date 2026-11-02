@@ -34,8 +34,8 @@ def run_probe(executable, expected, label):
 
 def negative_control(compiler, repo, env, work, control):
     function, old, replacement, expected = control
-    overlay = work / function
-    overlay.mkdir()
+    overlay = work / function / "core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "typecheck.ax":
             (overlay / source.name).symlink_to(source)

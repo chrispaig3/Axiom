@@ -81,8 +81,8 @@ def main():
                 body = original[start:end]
                 assert body.count(old) == 1, (name, body.count(old))
                 changed = original[:start] + body.replace(old, new) + original[end:]
-                overlay = work / (name + "-core")
-                overlay.mkdir()
+                overlay = work / (name + "-core/core")
+                overlay.mkdir(parents=True)
                 for path in (root / "core").iterdir():
                     if path.name == "typecheck.ax":
                         (overlay / path.name).write_text(changed)

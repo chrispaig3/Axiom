@@ -10,8 +10,8 @@ import tempfile
 
 def witness_negative_control(compiler, repo, env, work):
     """Prove that suppressing an invalid cast witness fails the runtime probe."""
-    overlay = work / "negative-core"
-    overlay.mkdir()
+    overlay = work / "negative-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "typecheck.ax":
             (overlay / source.name).symlink_to(source)
@@ -39,8 +39,8 @@ def witness_negative_control(compiler, repo, env, work):
 
 def field_negative_control(compiler, repo, env, work):
     """Prove that a found poison field cannot silently become a wildcard."""
-    overlay = work / "negative-field-core"
-    overlay.mkdir()
+    overlay = work / "negative-field-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "typecheck.ax":
             (overlay / source.name).symlink_to(source)
@@ -69,8 +69,8 @@ def field_negative_control(compiler, repo, env, work):
 
 def collector_negative_control(compiler, repo, env, work):
     """Prove that built-empty caches cannot be rescanned as unbuilt."""
-    overlay = work / "negative-collector-core"
-    overlay.mkdir()
+    overlay = work / "negative-collector-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "typecheck.ax":
             (overlay / source.name).symlink_to(source)
@@ -98,8 +98,8 @@ def collector_negative_control(compiler, repo, env, work):
 
 def current_decl_negative_control(compiler, repo, env, work):
     """Prove that dropping a present declaration fails the stamp layout probe."""
-    overlay = work / "negative-current-decl-core"
-    overlay.mkdir()
+    overlay = work / "negative-current-decl-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "parser.ax":
             (overlay / source.name).symlink_to(source)
@@ -130,8 +130,8 @@ def current_decl_negative_control(compiler, repo, env, work):
 
 def constructor_name_negative_control(compiler, repo, env, work):
     """Prove that a named empty variant cannot be collapsed to positional."""
-    overlay = work / "negative-constructor-name-core"
-    overlay.mkdir()
+    overlay = work / "negative-constructor-name-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "parser.ax":
             (overlay / source.name).symlink_to(source)
@@ -160,8 +160,8 @@ def constructor_name_negative_control(compiler, repo, env, work):
 
 def exhaustiveness_negative_control(compiler, repo, env, work):
     """Prove that an empty failure witness cannot be mistaken for success."""
-    overlay = work / "negative-exhaustiveness-core"
-    overlay.mkdir()
+    overlay = work / "negative-exhaustiveness-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "typecheck.ax":
             (overlay / source.name).symlink_to(source)
@@ -189,8 +189,8 @@ def exhaustiveness_negative_control(compiler, repo, env, work):
 
 def declaration_field_negative_control(compiler, repo, env, work):
     """Prove that an empty multi-name declaration is still present metadata."""
-    overlay = work / "negative-declaration-field-core"
-    overlay.mkdir()
+    overlay = work / "negative-declaration-field-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "typecheck.ax":
             (overlay / source.name).symlink_to(source)
@@ -218,8 +218,8 @@ def declaration_field_negative_control(compiler, repo, env, work):
 
 def semantic_string_negative_control(compiler, repo, env, work):
     """Prove that present empty ISR metadata is distinct from absence."""
-    overlay = work / "negative-semantic-string-core"
-    overlay.mkdir()
+    overlay = work / "negative-semantic-string-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "typecheck.ax":
             (overlay / source.name).symlink_to(source)
@@ -246,8 +246,8 @@ def semantic_string_negative_control(compiler, repo, env, work):
 
 def capture_name_negative_control(compiler, repo, env, work):
     """Prove that an empty captured name is still a successful lookup."""
-    overlay = work / "negative-capture-name-core"
-    overlay.mkdir()
+    overlay = work / "negative-capture-name-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "typecheck.ax":
             (overlay / source.name).symlink_to(source)
@@ -280,8 +280,8 @@ def capture_name_negative_control(compiler, repo, env, work):
 
 def signature_tag_negative_control(compiler, repo, env, work):
     """Prove a present empty signature tag vector cannot become None."""
-    overlay = work / "negative-signature-tag-core"
-    overlay.mkdir()
+    overlay = work / "negative-signature-tag-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "typecheck.ax":
             (overlay / source.name).symlink_to(source)
@@ -312,8 +312,8 @@ def signature_tag_negative_control(compiler, repo, env, work):
 
 def struct_fields_negative_control(compiler, repo, env, work):
     """Prove the packed missing field slot becomes a real empty collection."""
-    overlay = work / "negative-struct-fields-core"
-    overlay.mkdir()
+    overlay = work / "negative-struct-fields-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "parser.ax":
             (overlay / source.name).symlink_to(source)

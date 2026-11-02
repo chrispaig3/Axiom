@@ -18,8 +18,8 @@ def check(compiler, root, work):
     expected = [f'{index} true' for index in range(1, 37)]
 
     def modules(label, contents):
-        directory = work / (label + '-modules')
-        directory.mkdir()
+        directory = work / (label + '-modules/core')
+        directory.mkdir(parents=True)
         for path in (root / 'core').iterdir():
             destination = directory / path.name
             if path.name == 'typecheck.ax':

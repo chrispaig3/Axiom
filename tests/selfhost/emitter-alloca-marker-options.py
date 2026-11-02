@@ -51,8 +51,8 @@ def check(compiler, root, work):
     }
 
     def modules(label, text):
-        directory = work / (label + '-modules')
-        directory.mkdir(exist_ok=True)
+        directory = work / (label + '-modules/core')
+        directory.mkdir(parents=True, exist_ok=True)
         (directory / 'codegen.ax').write_text(text + BRIDGE)
         return dict(env, AXIOM_PATH=os.pathsep.join((str(directory), str(root / 'core'))))
 

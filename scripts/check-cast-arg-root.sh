@@ -354,12 +354,20 @@ cast_count="$(git -C "$repo_root" grep -h -o '(as ' -- stdlib tests examples ':!
 # Alloca-marker, formatter-flat and REPL history Option fixtures add seven
 # live-owner header observations under MM-VAL-23. The retired line-buffer
 # fixture removes five; production and standard-library casts add none.
+# The erasure refusal adds 16 cast subjects in 1510, three LSP subjects,
+# and 40 diagnostic-golden quotations. Four obsolete forging/intern casts
+# and one nested-vector null test leave; explain adds two quotations.
+# Relative to the measured 1523 at 220aa40c this is 1579. Under MM-VAL-23,
+# the new executable casts test the refusal itself; the remaining additions
+# are diagnostic text. No production erasure is added.
+# The prune-owner identity check uses addrOf, removing two further casts
+# and bringing the pinned census to 1577.
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 1527 ]; then
-  ok "user-level (cast count $cast_count <= 1527)"
+elif [ "$cast_count" -le 1577 ]; then
+  ok "user-level (cast count $cast_count <= 1577)"
 else
-  bad "user-level (cast count $cast_count > 1527): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 1577): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. type-preserving casts keep ownership ---"

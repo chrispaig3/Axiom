@@ -133,8 +133,8 @@ def check(compiler, root, work):
         "    ((Ok text) text)\n"
         "    ((Err _) \"\")))"
     ) + source[end:]
-    modules = work / "erased-error-core"
-    modules.mkdir()
+    modules = work / "erased-error-core/core"
+    modules.mkdir(parents=True)
     for path in (root / "core").iterdir():
         dest = modules / path.name
         if path.name == "pkg.ax":

@@ -73,8 +73,8 @@ def check(axiom, repo, work):
                 env=env, stdout=work / 'fmt.stdout', stderr=work / 'fmt.stderr')
 
     def build_run(label, level, source, negative=()):
-        modules = work / f'{label}-modules'
-        modules.mkdir(exist_ok=True)
+        modules = work / f'{label}-modules/core'
+        modules.mkdir(parents=True, exist_ok=True)
         for path in (repo / 'core').iterdir():
             destination = modules / path.name
             if path.name == 'codegen.ax':
@@ -116,7 +116,7 @@ def check(axiom, repo, work):
         failures = build_run(label, 0, mutated, cases)
         report['counterexamples'].append({'name': label, 'failed_cases': sorted(failures)})
         print(f'ok   counterexample {label}: cases {sorted(failures)} fail', flush=True)
-    local = dict(env, AXIOM_PATH=str(work / 'positive-O0-modules'))
+    local = dict(env, AXIOM_PATH=str(work / 'positive-O0-modules/core'))
     for label, body, code in [
         ('raw-module-owner', '(let cg newCG) (set cg.curModule "raw") 0', 'AX3004'),
         ('raw-lambda-row', '(let cg newCG) (vecPush cg.pendingLams 42) 0', 'AX3004'),

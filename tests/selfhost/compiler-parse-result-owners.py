@@ -91,8 +91,8 @@ def main():
                 end = text.index("\n\n", start)
                 body = text[start:end]
                 assert body.count(old) == 1, (name, body.count(old))
-                overlay = work / (name + "-core")
-                overlay.mkdir()
+                overlay = work / (name + "-core/core")
+                overlay.mkdir(parents=True)
                 changed = text[:start] + body.replace(old, new) + text[end:]
                 for path in (root / "core").iterdir():
                     if path.name == module:

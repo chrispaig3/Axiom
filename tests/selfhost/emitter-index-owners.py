@@ -41,8 +41,8 @@ def check(axiom, repo, work):
         source.write_text(fixture)
         run_checked([str(axiom), '--diagnostic-format=ai', 'fmt', '--check', str(source)],
                     env=env, stdout=work / f'{label}.fmt.stdout', stderr=work / f'{label}.fmt.stderr')
-        modules = work / f'{label}-modules'
-        modules.mkdir(exist_ok=True)
+        modules = work / f'{label}-modules/core'
+        modules.mkdir(parents=True, exist_ok=True)
         for path in (repo / 'core').iterdir():
             destination = modules / path.name
             if path.name == 'codegen.ax':

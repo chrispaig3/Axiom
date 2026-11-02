@@ -63,8 +63,8 @@ def main():
                "typecheck_sha256": source_hash, "baseline_diagnostics_sha256": hashlib.sha256(BASE_DIAGNOSTICS.encode()).hexdigest(), "cases": COUNT, "levels": [], "refusals": [], "negative_controls": []}
     with tempfile.TemporaryDirectory(prefix="axiom-unsafe-site-options-") as directory:
         work = Path(directory)
-        candidate_core = work / "candidate-core"
-        candidate_core.mkdir()
+        candidate_core = work / "candidate-core/core"
+        candidate_core.mkdir(parents=True)
         for path in (root / "core").iterdir():
             if path.is_file() and path.name != "typecheck.ax":
                 (candidate_core / path.name).symlink_to(path)

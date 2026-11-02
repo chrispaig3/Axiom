@@ -294,7 +294,7 @@ def check(axiom, repo, source_root, work):
 
     def build_run(label, level, source, emitter=codegen, negative=()):
         stdlib = private_stdlib(work / (label + '-stdlib'), source_root, source)
-        modules = private_modules(work / (label + '-modules'), source_root, emitter)
+        modules = private_modules(work / (label + '-modules/core'), source_root, emitter)
         local = dict(env, AXIOM_PATH=str(modules), AXIOM_STDLIB=str(stdlib), AXIOM_STDLIB_PATH=str(stdlib))
         binary = work / label
         run_checked([str(axiom), '--diagnostic-format=ai', 'build', str(fixture),

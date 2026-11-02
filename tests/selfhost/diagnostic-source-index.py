@@ -29,8 +29,8 @@ def check(compiler, root, work):
                          'Numeric span ABI and remaining nullable source String guards are outside this change.']}
 
     def modules(label, texts):
-        folder = work / (label + '-modules')
-        folder.mkdir(exist_ok=True)
+        folder = work / (label + '-modules/core')
+        folder.mkdir(parents=True, exist_ok=True)
         for path in (root / 'core').iterdir():
             dest = folder / path.name
             if path.name in texts:

@@ -5,6 +5,7 @@
 (import Vec)
 (import IO)
 (import Fmt)
+(import Mem)
 
 (:: say (-> Int Bool ()))
 ;@axiom:effect(io)
@@ -202,7 +203,7 @@
     (let cg inputCG)
     (let before (renderCG cg))
     (let result (pruneDeadDefs cg))
-    (say 1 (== (as result Int) (as cg Int)))
+    (say 1 (addrEq (addrOf result) (addrOf cg)))
     (say 2 (== (vecLen (probeLines cg)) 23))
     (say 3 (strEq (renderCG cg) before))
   })

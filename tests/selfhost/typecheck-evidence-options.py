@@ -113,8 +113,8 @@ def check(compiler, root, work):
                                'This bounded evidence does not establish global soundness, Rust parity or certification.']}
 
     def modules(label, contents):
-        directory = work / (label + '-modules')
-        directory.mkdir()
+        directory = work / (label + '-modules/core')
+        directory.mkdir(parents=True)
         for path in (root / 'core').iterdir():
             destination = directory / path.name
             if path.name == 'typecheck.ax':

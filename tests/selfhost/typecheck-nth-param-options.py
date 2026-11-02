@@ -86,8 +86,8 @@ def main():
                 body = text[start:end]
                 assert body.count(old) == 1, (name, body.count(old))
                 changed = text[:start] + body.replace(old, new) + text[end:]
-                overlay = work / (name + "-core")
-                overlay.mkdir()
+                overlay = work / (name + "-core/core")
+                overlay.mkdir(parents=True)
                 for path in (root / "core").iterdir():
                     if path.name == module:
                         (overlay / path.name).write_text(changed)

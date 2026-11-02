@@ -52,8 +52,8 @@ def check(compiler, root, work):
     for label, body, required in [('old-owner-park', '(wordParts flow)', {2, 5, 7}),
                                    ('count-every-field', '(wordPart flow)', {11}),
                                    ('old-weak-park', None, {13})]:
-        modules = work / (label + '-modules')
-        modules.mkdir()
+        modules = work / (label + '-modules/core')
+        modules.mkdir(parents=True)
         if body is None:
             begin = original.index('(pub fn (argumentWordFlow ')
             end = original.index('; The declared type node ', begin)

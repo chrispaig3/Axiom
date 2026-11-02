@@ -117,8 +117,8 @@ def check(axiom, repo, source_root, work, controls_only=False):
                 env=env, stdout=work / "fixture.fmt.stdout", stderr=work / "fixture.fmt.stderr")
 
     def build_run(label, level, source, negative=()):
-        modules = work / f'{label}-modules'
-        modules.mkdir(exist_ok=True)
+        modules = work / f'{label}-modules/core'
+        modules.mkdir(parents=True, exist_ok=True)
         for path in (source_root / 'core').iterdir():
             destination = modules / path.name
             if path.name == 'codegen.ax':

@@ -40,8 +40,8 @@ def check(compiler, root, work):
     }
 
     def modules(label, changes):
-        folder = work / (label + '-modules')
-        folder.mkdir()
+        folder = work / (label + '-modules/core')
+        folder.mkdir(parents=True)
         for path in (root / 'core').iterdir():
             output = folder / path.name
             if path.stem in changes:

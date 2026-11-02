@@ -34,8 +34,8 @@ def check(compiler, root, work, baseline=None):
                          'No held lifetime analysis work is read, changed or validated.']}
 
     def modules(label, texts):
-        folder = work / (label + '-modules')
-        folder.mkdir(exist_ok=True)
+        folder = work / (label + '-modules/core')
+        folder.mkdir(parents=True, exist_ok=True)
         for path in (root / 'core').iterdir():
             dest = folder / path.name
             if path.name in texts:

@@ -63,8 +63,8 @@ def check(compiler, root, work):
     }
 
     def build_run(label, level, text, failures=(), expected_fault=False):
-        modules = work / (label + '-modules')
-        modules.mkdir(exist_ok=True)
+        modules = work / (label + '-modules/core')
+        modules.mkdir(parents=True, exist_ok=True)
         (modules / 'codegen.ax').write_text(text + BRIDGE)
         local = dict(env, AXIOM_PATH=os.pathsep.join((str(modules), str(root / 'core'))))
         program = work / (label + '.ax')
@@ -147,7 +147,7 @@ def check(compiler, root, work):
     layout_outcomes(binary, local, 'unchecked-required-layout', expected_status=0)
     report['counterexamples'].append({'name': 'unchecked-required-layout', 'invalid_layout_modes_accepted': ['fields', 'shape']})
     print('ok   counterexample unchecked-required-layout: both missing-layout modes lose AX4002', flush=True)
-    local = dict(env, AXIOM_PATH=os.pathsep.join((str(work / 'positive-O0-modules'), str(root / 'core'))))
+    local = dict(env, AXIOM_PATH=os.pathsep.join((str(work / 'positive-O0-modules/core'), str(root / 'core'))))
     for label, body, code in [
         ('raw-metadata-vector', '(:: bad (-> TypeEntry Nodes)) (fn (bad entry) (eStructFields entry))', 'AX3004'),
         ('raw-field-type', '(:: bad (-> TypeEntry ASTNode)) (fn (bad entry) (fieldTypeNode entry 0))', 'AX3004'),

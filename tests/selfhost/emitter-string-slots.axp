@@ -38,6 +38,7 @@
 
 (:: resultChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (resultChecks)
   {
     (let cg newCG)
@@ -77,6 +78,7 @@
 
 (:: emissionChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (emissionChecks)
   {
     (let cg newCG)
@@ -97,6 +99,7 @@
 
 (:: preallocatedChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (preallocatedChecks)
   {
     (let cg newCG)
@@ -149,6 +152,7 @@
 
 (:: castChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (castChecks)
   {
     (let cg newCG)
@@ -161,6 +165,7 @@
 
 (:: argsChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (argsChecks)
   {
     (let cg newCG)
@@ -197,6 +202,7 @@
 
 (:: argsPreallocatedChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (argsPreallocatedChecks)
   {
     (let cg newCG)
@@ -220,6 +226,7 @@
 
 (:: argsEmissionChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (argsEmissionChecks)
   {
     (let listCG newCG)

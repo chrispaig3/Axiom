@@ -63,8 +63,8 @@ def run_case(compiler, repo, env, work, case, negative):
         raise SystemExit(f"{name} refusal: status={checked.returncode}\n{checked.stdout}{checked.stderr}")
     if not negative:
         return
-    overlay = work / f"negative-{name}-core"
-    overlay.mkdir()
+    overlay = work / f"negative-{name}-core/core"
+    overlay.mkdir(parents=True)
     for source in (repo / "core").iterdir():
         if source.is_file() and source.name != "typecheck.ax":
             (overlay / source.name).symlink_to(source)

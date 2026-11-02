@@ -113,6 +113,7 @@
 
 (:: stringOwnerChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (stringOwnerChecks)
   {
     (let value (strDup "externally-held-name"))
@@ -219,6 +220,7 @@
 
 (:: summaryChecks ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (summaryChecks)
   {
     (let cg newCG)

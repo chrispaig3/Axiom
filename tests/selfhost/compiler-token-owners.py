@@ -82,8 +82,8 @@ def main():
             for name, module, old, new, source in controls:
                 text = originals[module]
                 assert text.count(old) == 1, (name, text.count(old))
-                overlay = work / (name + "-core")
-                overlay.mkdir()
+                overlay = work / (name + "-core/core")
+                overlay.mkdir(parents=True)
                 for path in (root / "core").iterdir():
                     if path.name == module:
                         (overlay / path.name).write_text(text.replace(old, new))
