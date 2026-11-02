@@ -59,7 +59,7 @@ def main():
         for name, (return_type, expression, code) in refusals.items():
             source = work / f"{name}.ax"
             effect = ";@axiom:effect(io)\n" if name in ("preflight", "cache-result") else ""
-            source.write_text("(import core)\n(import lsp)\n(import Cereal)\n"
+            source.write_text("(import core)\n(import lsp)\n(import jsonrpc)\n"
                               f"(:: bad {return_type})\n{effect}"
                               f"(fn (bad) {expression})\n"
                               "(:: main Int) (fn (main) 0)\n")

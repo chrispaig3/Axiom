@@ -6,7 +6,7 @@
 (import expand)
 (import symbols)
 (import lsp)
-(import Cereal)
+(import jsonrpc)
 (import Vec)
 (import Str)
 (import Mem)

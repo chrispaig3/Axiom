@@ -1,6 +1,6 @@
 (import core)
 (import lsp)
-(import Cereal)
+(import jsonrpc)
 (import Vec)
 (import Str)
 (import IO)

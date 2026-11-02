@@ -3,7 +3,7 @@
 (import Sys)
 (import IO)
 (import Vec)
-(import Cereal)
+(import jsonrpc)
 
 (:: same (-> String String))
 (fn (same value)

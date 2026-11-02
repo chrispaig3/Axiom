@@ -57,7 +57,7 @@ def main():
         library = work / 'stdlib'
         shutil.copytree(Path(os.environ.get('AXIOM_STDLIB', ROOT / 'stdlib')).resolve(), library)
         (library / 'InternalProbeFixture.ax').write_text(
-            '(import Internal.Wait)\n(import Internal.Mapping)\n(import Internal.Platform)\n(import Internal.ProcessRaw)\n(import Internal.CryptoBytes)\n(import Internal.CryptoCt)\n(import Internal.Intern)\n' + transformed)
+            '(import Internal.Wait)\n(import Internal.Mapping)\n(import Internal.Platform)\n(import Internal.ProcessRaw)\n(import Internal.CryptoBytes)\n(import Internal.CryptoCt)\n(import Internal.Intern)\n(import Internal.CerealJson)\n' + transformed)
         entry = work / 'probe.ax'
         entry.write_text('(import InternalProbeFixture)\n' + entry_tags +
                          '(fn (main) internalProbeMain)\n')

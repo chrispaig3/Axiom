@@ -9,7 +9,7 @@
 (import Vec)
 (import Err)
 (import IO)
-(import Cereal)
+(import jsonrpc)
 
 (:: say (-> Int Bool ()))
 ;@axiom:effect(io)

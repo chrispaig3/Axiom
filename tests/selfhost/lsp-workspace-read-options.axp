@@ -5,7 +5,7 @@
 (import lexer)
 (import parser)
 (import diag)
-(import Cereal)
+(import jsonrpc)
 (import Str)
 (import Vec)
 (import IO)

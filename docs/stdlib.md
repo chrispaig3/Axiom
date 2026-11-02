@@ -559,12 +559,9 @@ Every decode and encode is bounded by `CerealLimits`: nesting depth,
 bytes and nodes. `cerealLimits` gives the defaults (depth 64, 1 MiB,
 100,000 nodes); the `...With` forms take your own.
 
-The `json*` functions are the older handle interface, kept for
-JSON-RPC: `jsonParse` returns a handle or 0, `jsonGet` returns 0 for an
-absent member, and `jsonGetInt` and `jsonGetStr` return 0 or an empty
-string for a missing value. For a raw object, `jsonFind` returns `Some`
-for a present member, including `null`. It returns `None` for an absent
-member or a value that is not an object. Prefer `CerealValue` in new code.
+Raw JSON handles belong to the internal library and the compiler's
+JSON-RPC implementation. Public programs use `CerealValue`; passing an
+address to its accessors is a type error.
 
 API: [Cereal](stdlib-api.md#cereal). Tested by
 `tests/stdlib/705-cereal.ax` and `tests/stdlib/706-cereal-yaml.ax`.

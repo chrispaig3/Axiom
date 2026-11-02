@@ -2,7 +2,7 @@
 (import lexer)
 (import parser)
 (import lsp)
-(import Cereal)
+(import jsonrpc)
 (import Str)
 (import Vec)
 (import IO)

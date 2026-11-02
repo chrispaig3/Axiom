@@ -289,9 +289,8 @@ the neighbourhood of the corpus.
 
 ## Known defects
 
-- Public raw-address interfaces remain in legacy JSON and low-level
-  crypto. For example, `Cereal.jsonInt` and `Crypto.Secret.secretFromAddr` accept
-  unchecked addresses (`MM-EXEC-9d`, [roadmap](roadmap.md)). Clock reads take no
+- Public raw-address interfaces remain in low-level crypto. For example,
+  `Crypto.Secret.secretFromAddr` accepts unchecked addresses (`MM-EXEC-9d`, [roadmap](roadmap.md)). Clock reads take no
   address and release their own scratch storage
   (`tests/stdlib/1005-clock-owned-scratch.ax`). Entropy returns owned
   bytes; its address-taking fills are internal
@@ -312,6 +311,8 @@ the neighbourhood of the corpus.
   constant-time address kernels are internal
   (`tests/diagnostics/1520-crypto-byte-addresses.ax`). Interners use counted
   `InternState` owners (`tests/diagnostics/1521-intern-addresses.ax`).
+  Cereal exposes typed values; legacy JSON storage is internal
+  (`tests/diagnostics/1533-cereal-addresses.ax`).
 - Generic match-arm captures with unknown reference types and scoped
   recovery wrappers can retain their outer owners. Concrete reference
   captures reclaim their shares, including a captured `File`.

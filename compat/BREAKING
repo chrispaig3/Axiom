@@ -2061,3 +2061,26 @@
 0.8.1  S  InternState  sealed storage moves behind an alias to the internal owner
 
 0.8.1  L  closure-map-capacity  AX3029 refuses more than 46 closure capture slots, including scalar values and hidden evidence; group captures in a typed struct
+
+0.8.1  F  jsonArr  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonArrGet  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonArrLen  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonArrPush  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonBool  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonBoolVal  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonFind  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonGet  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonGetInt  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonGetStr  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonInt  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonIsNull  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonNull  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonNum  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonNumText  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonObj  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonObjLen  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonObjPut  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonParse  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonStr  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonStrVal  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+0.8.1  F  jsonWrite  raw JSON storage is internal; use CerealValue and the typed Cereal codecs

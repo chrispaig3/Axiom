@@ -34,3 +34,5 @@ tests/crypto/230-chacha20.ax
 # Interner implementation/layout probes.
 tests/stdlib/404-container-reference-maps.ax
 tests/selfhost/emitter-binder-summary.py
+tests/stdlib/340-json.ax
+tests/stdlib/485-json-mutation.ax

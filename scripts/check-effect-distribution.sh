@@ -498,6 +498,9 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 # typed Crypto.Random import reaches 82 more rows: its random operations and
 # byte/constant-time helpers. entropyAvailable adds one Entropy,Mut row to the
 # full library view; the public randomAvailable wrapper keeps its effects.
+# Legacy JSON moves to Internal.CerealJson and the compiler owns jsonrpc.
+# The library relocates 62 rows unchanged; the compiler replaces 164 Cereal
+# rows with 62 JSON rows. Every surviving row keeps its effects.
 # Closure layout checking and concrete pattern capture ownership add twelve
 # compiler helpers; existing compiler rows and all library rows are unchanged.
 # Directory names grant no erasure exemption. The compiler now records Unsafe
@@ -505,14 +508,14 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 # membership is unchanged for every surviving function, and the library view
 # is unchanged. Removing three path helpers removes two Alloc,Mut rows and
 # one pure row; erasureNeedsUnsafe moves from Alloc,Mut to pure.
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3544 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3479 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 501 "Alloc,IO,Mut"
 # The explicit platform facade adds 179 rows; implementation rows keep their
 # effects (same-compiler comparison). Constants carry their syscall refinements.
 # Clock/wait/mapping extraction preserves existing rows. The shared clock
 # capability adds one Mut row; LSP's own mapping boundary adds two Alloc,IO,Unsafe.
-have "$(bucket "$work/main.axsym" 'Mut')" 298 "exactly Mut"
-have "$(bucket "$work/main.axsym" 'Alloc')" 474 "exactly Alloc"
+have "$(bucket "$work/main.axsym" 'Mut')" 291 "exactly Mut"
+have "$(bucket "$work/main.axsym" 'Alloc')" 464 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 26 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 13 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 5 "IO,Mut"
@@ -547,10 +550,10 @@ have "$(bucket "$work/main.axsym" 'Alloc,Block,IO,Mut')" 18 "Alloc,Block,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Block,IO')" 2 "Alloc,Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO')" 1 "Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO,Mut')" 1 "Block,IO,Mut"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2557 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2539 "pure (neither row nor mark)"
 have "$(grep '^F ' "$work/main.axsym" | grep -o '#effects=[^ #]*' | LC_ALL=C sort -u | wc -l | tr -d ' ')" 36 "distinct compiler effect rows"
-have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 54 "incomplete rows"
-have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 42 "effect-params rows"
+have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 41 "incomplete rows"
+have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 39 "effect-params rows"
 
 echo
 # Par -> Task shares the handle helpers: one Unsafe and two pure rows

@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Cereal exposes typed values and codecs. Its 22 legacy JSON operations
+  move behind the internal library boundary. Compiler JSON-RPC keeps
+  its missing/null and numeric behaviour in its own raw storage layer.
+  Tested by `tests/diagnostics/1533-cereal-addresses.ax` and
+  `tests/selfhost/verify-jsonrpc-source.py`.
+
 - Closures over concrete reference binders in match arms retain and
   release their own capture shares. Matched wrappers can reclaim, and
   captured resources close after the final share. Generic captures and

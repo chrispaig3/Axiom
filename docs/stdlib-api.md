@@ -1656,37 +1656,13 @@ Intern - owned string interning with dense identifiers.
 
 ## `Cereal`
 
-`stdlib/Cereal.ax` — 50 public names
+`stdlib/Cereal.ax` — 28 public names
 
-Cereal — typed serialisation for JSON, TOML and YAML.
+Cereal - typed serialisation for JSON, TOML and YAML.
 Codecs share CerealValue and return Result with explicit resource limits.
-The json* functions retain the raw-handle migration API for JSON-RPC.
-Raw consumers require live Cereal handles; new code uses typed values.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
-| `jsonNull` | value | `Int` | `Alloc,Mut` |  | The JSON `null` value. |
-| `jsonBool` | value | `(-> Int Int)` | `Alloc,Mut` |  | A JSON boolean: `true` for a non-zero `b`, `false` for 0. |
-| `jsonNum` | value | `(-> Int Int)` | `Alloc,Mut` |  | A number from an integer. The raw text is rendered from the value, so `jsonNumText` is total for constructed values as well as parsed ones. |
-| `jsonStr` | value | `(-> String Int)` | `Alloc,Mut` |  | A JSON string holding `s`. |
-| `jsonArr` | value | `Int` | `Alloc,Mut` |  | An empty JSON array; add to it with `jsonArrPush`. |
-| `jsonObj` | value | `Int` | `Alloc,Mut` |  | An empty JSON object; add to it with `jsonObjPut`. |
-| `jsonIsNull` | value | `(-> Int Bool)` |  |  | Whether the value is JSON `null`. |
-| `jsonBoolVal` | value | `(-> Int Int)` |  |  | A JSON boolean as 1 or 0, and 0 for any other value. |
-| `jsonInt` | value | `(-> Int Int)` |  |  | The integer value of a number, and 0 for any other value. Test `jsonTag` first when 0 must mean the number. |
-| `jsonNumText` | value | `(-> Int String)` |  |  | A JSON number as the text it was written with, and empty for any other value. |
-| `jsonStrVal` | value | `(-> Int String)` |  |  | A JSON string's text, and empty for any other value. |
-| `jsonArrLen` | value | `(-> Int Int)` |  |  | How many elements a JSON array holds, and 0 for any other value. |
-| `jsonArrGet` | value | `(-> Int Int Int)` |  |  | Element `i` of a JSON array, or JSON `null` when `v` is not an array or `i` is out of range. |
-| `jsonArrPush` | value | `(-> Int Int Int)` | `Alloc,Mut` |  | Append `x` to a JSON array. Any other value is left alone. Answers `v`. |
-| `jsonObjLen` | value | `(-> Int Int)` |  |  | How many members a JSON object holds, and 0 for any other value. |
-| `jsonObjPut` | value | `(-> Int String Int Int)` | `Alloc,Mut` |  | Add the member `key` with value `x` to a JSON object. A repeated key is appended, not replaced, and `jsonGet` answers the first. |
-| `jsonGet` | value | `(-> Int String Int)` |  |  | The value under `key` in a JSON object, or 0 when there is none. `jsonIsNull` answers true for both, so compare against 0 to tell an absent member from one set to `null`. |
-| `jsonFind` | value | `(-> Int String (Option Int))` | `Alloc` |  | The value under `key` in a JSON object. `None` means the key is absent or the value is not an object; `Some jsonNull` means explicit `null`. A repeated key returns its first member. |
-| `jsonGetInt` | value | `(-> Int String Int)` |  |  | The integer under `key` in a JSON object, or 0 when the key is absent or not a number. |
-| `jsonGetStr` | value | `(-> Int String String)` |  |  | The string under `key` in a JSON object, or empty when the key is absent or not a string. |
-| `jsonWrite` | value | `(-> Int String)` | `Alloc,Mut` |  | The value as JSON text, on one line with no spaces, strings escaped as JSON requires. |
-| `jsonParse` | value | `(-> String Int)` | `Alloc,Mut` |  | Parse a whole document: one value, then nothing but whitespace. Answers 0 on any error, which is why every accessor tolerates 0. |
 | `CerealValue` | data |  |  |  | A parsed document from any of the three formats: null, a boolean, an integer, a float, text, a list or an object of `CerealMember`s. |
 | `CerealMember` | struct |  |  |  | One `key: value` member of a `CObject`. |
 | `CerealFormat` | data |  |  |  | Which text format to read or write: JSON, TOML or YAML. |

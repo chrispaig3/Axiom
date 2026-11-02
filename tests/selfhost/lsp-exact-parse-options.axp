@@ -1,7 +1,7 @@
 (import core)
 (import parser)
 (import lsp)
-(import Cereal)
+(import jsonrpc)
 (import Vec)
 (import Str)
 (import IO)

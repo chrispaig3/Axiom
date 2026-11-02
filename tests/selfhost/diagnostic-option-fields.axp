@@ -2,7 +2,7 @@
 (import diag)
 (import render)
 (import lsp)
-(import Cereal)
+(import jsonrpc)
 (import Str)
 (import Vec)
 (import IO)

@@ -584,7 +584,10 @@ echo "--- 4. the compiler's erasures do not grow ---"
 # Typed test-runner records and file paths remove three erasures: 243 to
 # 240 with the same compiler. The previous 247 pin included four sites
 # already removed or reclassified before this migration.
-erasure_pin=240
+# Shared closure-layout selection adds two explicit nullable-vector checks.
+# Both are compiler-only, declared unsafe, and counted by the same erasure rule.
+# The raw JSON extraction adds no compiler erasures.
+erasure_pin=242
 erasure_sum() {  # <axsym> -> the #erasures= total over core/ rows
   awk '$1 == "F" && index($3, "core/") == 1 {
          for (i = 4; i <= NF; i++)

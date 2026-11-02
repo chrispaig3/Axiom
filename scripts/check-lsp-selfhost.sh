@@ -575,6 +575,8 @@ bless="${AXIOM_BLESS:-0}"
 # The server under test is built FROM SOURCE by `$axiom`, not `$axiom`
 # itself: this gate exists to watch core/, and `$axiom` may be an
 # older seed-descended binary that predates the change being tested.
+python3 tests/selfhost/verify-jsonrpc-source.py || exit 1
+
 gate_build_axc stage1
 python3 "$repo_root/tests/lsp/bucket-options.py" --axiom "$stage1" || exit 1
 

@@ -6,7 +6,7 @@
 (import diag)
 (import Vec)
 (import Str)
-(import Cereal)
+(import jsonrpc)
 (import IO)
 
 (:: say (-> Int Bool ()))

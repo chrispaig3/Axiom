@@ -61,7 +61,7 @@
     pollerAddSignals pollerToken pollerSignal))
 (import Err)
 (import Path)
-(import Cereal)
+(import jsonrpc)
 (import Rpc)
 (import lexer)
 (import parser)

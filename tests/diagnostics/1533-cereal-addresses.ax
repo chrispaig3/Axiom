@@ -1,0 +1,46 @@
+; Raw JSON storage is private; public Cereal operations require typed values.
+(import Cereal)
+
+(:: readAddress (-> Int Int))
+(fn (readAddress address)
+  (jsonInt address))
+
+(:: stringAddress (-> Int String))
+(fn (stringAddress address)
+  (jsonStrVal address))
+
+(:: arrayAddress (-> Int Int))
+(fn (arrayAddress address)
+  (jsonArrGet address 0))
+
+(:: objectAddress (-> Int Int))
+(fn (objectAddress address)
+  (jsonGet address "field"))
+
+(:: writeAddress (-> Int String))
+(fn (writeAddress address)
+  (jsonWrite address))
+
+(:: mutateAddress (-> Int Int))
+(fn (mutateAddress address)
+  (jsonObjPut address "field" address))
+
+(:: parseAddress (-> String Int))
+(fn (parseAddress source)
+  (jsonParse source))
+
+(:: constructAddress Int)
+(fn (constructAddress)
+  jsonNull)
+
+(:: typedAddress (-> Int (Result Int Error)))
+(fn (typedAddress address)
+  (cerealInt address))
+
+(:: typedObjectAddress (-> Int (Option CerealValue)))
+(fn (typedObjectAddress address)
+  (cerealObjectGet address "field"))
+
+(:: main ())
+(fn (main)
+  ())

@@ -3,7 +3,7 @@
 (import parser)
 (import lsp)
 (import diag)
-(import Cereal)
+(import jsonrpc)
 (import Vec)
 (import Str)
 (import IO)
