@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Raw socket address builders and readers are internal. Use `Net.SocketAddr`
+  and its accessors; `socketAddrBytes` returns an independent copy for IO.
+  Tested by `tests/diagnostics/1515-socket-addresses.ax` and
+  `tests/net/socket-address-layout.py`.
+
 - Signal masking takes only the mask. `sysSignalBlock` owns and releases
   its kernel buffer; `platformSignalBlock` also takes no caller address.
   Tested by `tests/stdlib/315-signal-in-poll.ax` and

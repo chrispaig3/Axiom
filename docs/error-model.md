@@ -152,7 +152,7 @@ sentinel:
 | Seeds a loop accumulator, such as `(let mut found (- 0 1))`; never an answer | 4 | `Str.strFind` (which already answers `(Option Int)`), `rdFindHeaderEnd`, `rdContentLength`, `rpcRead` |
 | A private helper below a wrapper that already answers `Option`, keeping `-1` on the recursion (§10's rule for `internFindFrom`) | 4 | `internFindFrom` (twice), `pathLastSlashFrom`, `pathLastDotFrom` |
 | `Map.ax`'s private probe walk below `mapGet`, whose absent-key answer is a caller-supplied default and not a sentinel | 4 | `mapFindSlot`, `mapFindLoop` (twice), `mapInsertNoGrow` |
-| Passes `-1` as an argument, or sets a local to it, in `Sys` and `Internal.Entropy` | 3 | `netAddrText`'s zero-run seed, `sysSignalOpenRaw`'s syscall slot, `Internal.Entropy.sysRandomBytes`' `(set rc (- 0 1))` |
+| Passes `-1` as an argument, or sets a local to it, in `Sys`, `Internal.SocketAddress` and `Internal.Entropy` | 3 | `netAddrText`'s zero-run seed, `sysSignalOpenRaw`'s syscall slot, `Internal.Entropy.sysRandomBytes`' `(set rc (- 0 1))` |
 | A bitwise NOT written as XOR with all ones, `(^ x (- 0 1))` | 2 | `netSetBlocking`, `termFlagClear` |
 | `EVFILT_READ`, a kernel constant that happens to be -1 | 2 | `pollReadFilter` on Darwin and FreeBSD |
 | A private peek | 1 | `Cereal.ax`'s `jcPeek` |

@@ -17,6 +17,7 @@
 (import Sys)
 (import Err)
 (import Internal.Raw)
+(import Internal.SocketAddress)
 (import Internal.WindowsLiveness)
 (import Str)
 (import Vec)
@@ -2144,7 +2145,7 @@
 ;
 ; TCP over a `File`. `Net` types these as `TcpListener` and
 ; `TcpStream`; the calls here take the socket address as the bytes
-; `Sys.netAddr4` and `Sys.netAddr6` write, `netAddrMaxBytes` long, and
+; `Internal.SocketAddress.netAddr4` and `Internal.SocketAddress.netAddr6` write, `netAddrMaxBytes` long, and
 ; refuse anything else with EINVAL before a syscall.
 ;
 ; Every socket made here is blocking, closes on its last share, and

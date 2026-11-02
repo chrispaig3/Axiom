@@ -31,6 +31,7 @@
 ; Addresses are numeric. There is no resolver, because the only one a
 ; freestanding program could call is libc's.
 (import Internal.Raw)
+(import Internal.SocketAddress)
 (import Str)
 (import Vec)
 (import Err)
@@ -548,7 +549,7 @@
 
 ; Whether IPv6 address `p` is IPv4-mapped, `::ffff:a.b.c.d`: ten zero
 ; bytes and then two of 255 (RFC 4291 section 2.5.5.2). The sixteen
-; address bytes start at 8 in both layouts `Sys.netAddr6` writes.
+; address bytes start at 8 in both layouts `Internal.SocketAddress.netAddr6` writes.
 (:: mappedV4 (-> Int Bool))
 (fn (mappedV4 p)
   {
@@ -579,7 +580,7 @@
 ;; An IP address and a port: what a listener binds and a stream connects
 ;; to. Make one with `socketAddrNew` or `socketAddrParse`. It holds the
 ;; kernel's own `sockaddr` bytes, `netAddrMaxBytes` long, built by
-;; `Sys.netAddr4` and `Sys.netAddr6`. Sealed, so every SocketAddr is one
+;; `Internal.SocketAddress.netAddr4` and `Internal.SocketAddress.netAddr6`. Sealed, so every SocketAddr is one
 ;; this module built or the kernel answered.
 (pub struct SocketAddr sealed
   (bytes : String))
@@ -599,7 +600,7 @@
   })
 
 ; The IP address in `sockaddr` bytes at `p`: four bytes from offset 4
-; for IPv4, sixteen from offset 8 for IPv6, in both layouts `Sys` writes
+; for IPv4, sixteen from offset 8 for IPv6, in both layouts the internal builder writes
 ; and the kernel answers.
 (:: ipOfSock (-> Int IpAddr))
 (fn (ipOfSock p)
@@ -683,6 +684,12 @@
       (concat "[" (concat (ipTextOf p) (concat "]:" (fmtInt (netAddrPort p)))))
       (concat (ipTextOf p) (concat ":" (fmtInt (netAddrPort p)))))
   })
+
+;; A fresh copy of the platform sockaddr bytes for IO's checked socket calls.
+;; The copy owns its storage independently of this address and other copies.
+(pub :: socketAddrBytes (-> SocketAddr String))
+(pub fn (socketAddrBytes address)
+  (strDup address.bytes))
 
 ;; The IP address.
 (pub :: socketAddrIp (-> SocketAddr IpAddr))

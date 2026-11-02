@@ -79,6 +79,10 @@ command -v python3 >/dev/null 2>&1 || {
   echo "FAIL: python3 is needed to drive the connections"; exit 1
 }
 
+if ! python3 tests/net/socket-address-layout.py --axiom "$axiom"; then
+  status=1
+fi
+
 srv="$work/echo-server"
 "$axiom" build --input tests/net/echo-server.ax --output "$srv" >"$work/build.log" 2>&1 || {
   echo "FAIL: could not build tests/net/echo-server.ax"

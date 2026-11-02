@@ -1795,7 +1795,7 @@ values by identity.
 
 ## `Net`
 
-`stdlib/Net.ax` — 79 public names
+`stdlib/Net.ax` — 80 public names
 
 Net - TCP connections and IP addresses.
 
@@ -1834,10 +1834,11 @@ Net - TCP connections and IP addresses.
 | `ipUnspecifiedV4` | value | `IpAddr` | `Alloc` |  | `0.0.0.0`: bind a listener here to accept on every IPv4 interface. |
 | `ipUnspecifiedV6` | value | `IpAddr` | `Alloc` |  | `::`: bind a listener here to accept on every IPv6 interface. |
 | `ipBroadcast` | value | `IpAddr` | `Alloc` |  | `255.255.255.255`. |
-| `SocketAddr` | struct |  |  |  | An IP address and a port: what a listener binds and a stream connects to. Make one with `socketAddrNew` or `socketAddrParse`. It holds the kernel's own `sockaddr` bytes, `netAddrMaxBytes` long, built by `Sys.netAddr4` and `Sys.netAddr6`. Sealed, so every SocketAddr is one this module built or the kernel answered. |
+| `SocketAddr` | struct |  |  |  | An IP address and a port: what a listener binds and a stream connects to. Make one with `socketAddrNew` or `socketAddrParse`. It holds the kernel's own `sockaddr` bytes, `netAddrMaxBytes` long, built by `Internal.SocketAddress.netAddr4` and `Internal.SocketAddress.netAddr6`. Sealed, so every SocketAddr is one this module built or the kernel answered. |
 | `socketAddrNew` | value | `(-> IpAddr Port SocketAddr)` | `Alloc,Mut` |  | The socket address of `ip` and `port`. |
 | `socketAddrParse` | value | `(-> String (Result SocketAddr Error))` | `Alloc,Mut` |  | Read a socket address from text: `a.b.c.d:port` for IPv4, or `[ipv6]:port` with the brackets RFC 3986 section 3.2.2 requires, so the port can't be mistaken for a group. Only numeric addresses: there is no resolver. |
 | `socketAddrText` | value | `(-> SocketAddr String)` | `Alloc,Mut` |  | The address as text, `a.b.c.d:port` or `[ipv6]:port`, with the IP written as `ipText` writes it. |
+| `socketAddrBytes` | value | `(-> SocketAddr String)` | `Alloc,Mut` |  | A fresh copy of the platform sockaddr bytes for IO's checked socket calls. The copy owns its storage independently of this address and other copies. |
 | `socketAddrIp` | value | `(-> SocketAddr IpAddr)` | `Alloc,Mut` |  | The IP address. |
 | `socketAddrPort` | value | `(-> SocketAddr Int)` |  |  | The port. |
 | `socketAddrWithPort` | value | `(-> SocketAddr Port SocketAddr)` | `Alloc,Mut` |  | The same address with port `port`. |
@@ -2012,7 +2013,7 @@ A mutual-exclusion lock between `parallel` bindings, in both lowerings
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 50 public names
+`stdlib/Sys.ax` — 43 public names
 
 Sys - portable syscall wrappers.
 
@@ -2042,13 +2043,6 @@ Sys - portable syscall wrappers.
 | `netAddr4Bytes` | value | `Int` |  |  | The size of an IPv4 socket address block, 16 bytes. |
 | `netAddr6Bytes` | value | `Int` |  |  | The size of an IPv6 socket address block, 28 bytes. |
 | `netAddrMaxBytes` | value | `Int` |  |  | The size of a buffer that takes either family, which is the larger of the two: a caller does not get to know a peer's family until it has the peer. |
-| `netAddr4` | value | `(-> Int Int Int Int Int Int Int)` | `Mut` |  | Write an IPv4 `sockaddr_in` into `buf`, which must hold 16 bytes, and answer `buf`. The four octets are given in reading order, so 127.0.0.1 is `127 0 0 1`. |
-| `netAddr6` | value | `(-> Int Int Int Int Int Int Int Int Int Int Int)` | `Mut` |  | Write an IPv6 `sockaddr_in6` into `buf`, which must hold `netAddr6Bytes`, and answer `buf`. |
-| `netAddrFamily` | value | `(-> Int Int)` |  |  | The address family in a `sockaddr` - `afInet`, `afInet6`, or whatever else the kernel wrote there. |
-| `netAddrPort` | value | `(-> Int Int)` |  |  | The port in a `sockaddr`, decoded from network order. This one does NOT branch on the platform or the family: both layouts diverge in the four bytes before it and agree from byte 2 on, so `sin_port` and `sin6_port` are the same two bytes in the same place. |
-| `netAddrSize` | value | `(-> Int Int)` |  |  | How many bytes of `addr` a syscall must be given, read off the family the buffer carries. This is what `IO.socketBind` and `IO.socketConnect` pass, and the reason neither of them takes a length. |
-| `netAddrText` | value | `(-> Int String)` | `Alloc,Mut` |  | Render an address as text: a dotted quad for `afInet`, RFC 5952 form for `afInet6`. |
-| `netAddrTextPort` | value | `(-> Int String)` | `Alloc,Mut` |  | The same, with the port, in the form a URL authority uses: `127.0.0.1:80` and `[::1]:80`. |
 | `netWouldBlock` | value | `(-> Int Bool)` |  |  | Whether a negative answer means "nothing to take yet" rather than a broken socket. This is the whole reason `eAgain` is a capability: the number is 35 on Darwin and 11 on Linux, so an event loop written against a literal runs correctly on the machine it was written on. |
 | `sysSigBit` | value | `(-> Int Int)` |  |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` |  | Block the signals in `mask` so they become observable instead of fatal. The call owns and releases 16 bytes of kernel scratch. It zeroes the whole platform sigset_t before writing the mask: 4 bytes on Darwin, 8 on Linux and 16 on FreeBSD, including FreeBSD's upper signal bits. Answers `Ok 0` on success. Call before a server forks so every worker inherits the mask. |

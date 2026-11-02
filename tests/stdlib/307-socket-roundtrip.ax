@@ -71,9 +71,8 @@
         ; differ, so check the bytes it writes: the family must land
         ; where this platform keeps it, and the port must be big-endian.
         {
-          (let b (strAlloc netAddrMaxBytes))
+          (let b (socketAddrBytes addr))
           {
-            (netAddr4 (strData b) port 127 0 0 1)
             (say
               (if (== sockaddrHasLenByte 1)
                 (&& (== (strByte b 0) 16) (== (strByte b 1) afInet))

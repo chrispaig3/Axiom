@@ -1966,3 +1966,10 @@
 0.8.1  F  sysChildPollBytes  scratch sizing is private; sysChildExited needs no caller allocation
 0.8.1  F  sysSignalBlock  takes only the signal mask; the call owns and releases its kernel scratch buffer
 0.8.1  F  platformSignalBlock  takes only the signal mask; the unused caller-buffer argument is removed
+0.8.1  F  netAddr4  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.1  F  netAddr6  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.1  F  netAddrFamily  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.1  F  netAddrPort  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.1  F  netAddrSize  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.1  F  netAddrText  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls
+0.8.1  F  netAddrTextPort  internal; use Net.SocketAddr constructors and accessors, or socketAddrBytes for checked IO calls

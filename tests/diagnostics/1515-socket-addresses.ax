@@ -1,0 +1,32 @@
+; Raw sockaddr builders and readers cannot take caller-selected addresses.
+(import Sys)
+(import Net)
+(import IO)
+
+(:: writeV4 (-> Int Int))
+(fn (writeV4 address)
+  (netAddr4 address 80 127 0 0 1))
+
+(:: writeV6 (-> Int Int))
+(fn (writeV6 address)
+  (netAddr6 address 80 0 0 0 0 0 0 0 1))
+
+(:: familyAt (-> Int Int))
+(fn (familyAt address)
+  (netAddrFamily address))
+
+(:: portAt (-> Int Int))
+(fn (portAt address)
+  (netAddrPort address))
+
+(:: sizeAt (-> Int Int))
+(fn (sizeAt address)
+  (netAddrSize address))
+
+(:: textAt (-> Int String))
+(fn (textAt address)
+  (netAddrText address))
+
+(:: endpointAt (-> Int String))
+(fn (endpointAt address)
+  (netAddrTextPort address))

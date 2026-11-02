@@ -1,0 +1,29 @@
+0.0.0.0:0 -> 0.0.0.0
+ok   netAddrFamily reads afInet back out of a v4 address
+ok   a v4 address asks for 16 bytes
+ok   netAddr4Bytes is that same 16
+ok   the v4 family lands where this platform keeps it
+ok   port 0 reads back as 0
+255.255.255.255:65535 -> 255.255.255.255
+ok   port 65535 survives the big-endian round trip
+127.0.0.1:8080 -> 127.0.0.1:8080
+ok   a v4 address does not render as a v6 one
+:: (all zero) -> ::
+ok   netAddrFamily reads afInet6 back out of a v6 address
+ok   a v6 address asks for 28 bytes
+ok   netAddr6Bytes is that same 28
+ok   netAddrMaxBytes is the larger of the two
+ok   the v6 family lands where this platform keeps it
+::1:8080 -> [::1]:8080
+ok   a v6 port is the same two bytes in the same place
+ok   flowinfo is left zero
+ok   scope_id is left zero
+ok   the last group lands at byte 22, big-endian
+2001:db8::1 -> 2001:db8::1
+all ones -> ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+one zero group -> 1:0:2:3:4:5:6:7
+short run then long run -> 0:0:1::
+two runs of two -> 1::2:0:0:3:4
+trailing run -> 1::
+a zeroed buffer -> af=0
+ok   an unknown family takes sockaddr_in's length

@@ -560,7 +560,9 @@ done
 lrows="$(grep -c '^F ' "$work/lib.axsym" || true)"
 (( lrows >= 300 )) && ok "$lrows stdlib functions listed (floor 300)" \
   || fail "only $lrows stdlib functions listed; the floor is 300"
-have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 742 "exactly Alloc,Mut"
+# Socket address helpers move to Internal.SocketAddress with unchanged effects.
+# The owned byte-copy accessor adds one Alloc,Mut row (same-compiler comparison).
+have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 743 "exactly Alloc,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 320 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 180 "exactly Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc')" 189 "exactly Alloc"

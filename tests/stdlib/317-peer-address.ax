@@ -36,37 +36,15 @@
     (println (concat "ok   " label))
     (println (concat "FAIL " label))))
 
-; The kernel's `sockaddr` bytes for `a`, which IO's socket calls take.
-(:: rawOf (-> SocketAddr String))
-(fn (rawOf a)
-  {
-    (let b (strAlloc netAddrMaxBytes))
-    (let ip (socketAddrIp a))
-    (let port (socketAddrPort a))
-    {
-      (if (ipIsV6 ip)
-        {
-          (let g (ipSegments ip))
-          (netAddr6 (strData b) port (vecGet g 0) (vecGet g 1) (vecGet g 2) (vecGet g 3)
-            (vecGet g 4) (vecGet g 5) (vecGet g 6) (vecGet g 7))
-        }
-        {
-          (let o (ipOctets ip))
-          (netAddr4 (strData b) port (vecGet o 0) (vecGet o 1) (vecGet o 2) (vecGet o 3))
-        })
-      b
-    }
-  })
-
 ; A client socket bound to `from` and connected to `to`.
 (:: clientFrom (-> SocketAddr SocketAddr (Result File Error)))
 ;@axiom:effect(io)
 (fn (clientFrom from to)
   {
-    (let s (socketOpen (rawOf from))?)
+    (let s (socketOpen (socketAddrBytes from))?)
     (let _ (socketSetInt s solSocket soReuseAddr 1)?)
-    (let _ (socketBind s (rawOf from))?)
-    (let _ (socketConnect s (rawOf to))?)
+    (let _ (socketBind s (socketAddrBytes from))?)
+    (let _ (socketConnect s (socketAddrBytes to))?)
     (Ok s)
   })
 

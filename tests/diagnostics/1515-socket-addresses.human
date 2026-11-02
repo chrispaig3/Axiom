@@ -1,0 +1,64 @@
+[1;31merror[AX5002][0m[1m: `netAddr4` belongs to `Internal.SocketAddress`, which is internal to the standard library[0m
+ [1;34m--> [0m1515-socket-addresses.ax:8:4
+[1;34m  |[0m
+[1;34m8 |[0m   (netAddr4 address 80 127 0 0 1))
+[1;34m  |[0m    [1;31m^^^^^^^^ internal to the standard library[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `netAddr6` belongs to `Internal.SocketAddress`, which is internal to the standard library[0m
+  [1;34m--> [0m1515-socket-addresses.ax:12:4
+[1;34m   |[0m
+[1;34m12 |[0m   (netAddr6 address 80 0 0 0 0 0 0 0 1))
+[1;34m   |[0m    [1;31m^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `netAddrFamily` belongs to `Internal.SocketAddress`, which is internal to the standard library[0m
+  [1;34m--> [0m1515-socket-addresses.ax:16:4
+[1;34m   |[0m
+[1;34m16 |[0m   (netAddrFamily address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `netAddrPort` belongs to `Internal.SocketAddress`, which is internal to the standard library[0m
+  [1;34m--> [0m1515-socket-addresses.ax:20:4
+[1;34m   |[0m
+[1;34m20 |[0m   (netAddrPort address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `netAddrSize` belongs to `Internal.SocketAddress`, which is internal to the standard library[0m
+  [1;34m--> [0m1515-socket-addresses.ax:24:4
+[1;34m   |[0m
+[1;34m24 |[0m   (netAddrSize address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `netAddrText` belongs to `Internal.SocketAddress`, which is internal to the standard library[0m
+  [1;34m--> [0m1515-socket-addresses.ax:28:4
+[1;34m   |[0m
+[1;34m28 |[0m   (netAddrText address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `netAddrTextPort` belongs to `Internal.SocketAddress`, which is internal to the standard library[0m
+  [1;34m--> [0m1515-socket-addresses.ax:32:4
+[1;34m   |[0m
+[1;34m32 |[0m   (netAddrTextPort address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+compilation failed due to 7 previous errors
