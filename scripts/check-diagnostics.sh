@@ -377,7 +377,25 @@ for src in core/*.ax stdlib/*.ax stdlib/Sys/*.ax tests/stdlib/*.ax \
   # human-rendered warning on a clean-exit file would pass BOTH checks -
   # grep-empty and exit 0 - and this section would go blind to exactly
   # the class of report it exists to refuse.
-  out="$(cd "$work" && gate_fixture_axc ./axc --diagnostic-format=ai emit-llvm "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
+  # A target-suffixed file is checked under its own target. Under the
+  # host target its platform imports resolve to the host's stubs, so a
+  # Windows wrapper that delegates to `Internal.Platform` reads as an
+  # unsupported `effect(io)` claim (AX3010) for work its own target's
+  # implementation performs. The check stays a refusal either way: a
+  # diagnostic under the file's own target still fails the sweep.
+  sweep_target=""
+  sweep_base="$(basename "$src" .ax)"
+  sweep_suffix="${sweep_base#*.}"
+  if [[ "$sweep_suffix" != "$sweep_base" ]]; then
+    case "$sweep_suffix" in
+      darwin) sweep_target="--target darwin-aarch64" ;;
+      freebsd) sweep_target="--target freebsd-aarch64" ;;
+      windows) sweep_target="--target windows-x86_64" ;;
+      *-*) sweep_target="--target $sweep_suffix" ;;
+    esac
+  fi
+  # `$sweep_target` is empty or two words; the split is the point.
+  out="$(cd "$work" && gate_fixture_axc ./axc --diagnostic-format=ai $sweep_target emit-llvm "$src" 2>"$work/sweep.err" >/dev/null; echo "$?")"
   diags="$(axdl_only < "$work/sweep.err")"
   if ! gate_axdl_unknown_kind "$work/sweep.err"; then
     echo "FAIL $src (an AXDL line kind outside EWNH on the compiler's own source)"

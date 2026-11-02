@@ -7,14 +7,14 @@
   [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
   [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
-[1;31merror[AX3023][0m[1m: `sysCloseFd` is private to module `Sys`[0m
+[1;31merror[AX3001][0m[1m: undefined variable `sysCloseFd`[0m
   [1;34m--> [0m1225-descriptor-hole.ax:29:19
 [1;34m   |[0m
 [1;34m29 |[0m           (let _ (sysCloseFd (fileFd f)))
-[1;34m   |[0m                   [1;31m^^^^^^^^^^ `sysCloseFd` is not exported by its module[0m
+[1;34m   |[0m                   [1;31m^^^^^^^^^^ no binding named `sysCloseFd` in scope[0m
 [1;34m   |[0m
-  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
-  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
 
 [1;31merror[AX3004][0m[1m: type mismatch: expected IO::File, found Int[0m
   [1;34m--> [0m1225-descriptor-hole.ax:41:12
