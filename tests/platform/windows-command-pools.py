@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 
 
@@ -68,6 +69,7 @@ BRIDGE = """(import Internal.WindowsCommands)
 (import WindowsSpawnTest)
 (import WindowsTask)
 (import Sys)
+(import Internal.ProcessRaw)
 (import Vec)
 (import Err)
 (extern "windows_command_pool_test"
@@ -128,7 +130,8 @@ BRIDGE = """(import Internal.WindowsCommands)
         (vecPush words "a\\\"b")
         (vecPush words "tail\\\\")
         (vecPush words "café")
-        (if (scopeCommands (WindowsTask::taskArgvVector words) sysEnvp true) 0 1)
+        (let envScratch (commandScratchNew 1))
+        (if (scopeCommands (WindowsTask::taskArgvVector words) (processRawEnvpInto envScratch 0) true) 0 1)
       })))
 (pub :: closeCommands (-> Int Int Bool))
 ;@axiom:effect(io)
@@ -256,7 +259,8 @@ BRIDGE += r"""(:: scratchWords (Vec String))
   {
     (let words scratchWords)
     (let argv (WindowsTask::taskArgvVector words))
-    (let env sysEnvp)
+    (let envScratch (commandScratchNew 1))
+    (let env (processRawEnvpInto envScratch 0))
     (let mut bad 0)
     (match (windowsCommandsNew 1)
       ((Err _) -1)
@@ -308,7 +312,8 @@ BRIDGE += """
   {
     (let words scratchWords)
     (let argv (WindowsTask::taskArgvVector words))
-    (let env sysEnvp)
+    (let envScratch (commandScratchNew 1))
+    (let env (processRawEnvpInto envScratch 0))
     (let mut bad 0)
     (for i in 0..16
       {
@@ -416,7 +421,7 @@ def main():
 
         def check(level, expected_failures=(), required_failures=(), tag=""):
             ir = work / "probe.ll"
-            run(axiom, "--diagnostic-format=ai", "emit-llvm", str(fixture), "-o", str(ir),
+            run(sys.executable, str(root / "scripts/lib/internal-probe.py"), axiom, "--diagnostic-format=ai", "emit-llvm", str(fixture), "-o", str(ir),
                 env=env, stdout=subprocess.DEVNULL)
             if level:
                 optimised = work / f"probe-O{level}.ll"

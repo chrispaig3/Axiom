@@ -32,16 +32,12 @@
 (fn (check axiom file)
   {
     (let args vecNew)
-    (let argv (memAlloc 48))
     {
       (vecPush args (strDup axiom))
       (vecPush args "--diagnostic-format=ai")
       (vecPush args "check")
       (vecPush args (strDup file))
-      (for (a i) in args
-        (memSetWord argv i (strCStr a)))
-      (memSetWord argv 4 0)
-      (match (sysRunPath axiom argv sysEnvp)
+      (match (sysRunPath axiom args)
         ((Ok status) status)
         ((Err e) -1))
     }

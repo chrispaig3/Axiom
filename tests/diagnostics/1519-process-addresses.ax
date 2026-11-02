@@ -1,0 +1,45 @@
+; Public process calls take typed paths and argument vectors. Raw addresses
+; and environment pointers cannot cross this boundary.
+(import Sys)
+(import Err)
+(import Vec)
+
+(:: spawnAddress (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+(fn (spawnAddress address)
+  (sysSpawn address address))
+
+(:: runAddress (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (runAddress address)
+  (sysRun address address))
+
+(:: searchAddress (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (searchAddress address)
+  (sysRunPath "program" address))
+
+(:: stderrAddress (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (stderrAddress address)
+  (sysRunPathErrTo "program" vecNew address))
+
+(:: outputAddresses (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+(fn (outputAddresses address)
+  (sysSpawnOutErrTo "program" vecNew address address))
+
+(:: environmentAddress Int)
+(fn (environmentAddress)
+  sysEnvp)
+
+(:: main ())
+(fn (main) ())

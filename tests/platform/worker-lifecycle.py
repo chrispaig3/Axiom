@@ -19,6 +19,8 @@ HARNESS = r'''
 (import Internal.WorkerProcess)
 (import Internal.Raw)
 (import Sys)
+(import Internal.ProcessRaw)
+(import Internal.CommandScratch)
 (import Sys.Platform)
 (import Str)
 (import Vec)
@@ -52,7 +54,8 @@ HARNESS = r'''
               (let name (if (strEq mode "startfail")
                 (concat (sysEnv "TMPDIR") "/does-not-exist")
                 (if (strEq mode "execfail") (concat executable "/does-not-exist") executable)))
-              (let pid (workerProcessesStart pool 0 name (lifecycleArgv name) sysEnvp "" mapping))
+              (let envScratch (commandScratchNew 1))
+              (let pid (workerProcessesStart pool 0 name (lifecycleArgv name) (processRawEnvpInto envScratch 0) "" mapping))
               (println "pid {pid}")
               (if (strEq mode "startfail")
                 {

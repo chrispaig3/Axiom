@@ -76,20 +76,7 @@
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (runTool tool args)
-  {
-    (let n (vecLen args))
-    {
-      (let v (memAlloc (* (+ n 2) 8)))
-      {
-        (memSetWord v 0 (strCStr (strDup tool)))
-        (fillArgv v args 0 n)
-        (memSetWord v (+ n 1) 0)
-        ; Preserve the Sys boundary: Ok carries the numeric child status,
-        ; including 128+signal; Err carries launch or wait failure.
-        (sysRunPath tool v sysEnvp)
-      }
-    }
-  })
+  (sysRunPath tool (toolArgv tool args)))
 
 ; A completed tool succeeds only when its numeric exit status is zero.
 (pub :: toolSucceeded (-> (Result Int Error) Bool))
@@ -104,16 +91,16 @@
     ((Ok _) failed)
     ((Err _) unavailable)))
 
-(pub :: fillArgv (-> Int Strings Int Int Int))
-(pub fn (fillArgv v args i n)
-  (if (>= i n)
-    0
-    ; Every element is copied, because a Str produced by slicing
-    ; shares its bytes with a larger string and stops at no NUL.
-    {
-      (memSetWord v (+ i 1) (strCStr (strDup (vecGet args i))))
-      (fillArgv v args (+ i 1) n)
-    }))
+; The public process boundary owns the native encoding of this typed vector.
+(pub :: toolArgv (-> String Strings Strings))
+(pub fn (toolArgv tool args)
+  {
+    (let words (vecWithCapacity (+ (vecLen args) 1)))
+    (vecPush words tool)
+    (for i in 0..(vecLen args)
+      (vecPush words (vecGet args i)))
+    words
+  })
 
 (pub :: argsOf3 (-> String String String Strings))
 (pub fn (argsOf3 a b c)
@@ -494,18 +481,7 @@
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (pub fn (runToolErrTo tool args errPath)
-  {
-    (let n (vecLen args))
-    {
-      (let v (memAlloc (* (+ n 2) 8)))
-      {
-        (memSetWord v 0 (strCStr (strDup tool)))
-        (fillArgv v args 0 n)
-        (memSetWord v (+ n 1) 0)
-        (sysRunPathErrTo tool v sysEnvp errPath)
-      }
-    }
-  })
+  (sysRunPathErrTo tool (toolArgv tool args) errPath))
 
 ; The lines of `s`, without their newlines.
 (pub :: asmTextLines (-> String Strings))
@@ -2286,20 +2262,9 @@
 ;@axiom:effect(spawn)
 (fn (spawnTool tool args)
   (if (let (Some path) (resolveTool tool))
-    {
-      (let n (vecLen args))
-      {
-        (let v (memAlloc (* (+ n 2) 8)))
-        {
-          (memSetWord v 0 (strCStr (strDup path)))
-          (fillArgv v args 0 n)
-          (memSetWord v (+ n 1) 0)
-          (match (sysSpawn (strCStr (strDup path)) v sysEnvp)
-            ((Err e) (Err (ToolSpawnError e)))
-            ((Ok pid) (Ok pid)))
-        }
-      }
-    }
+    (match (sysSpawn path (toolArgv path args))
+      ((Err e) (Err (ToolSpawnError e)))
+      ((Ok pid) (Ok pid)))
     (Err ToolMissing)))
 
 ; Keep normal exit, signal termination and a failed wait distinct.

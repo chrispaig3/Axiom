@@ -1,0 +1,732 @@
+;;! Internal.ProcessRaw - owned process buffers and raw platform launches.
+(import Sys.Platform)
+(import Internal.Platform)
+(import Internal.Raw)
+(import Internal.ProcessPath)
+(import Internal.CommandScratch)
+(import Str)
+(import Vec)
+(import Err)
+
+(:: processRawResult (-> String Int (Result Int Error)))
+(fn (processRawResult op n)
+  (if (< n 0)
+    (Err (mkError (- 0 n) op))
+    (Ok n)))
+
+; open(path, flags) with mode 0644, answering the raw descriptor or
+; `-errno`. `path` is the address of NUL-terminated bytes. Private: the
+; spawn path's ENOENT probe and the PATH search open and close within
+; one call, and the Axqlite file calls below open through the mode form.
+(:: processRawOpenRaw (-> Int Int Int))
+;@axiom:effect(io)
+(fn (processRawOpenRaw path flags)
+  (processRawOpenPathMode path flags 420))
+
+; open(path, flags, mode). A mode of 0 with `O_CREAT` would create a file
+; nobody can read back, which is why the short form passes 0644.
+(:: processRawOpenPathMode (-> Int Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (processRawOpenPathMode path flags mode)
+  (if (== usesSyscallAbi 0)
+      (platformOpen path flags mode)
+    (== openNeedsDirFd 1)
+      (__syscall4 sysOpenNum atFdCwd path flags mode)
+    (__syscall3 sysOpenNum path flags mode)))
+
+; Close a descriptor.
+;
+; ANSWERS `(Result Int Error)`; `Ok 0` on success. A close that fails
+; is not a formality - on a written-to file it is where a deferred
+; write error surfaces, and it is the one errno a caller cannot get
+; anywhere else.
+(:: processRawCloseFd (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(fn (processRawCloseFd fd)
+  (if (== usesSyscallAbi 1)
+    (processRawResult "sysCloseFd" (__syscall1 sysCloseNum fd))
+    (processRawResult "sysCloseFd" (platformClose fd))))
+
+; ------------------------------------------------------------------
+; The environment.
+;
+; There is no `__envp` primitive and none is needed. The kernel lays the
+; initial process stack out as
+;
+;   argc, argv[0..n-1], NULL, envp[0..m-1], NULL, ...
+;
+; contiguously, on Darwin and Linux alike, and `__argv` indexes that
+; vector without bounds-checking - the primitives are where the type
+; system stops. So `argv[argc]` is the NULL that ends the arguments and
+; `argv[argc+1+i]` is the i-th environment entry. Probed: `argv[argc]`
+; reads 0 and `argv[argc+1]` reads a `NAME=value` string.
+;
+; Deriving it beats adding a third parameter to the entry wrapper,
+; which would have had to land in both compilers to keep the bootstrap
+; building.
+; ------------------------------------------------------------------
+; The address of the i-th environment entry's bytes, or 0 past the end.
+(:: processRawEnvSlot (-> Int Int))
+;@axiom:effect(io)
+(fn (processRawEnvSlot i)
+  (__argv (+ (+ __argc 1) i)))
+
+; How many entries the environment has.
+(:: processRawEnvCount Int)
+;@axiom:effect(io)
+(fn (processRawEnvCount)
+  (processRawEnvCountFrom 0))
+
+(:: processRawEnvCountFrom (-> Int Int))
+;@axiom:effect(io)
+(fn (processRawEnvCountFrom i)
+  (if (== (processRawEnvSlot i) 0)
+    i
+    (processRawEnvCountFrom (+ i 1))))
+
+;; The value of the environment variable `name`, or "" when it is unset.
+;
+; The answer SHARES the environment's bytes rather than copying them,
+; so it is not NUL-terminated - `strSlice` wraps an interior pointer.
+; Anything handing it to a syscall as a path must copy it first, which
+; `concat` and `strDup` both do.
+(pub :: processRawEnv (-> String String))
+;@axiom:effect(io)
+(pub fn (processRawEnv name)
+  (processRawEnvLookup (concat name "=") 0))
+
+(:: processRawEnvLookup (-> String Int String))
+;@axiom:effect(io)
+(fn (processRawEnvLookup prefix i)
+  {
+    (let p (processRawEnvSlot i))
+    (if (== p 0)
+      ""
+      {
+        (let e (rawStrFromLit p))
+        (if (processRawEnvNameIs e prefix)
+          (strSlice e (strLen prefix) (- (strLen e) (strLen prefix)))
+          (processRawEnvLookup prefix (+ i 1)))
+      })
+  })
+
+; Whether the entry `e` starts with `prefix`, the name and its `=`.
+; Where `envNamesFoldCase` says so the compare folds ASCII case, which
+; is how Windows finds `Path` when asked for `PATH`. Bytes above 127
+; compare exactly, so a name outside ASCII matches only as spelled.
+(:: processRawEnvNameIs (-> String String Bool))
+(fn (processRawEnvNameIs e prefix)
+  (if (== envNamesFoldCase 0)
+    (strStartsWith e prefix)
+    (if (> (strLen prefix) (strLen e))
+      false
+      (processRawEnvFoldFrom e prefix 0))))
+
+(:: processRawEnvFoldFrom (-> String String Int Bool))
+(fn (processRawEnvFoldFrom e prefix k)
+  (if (>= k (strLen prefix))
+    true
+    (if (== (processRawAsciiLower (strByte e k)) (processRawAsciiLower (strByte prefix k)))
+      (processRawEnvFoldFrom e prefix (+ k 1))
+      false)))
+
+(:: processRawAsciiLower (-> Int Int))
+(fn (processRawAsciiLower c)
+  (if (&& (>= c 65) (<= c 90))
+    (+ c 32)
+    c))
+
+;; Copy the environment pointer vector into an owned scratch slot.
+;; The referenced environment strings live for the process lifetime.
+(pub :: processRawEnvpInto (-> CommandScratch Int Int))
+;@axiom:effect(io)
+(pub fn (processRawEnvpInto scratch slot)
+  {
+    (let count processRawEnvCount)
+    (let env (commandScratchBuffer scratch slot (* (+ count 1) 8)))
+    (processRawEnvpFill env 0 count)
+    env
+  })
+
+(:: processRawEnvpFill (-> Int Int Int Int))
+;@axiom:effect(io)
+(fn (processRawEnvpFill v i n)
+  (if (>= i n)
+    (rawSetWord v n 0)
+    {
+      (rawSetWord v i (processRawEnvSlot i))
+      (processRawEnvpFill v (+ i 1) n)
+    }))
+
+; ------------------------------------------------------------------
+; Child processes.
+;
+; A compiler driver has to run `llc` and `cc`, which is the one thing
+; this standard library could not do at all. The two platforms reach it
+; differently, and the difference is forced rather than chosen: Darwin's
+; `fork` returns TWO values - the pid in x0 and an "am I the child" flag
+; in x1 - and `__syscallN` yields one register, so a Darwin child would
+; read its parent's pid and both processes would take the parent branch.
+; `posix_spawn` returns the pid through a pointer, which one register
+; carries. Linux's `fork` returns 0 in the child through that same
+; single register, so there it is expressible directly.
+;
+; `Sys.Platform.spawnUsesPosixSpawn` is the capability selecting between
+; them, in keeping with `openNeedsDirFd`: nothing here names an OS.
+; (Nor does `usesSyscallAbi`, the capability under which a platform
+; module does this work itself - see the header - which is how a third
+; shape of process creation will arrive without a third arm here.)
+; ------------------------------------------------------------------
+;; Start `path` with argument vector `argv` and environment `envp`.
+;; `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means
+;; no child exists, which is what a caller must not confuse with a
+;; child that started and failed.
+;
+; `path` is a raw NUL-terminated char*, as `sysOpenPath` takes one.
+; `argv` and `envp` are NULL-terminated arrays of such pointers; `argv`
+; must include the program name at index 0, since the kernel does not
+; supply it. Neither vector is searched for on `PATH` - `processRawRunPath`
+; does that.
+(pub :: processRawSpawn (-> Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+(pub fn (processRawSpawn path argv envp)
+  (processRawResult
+    "sysSpawn"
+    (if (== usesSyscallAbi 0)
+        (platformSpawn path argv envp)
+      (== spawnUsesPosixSpawn 1)
+        {
+          (let scratch (commandScratchNew 1))
+          (let pidbuf (commandScratchBuffer scratch 0 8))
+          {
+            (rawSetWord pidbuf 0 0)
+            ; FIVE arguments, not libc's six: the kernel entry point fuses
+            ; the file actions and the attributes into one descriptor, so
+            ; `(pid, path, adesc, argv, envp)` is the shape. See the note
+            ; on `sysPosixSpawnNum` in the Darwin platform module for what the
+            ; six-argument spelling does instead, and why it is nearly
+            ; invisible.
+            {
+              (let rc (__syscall5 sysPosixSpawnNum pidbuf path 0 argv envp))
+              (let answer
+                (if (< rc 0)
+                  rc
+                  (rawGetWord pidbuf 0)))
+              (commandScratchClose scratch)
+              answer
+            }
+          }
+        }
+      ; The path is tested BEFORE the fork, and only this backend needs
+      ; the test. `posix_spawn` resolves the path in the PARENT and
+      ; answers `-ENOENT` without creating a process; here the fork
+      ; always succeeds, the failed `execve` is the CHILD's problem, and
+      ; the only thing the parent gets back is the exit status set
+      ; below - 127, a positive number indistinguishable from a tool
+      ; that ran and exited 127. Conflating those two is exactly what
+      ; `processRawRun`'s contract says it does not do.
+      ;
+      ; `processSearchPath` has its own test for the same reason and it is
+      ; not this one: that one skips a candidate on ANY open failure,
+      ; which is `execvp`'s rule for a PATH walk. This is the direct
+      ; path, where ENOENT ONLY is deliberate - a file that cannot be
+      ; opened can still be executable (mode 0711 is readable by nobody
+      ; and runnable by everyone), and `execve` is the only thing
+      ; entitled to decide that, so every other open failure still
+      ; forks and asks it.
+      {
+        (let probe (processRawOpenRaw path oRdonly))
+        (if (== probe (- 0 2))
+          probe
+          {
+            (if (>= probe 0)
+              {
+                (let _ (processRawCloseFd probe))
+                ()
+              })
+            ; Through `processRawForkProcess` rather than the raw syscall, because
+            ; the test below is `pid == 0` and that is only the child on a
+            ; platform where `fork` answers 0 to one of them. Darwin does
+            ; not, so while this branch is unreachable there today -
+            ; `spawnUsesPosixSpawn` sends it elsewhere - a raw fork here
+            ; would have the CHILD fall through to `pid` and return into
+            ; the caller as a second copy of the driver, which is the one
+            ; failure the comment below is guarding against.
+            {
+              (let pid processRawForkProcess)
+              (if (< pid 0)
+                pid
+                (if (== pid 0)
+                  ; The child. `execve` replaces this image, so
+                  ; reaching the next line means it failed - and
+                  ; the child must then die rather than return
+                  ; into the caller's code and become a second
+                  ; copy of the driver. 127 is the shell's
+                  ; convention for "command not found".
+                  {
+                    (__syscall3 sysExecveNum path argv envp)
+                    (__syscall1 sysExitNum 127)
+                    0
+                  }
+                  pid))
+            }
+          })
+      })))
+
+;; Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)`
+;; carries the errno of a wait that could not be performed.
+(pub :: processRawWaitPid (-> Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(block)
+(pub fn (processRawWaitPid pid)
+  (processRawResult
+    "sysWaitPid"
+    (if (== usesSyscallAbi 0)
+      (Internal.Platform::impl_platformWait pid)
+      {
+        (let scratch (commandScratchNew 1))
+        (let statbuf (commandScratchBuffer scratch 0 8))
+        {
+          ; The kernel writes a 32-bit int into an 8-byte word, so the upper
+          ; half is whatever was there before. Zeroing first is what makes
+          ; the read below the status rather than the status plus garbage.
+          (rawSetWord statbuf 0 0)
+          {
+            (let w (__syscall4 sysWait4Num pid statbuf 0 0))
+            (let answer
+              (if (< w 0)
+                w
+                (rawGetWord statbuf 0)))
+            (commandScratchClose scratch)
+            answer
+          }
+        }
+      })))
+
+;; The exit code carried by a wait status, for a child that exited
+;; normally.
+(pub :: processRawExitCode (-> Int Int))
+(pub fn (processRawExitCode status)
+  (& (>> status 8) 255))
+
+;; The signal that killed a child, or 0 if it exited normally.
+(pub :: processRawTermSignal (-> Int Int))
+(pub fn (processRawTermSignal status)
+  (& status 127))
+
+;; Run `path` to completion and answer its exit code.
+;
+; `(Err e)` is the spawn's own errno - THE CHILD NEVER RAN - which is
+; what distinguishes "could not start llc" from "llc rejected the
+; module", two failures a driver must not report the same way. `(Ok c)`
+; means it ran, and `c` is what it answered: its exit code, or
+; 128+signal if a signal killed it, the shell's convention.
+;
+; The two arms carry the distinction, so a caller cannot lose it.
+; `path`, `argv` and `envp` are as `processRawSpawn` takes them.
+(pub :: processRawRun (-> Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(pub fn (processRawRun path argv envp)
+  ; The three-way answer, now split by the type rather than by a sign.
+  ; `Err` means THE CHILD NEVER RAN - the spawn's own errno - which is
+  ; the distinction a driver must not lose: "could not start llc" and
+  ; "llc rejected the module" are different failures. `Ok` means it
+  ; ran, and carries what it answered, including `128+n` for a signal
+  ; on the shell's convention.
+  (match (processRawSpawn path argv envp)
+    ((Err e) (Err e))
+    ((Ok pid)
+      (match (processRawWaitPid pid)
+        ((Err e) (Err e))
+        ((Ok st)
+          (if (!= (processRawTermSignal st) 0)
+            (Ok (+ 128 (processRawTermSignal st)))
+            (Ok (processRawExitCode st)))
+        ))
+    )))
+
+;; Run `name`, searching `PATH` for it when it contains no slash.
+;
+; This is `execvp`'s rule: a name with a slash is a path and is used as
+; written, and a bare name is looked for in each `PATH` entry in order.
+; Where `pathBackslashSeparates` is 1 a backslash or a leading `C:` also
+; makes a path, the entries split on `pathListSep`, an entry in quotes
+; loses them, and where `exeSuffixTried` is 1 a name with no extension
+; is looked for as `NAME.exe`, the name `CreateProcessW` would run.
+;
+; The candidate is tested before it is spawned. Under `posix_spawn` an
+; attempt on a missing path answers `-ENOENT` without creating a
+; process, but under `fork` and `execve` the fork always succeeds and a
+; failed `execve` reaches the parent only as the child's exit status,
+; 127, which is not negative. Attempting each candidate in turn would
+; stop at the first `PATH` entry and report 127 as the tool's answer.
+; `sysOpenPath` is the test, so this needs no new syscall on any
+; platform; it routes through `openNeedsDirFd` for AArch64 Linux, which
+; has no `access`.
+;
+; Not yet: the file can vanish between the test and the spawn, and a
+; candidate that exists but is not executable is refused differently by
+; the two backends. `posix_spawn` refuses it in the parent with
+; `-EACCES` and the walk moves on; under `fork` and `execve` it comes
+; back as 127 and the walk stops. Both need a close-on-exec pipe
+; carrying the child's errno. A guard on 127 is not the fix, because a
+; tool may legitimately exit 127.
+;
+; With `PATH` unset or exhausted the answer is `(Err e)` with ENOENT (2),
+; which a caller reads as "not installed". An empty `PATH` is refused
+; before the walk: read as one empty entry it would mean ".", and a
+; compiler driver resolving `llc` with no `PATH` would run the working
+; directory's `./llc`. Nor does the walk fall back to a built-in
+; `/usr/bin:/bin`: that would guess at a host layout this library is
+; told nothing about, and guess wrong silently where the toolchain
+; lives elsewhere.
+; `argv` must be a NULL-terminated vector of addresses of NUL-terminated
+; bytes, and `envp` 0 or another such vector.
+(pub :: processRawRunPath (-> String Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(pub fn (processRawRunPath name argv envp)
+  (processRawResult "sysRunPath"
+    (processLaunchPath name (processRawEnv "PATH")
+      (lambda (path) (processRawRunPathWord path argv envp)) processRawPathExists)))
+
+; The shared PATH walk carries a scalar failure code so the native
+; command pool can publish a child owner before allocating any Result.
+; This synchronous caller keeps `processRawRun`'s existing wait semantics.
+(:: processRawRunPathWord (-> String Int Int Int))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (processRawRunPathWord path argv envp)
+  {
+    (let scratch (commandScratchNew 1))
+    (let result (processRawRun (processScratchString scratch 0 path) argv envp))
+    (commandScratchClose scratch)
+    (match result
+      ((Ok code) code)
+      ((Err e) (- 0 (errCode e))))
+  })
+
+(:: processRawPathExists (-> String Bool))
+;@axiom:effect(io)
+(fn (processRawPathExists path)
+  {
+    (let scratch (commandScratchNew 1))
+    (let fd (processRawOpenRaw (processScratchString scratch 0 path) oRdonly))
+    (commandScratchClose scratch)
+    (if (< fd 0)
+      false
+      {
+        (let _ (processRawCloseFd fd))
+        true
+      })
+  })
+
+;; Run `name` as `processRawRunPath` does, with the child's standard error
+;; written to the file at `errPath`, created or truncated, rather than
+;; to this process's. `(Ok code)` is the child's answer and `(Err e)` a
+;; child that never ran, as `processRawRunPath` answers; a file that can't be
+;; opened is `(Err e)` too, and then nothing runs.
+;
+; The child inherits descriptor 2, so the swap happens here in the
+; parent, which works under both spawn backends - `posix_spawn` and
+; `fork`+`execve` - with no file actions: descriptor 2 is saved, the
+; file put in its place for the spawn, and the saved one put back.
+; `fcntl(fd, F_DUPFD, 2)` just after closing 2 answers 2, the lowest
+; free descriptor at or above it, which is `dup2` without needing
+; `dup2` (linux-aarch64 has none). F_DUPFD is 0 on every POSIX target.
+; For as long as the child runs, this process's own standard error is
+; the file too, so it is not for a program writing to standard error
+; from another thread meanwhile. The compiler driver captures `llc`
+; through it (`runToolErrTo`).
+(pub :: processRawRunPathErrTo (-> String Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(pub fn (processRawRunPathErrTo name argv envp errPath)
+  (if (== usesSyscallAbi 0)
+    (processRawRunPathErrToPlatform name argv envp errPath)
+    {
+      (let fd (processRawOpenPathMode errPath (| oWronlyCreateTrunc oCloexec) 420))
+      (if (< fd 0)
+        (Err (mkError (- 0 fd) "sysRunPathErrTo: "))
+        {
+          (let saved (__syscall3 sysFcntlNum 2 fDupFdCloexec 3))
+          (if (< saved 0)
+            {
+              (__syscall1 sysCloseNum fd)
+              (Err (mkError (- 0 saved) "sysRunPathErrTo: saving descriptor 2"))
+            }
+            {
+              (__syscall1 sysCloseNum 2)
+              (__syscall3 sysFcntlNum fd 0 2)
+              (__syscall1 sysCloseNum fd)
+              {
+                (let r (processRawRunPath name argv envp))
+                {
+                  (__syscall1 sysCloseNum 2)
+                  (__syscall3 sysFcntlNum saved 0 2)
+                  (__syscall1 sysCloseNum saved)
+                  r
+                }
+              }
+            })
+        })
+    }))
+
+;; Spawn `path` as `processRawSpawn` does, with the child's standard output
+;; written to the file at `outPath` and its standard error to the file
+;; at `errPath`, each created or truncated. Answers the child's pid,
+;; as `processRawSpawn` does; a file that can't be opened is `(Err e)` and
+;; then nothing runs. The swap is the one `processRawRunPathErrTo` makes,
+;; done for both descriptors and undone as soon as the child exists,
+;; because a spawned child keeps the descriptors it was born with.
+;; For as long as the spawn itself takes, this process's own output
+;; and error are the files too.
+(pub :: processRawSpawnOutErrTo (-> Int Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+(pub fn (processRawSpawnOutErrTo path argv envp outPath errPath)
+  (if (== usesSyscallAbi 0)
+    (processRawSpawnOutErrToPlatform path argv envp outPath errPath)
+    {
+      (let ofd (processRawOpenPathMode outPath (| oWronlyCreateTrunc oCloexec) 420))
+      (if (< ofd 0)
+        (Err (mkError (- 0 ofd) "sysSpawnOutErrTo: "))
+        {
+          (let efd (processRawOpenPathMode errPath (| oWronlyCreateTrunc oCloexec) 420))
+          (if (< efd 0)
+            {
+              (__syscall1 sysCloseNum ofd)
+              (Err (mkError (- 0 efd) "sysSpawnOutErrTo: "))
+            }
+            {
+              (let savedOut (__syscall3 sysFcntlNum 1 fDupFdCloexec 3))
+              (let savedErr (__syscall3 sysFcntlNum 2 fDupFdCloexec 3))
+              (if (|| (< savedOut 0) (< savedErr 0))
+                {
+                  (__syscall1 sysCloseNum ofd)
+                  (__syscall1 sysCloseNum efd)
+                  (if (>= savedOut 0)
+                    (__syscall1 sysCloseNum savedOut))
+                  (if (>= savedErr 0)
+                    (__syscall1 sysCloseNum savedErr))
+                  (Err
+                    (mkError
+                      (- 0
+                        (if (< savedOut 0)
+                          savedOut
+                          savedErr))
+                      "sysSpawnOutErrTo: saving descriptors"))
+                }
+                {
+                  (__syscall1 sysCloseNum 1)
+                  (__syscall3 sysFcntlNum ofd 0 1)
+                  (__syscall1 sysCloseNum ofd)
+                  (__syscall1 sysCloseNum 2)
+                  (__syscall3 sysFcntlNum efd 0 2)
+                  (__syscall1 sysCloseNum efd)
+                  {
+                    (let r (processRawSpawn path argv envp))
+                    {
+                      (__syscall1 sysCloseNum 1)
+                      (__syscall3 sysFcntlNum savedOut 0 1)
+                      (__syscall1 sysCloseNum savedOut)
+                      (__syscall1 sysCloseNum 2)
+                      (__syscall3 sysFcntlNum savedErr 0 2)
+                      (__syscall1 sysCloseNum savedErr)
+                      r
+                    }
+                  }
+                })
+            })
+        })
+    }))
+
+; The same two swaps where there is no syscall ABI. `platformSetStd`
+; puts a handle in place of standard error or output and answers the
+; one it replaced, which goes back once the child exists.
+(:: processRawRunPathErrToPlatform (-> String Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (processRawRunPathErrToPlatform name argv envp errPath)
+  {
+    (let fd (processRawOpenPathMode errPath (| oWronlyCreateTrunc oCloexec) 420))
+    (if (< fd 0)
+      (Err (mkError (- 0 fd) "sysRunPathErrTo: "))
+      {
+        (let saved (platformSetStd 2 fd))
+        (if (< saved 0)
+          {
+            (let _ (processRawCloseFd fd))
+            (Err (mkError (- 0 saved) "sysRunPathErrTo: saving standard error"))
+          }
+          {
+            (let r (processRawRunPath name argv envp))
+            (platformSetStd 2 saved)
+            (let _ (processRawCloseFd fd))
+            r
+          })
+      })
+  })
+
+(:: processRawSpawnOutErrToPlatform (-> Int Int Int Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+(fn (processRawSpawnOutErrToPlatform path argv envp outPath errPath)
+  {
+    (let ofd (processRawOpenPathMode outPath (| oWronlyCreateTrunc oCloexec) 420))
+    (if (< ofd 0)
+      (Err (mkError (- 0 ofd) "sysSpawnOutErrTo: "))
+      {
+        (let efd (processRawOpenPathMode errPath (| oWronlyCreateTrunc oCloexec) 420))
+        (if (< efd 0)
+          {
+            (let _ (processRawCloseFd ofd))
+            (Err (mkError (- 0 efd) "sysSpawnOutErrTo: "))
+          }
+          {
+            (let savedOut (platformSetStd 1 ofd))
+            (let savedErr (platformSetStd 2 efd))
+            (let r
+              (if (|| (< savedOut 0) (< savedErr 0))
+                (Err (mkError 5 "sysSpawnOutErrTo: swapping standard handles"))
+                (processRawSpawn path argv envp)))
+            (if (>= savedOut 0)
+              (platformSetStd 1 savedOut))
+            (if (>= savedErr 0)
+              (platformSetStd 2 savedErr))
+            (let _ (processRawCloseFd ofd))
+            (let _ (processRawCloseFd efd))
+            r
+          })
+      })
+  })
+
+; ------------------------------------------------------------------
+; Duplicating this process
+;
+; `processRawSpawn` starts a DIFFERENT program; this starts another copy of
+; THIS one, which is what a pre-forked server needs and what `Job`'s
+; pool has never wanted.
+;
+; It answers the POSIX convention on every target - 0 in the child, the
+; child's pid in the parent, a negative errno on failure - and one
+; platform has to be normalised to reach it. Darwin's `fork` hands the
+; child pid back to BOTH processes and distinguishes them in x1, which
+; no primitive here reads; the child's answer equals its own pid and the
+; parent's does not, so one `getpid` separates them. `forkChildIsZero`
+; is which platform needs that.
+;
+; WHY THIS IS SAFE WHERE `posix_spawn` WAS CHOSEN INSTEAD: `processRawSpawn`
+; needs the child to become another program, and a fork whose child
+; cannot tell it is the child would run the parent's code twice. That is
+; the whole hazard, and the comparison below removes it.
+;
+; MM-PAR-3 is what makes the result usable without any further work:
+; every process-wide mutable global - the five allocator words, the
+; size-class heads, argc/argv, and one evidence slot per effect - is
+; private after a fork. A worker inherits the parent's heap as it stood
+; and can never corrupt a sibling's.
+;; Start another copy of this process: 0 in the child, the child's pid
+;; in the parent, or a negative errno when no child was made.
+(pub :: processRawForkProcess Int)
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(spawn)
+(pub fn (processRawForkProcess)
+  (if (== usesSyscallAbi 0)
+    (- 0 eNoSys)
+    {
+      (let r (__syscall5 sysForkNum sysForkArg 0 0 0 0))
+      (if (< r 0)
+        r
+        (if (== forkChildIsZero 1)
+          r
+          (if (== r (__syscall3 sysGetPidNum 0 0 0))
+            0
+            r)))
+    }))
+
+; Each buffer belongs to scratch even if allocation or launch unwinds.
+(:: processScratchString (-> CommandScratch Int String Int))
+(fn (processScratchString scratch slot value)
+  {
+    (let buffer (commandScratchBuffer scratch slot (+ (strLen value) 1)))
+    (rawCopy buffer (strData value) (strLen value))
+    buffer
+  })
+
+(:: processArgumentsValid (-> (Vec String) Bool))
+(fn (processArgumentsValid argv)
+  {
+    (let mut valid (> (vecLen argv) 0))
+    (for i in 0..(vecLen argv)
+      (if (isSome (strFindByte (vecGet argv i) 0 0))
+        (set valid false)))
+    valid
+  })
+
+(pub :: processTypedLaunch (-> Int String (Vec String) String String (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(pub fn (processTypedLaunch mode path argv outPath errPath)
+  (if (|| (! (processArgumentsValid argv))
+        (|| (isSome (strFindByte path 0 0))
+          (|| (isSome (strFindByte outPath 0 0)) (isSome (strFindByte errPath 0 0)))))
+    (Err (mkError 22 "process launch: invalid path or argv"))
+    {
+      (let scratch (commandScratchNew 5))
+      (let pathPtr (processScratchString scratch 0 path))
+      (let args (commandScratchArgv scratch 1 argv))
+      (let env (processRawEnvpInto scratch 2))
+      (let outPtr (processScratchString scratch 3 outPath))
+      (let errPtr (processScratchString scratch 4 errPath))
+      (let result
+        (if (== mode 0)
+            (processRawSpawn pathPtr args env)
+          (== mode 1)
+            (processRawRun pathPtr args env)
+          (== mode 2)
+            (processRawRunPath path args env)
+          (== mode 3)
+            (processRawRunPathErrTo path args env errPtr)
+          (processRawSpawnOutErrTo pathPtr args env outPtr errPtr)))
+      (commandScratchClose scratch)
+      result
+    }))
+
+(pub :: processTypedSpawn (-> Int String (Vec String) String String (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+(pub fn (processTypedSpawn mode path argv outPath errPath)
+  (if (|| (! (processArgumentsValid argv))
+        (|| (isSome (strFindByte path 0 0))
+          (|| (isSome (strFindByte outPath 0 0)) (isSome (strFindByte errPath 0 0)))))
+    (Err (mkError 22 "process launch: invalid path or argv"))
+    {
+      (let scratch (commandScratchNew 5))
+      (let pathPtr (processScratchString scratch 0 path))
+      (let args (commandScratchArgv scratch 1 argv))
+      (let env (processRawEnvpInto scratch 2))
+      (let outPtr (processScratchString scratch 3 outPath))
+      (let errPtr (processScratchString scratch 4 errPath))
+      (let result
+        (if (== mode 0)
+          (processRawSpawn pathPtr args env)
+          (processRawSpawnOutErrTo pathPtr args env outPtr errPtr)))
+      (commandScratchClose scratch)
+      result
+    }))

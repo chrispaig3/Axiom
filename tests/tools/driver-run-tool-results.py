@@ -53,7 +53,7 @@ def check(compiler, root, work, baseline, fetch_only=False):
                          'No held ownership, inference or call-emission work is reviewed or validated.']}
     additions = bridges(bool(baseline))
     def modules(label, changed=None):
-        folder = work / (label + '-core'); folder.mkdir()
+        folder = work / (label + '-modules') / 'core'; folder.mkdir(parents=True)
         for path in (source_root / 'core').iterdir():
             target = folder / path.name
             if path.name in source:
@@ -194,8 +194,8 @@ def check(compiler, root, work, baseline, fetch_only=False):
         report['configurations'].append({'optimization':level,'allocation_poisoning':True,'cases':outcomes})
         print(f'ok synchronous tool results: {len(outcomes)} policy/argv/output/cleanup cases O{level}',flush=True)
     if not baseline:
-        variants=[('os-error-erased','        (sysRunPath tool v sysEnvp)','        (match (sysRunPath tool v sysEnvp) ((Ok code) (Ok code)) ((Err _) (Ok 0)))',('missing','direct-missing','clone-missing')),
-                  ('child-status-erased','        (sysRunPath tool v sysEnvp)','        (match (sysRunPath tool v sysEnvp) ((Ok _) (Ok 0)) ((Err e) (Err e)))',('nonzero','exit127','signal','clone-failed')),
+        variants=[('os-error-erased','  (sysRunPath tool (toolArgv tool args))','        (match (sysRunPath tool (toolArgv tool args)) ((Ok code) (Ok code)) ((Err _) (Ok 0)))',('missing','direct-missing','clone-missing')),
+                  ('child-status-erased','  (sysRunPath tool (toolArgv tool args))','        (match (sysRunPath tool (toolArgv tool args)) ((Ok _) (Ok 0)) ((Err e) (Err e)))',('nonzero','exit127','signal','clone-failed')),
                   ('nonzero-success','((Ok code) (== code 0))','((Ok _) true)',('assemble-native-failed','repl-llc-failed','implib-failed'))]
         for label,before,after,required in variants:
             if fetch_only: required=tuple(name for name in required if name.startswith(('clone-', 'discard-', 'fetch-')))

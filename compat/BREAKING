@@ -2007,7 +2007,7 @@
 0.8.1  F  platformRmdir  internal; use typed IO file, socket, directory and terminal interfaces
 0.8.1  F  platformReadDir  internal; use typed IO file, socket, directory and terminal interfaces
 0.8.1  F  platformGetCwd  internal; use typed IO file, socket, directory and terminal interfaces
-0.8.1  F  platformSpawn  internal; use typed IO file, socket, directory and terminal interfaces
+0.8.1  F  platformSpawn  internal; use Sys.sysSpawn with a String path and Vec String arguments
 0.8.1  F  platformSetStd  internal; use typed IO file, socket, directory and terminal interfaces
 0.8.1  F  platformSocket  internal; use typed IO file, socket, directory and terminal interfaces
 0.8.1  F  platformBind  internal; use typed IO file, socket, directory and terminal interfaces
@@ -2025,3 +2025,10 @@
 0.8.1  F  platformConsoleMode  internal; use typed IO file, socket, directory and terminal interfaces
 0.8.1  F  platformConsoleSetMode  internal; use typed IO file, socket, directory and terminal interfaces
 0.8.1  F  platformConsoleSize  internal; use typed IO file, socket, directory and terminal interfaces
+
+0.8.1  F  sysSpawn  takes a String path and Vec String argv including argv[0]; inherits the environment; remove raw pointer encoding and envp argument
+0.8.1  F  sysRun  takes a String path and Vec String argv including argv[0]; inherits the environment; remove raw pointer encoding and envp argument
+0.8.1  F  sysRunPath  takes a String path and Vec String argv including argv[0]; inherits the environment; remove raw pointer encoding and envp argument
+0.8.1  F  sysRunPathErrTo  takes a String path, Vec String argv and a String stderr path; inherits the environment; remove raw pointer encoding and envp argument
+0.8.1  F  sysSpawnOutErrTo  takes a String path, Vec String argv and String stdout and stderr paths; inherits the environment; remove raw pointer encoding and envp argument
+0.8.1  F  sysEnvp  internal; typed Sys launch calls inherit the environment without an address

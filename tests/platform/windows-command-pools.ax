@@ -4,6 +4,7 @@
 (import WindowsCommandTest)
 (import WindowsSpawnTest)
 (import Sys)
+(import Internal.CommandScratch)
 (import Err)
 (import Str)
 (import Fmt)
@@ -126,6 +127,8 @@
 ;@axiom:effect(block)
 (fn (main)
   {
+    (let envScratch (commandScratchNew 1))
+    (let nativeEnvironment (processRawEnvpInto envScratch 0))
     (let mut bad 0)
     (reset)
     (let values (WindowsTask::taskRunCommands (commands 10 12) 3))
@@ -247,7 +250,7 @@
     (__store64 slot 0 0)
     (watchSlot slot)
     (let job nativeNew)
-    (let pid (nativeSpawn job (strCStr "C:/ok.exe") rawArgv sysEnvp slot))
+    (let pid (nativeSpawn job (strCStr "C:/ok.exe") rawArgv nativeEnvironment slot))
     (set bad (+ bad
                (say (&& (> pid 4294967295) (&& (== (__load64 slot 0) pid) (== (stat 21) 0)))
                  "64-bit process handle is published before resume")))
@@ -259,13 +262,13 @@
                  "native wait owns exactly one handle")))
     (reset)
     (let argv (WindowsTask::taskArgvVector (command "C:/ok" 71)))
-    (let recovered (record (recoverCommands argv sysEnvp)))
+    (let recovered (record (recoverCommands argv nativeEnvironment)))
     (set bad (+ bad
                (say (&& (== recovered 72) clean)
                  "recovery closes the job and outstanding process handles")))
     (reset)
     (set bad (+ bad
-               (say (&& (closeCommands argv sysEnvp) (&& clean (== (stat 17) 1)))
+               (say (&& (closeCommands argv nativeEnvironment) (&& clean (== (stat 17) 1)))
                  "explicit close is idempotent")))
     (reset)
     (let inherited (__alloc 24))
@@ -276,7 +279,7 @@
     (let inheritedArgv (WindowsTask::taskArgvVector (command "C:/ok" 81)))
     (let inheritedJob nativeNew)
     (let inheritedPid
-      (nativeSpawnInherited inheritedJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot inherited
+      (nativeSpawnInherited inheritedJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot inherited
         3))
     (let inheritedStatus (nativeWait inheritedPid))
     (let _ (nativeClose inheritedJob))
@@ -295,35 +298,35 @@
     (let invalidCounts
       (&&
         (==
-          (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot
+          (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot
             inherited -1)
           -22)
         (==
-          (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot
+          (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot
             inherited 9223372036854775807)
           -22)))
     (set bad (+ bad
                (say (&& invalidCounts (&& (== (stat 24) 0) (== (stat 3) 0)))
                  "negative and overflowing inherited counts are refused before native calls")))
     (let nullBuffer
-      (== (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot 0 1)
+      (== (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot 0 1)
         -22))
     (__store64 inherited 0 5)
     (let unaligned
       (==
-        (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot inherited
+        (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot inherited
           1)
         -22))
     (__store64 inherited 0 0)
     (let nullHandle
       (==
-        (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot inherited
+        (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot inherited
           1)
         -22))
     (__store64 inherited 0 -1)
     (let pseudoHandle
       (==
-        (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot inherited
+        (nativeSpawnInherited invalidJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot inherited
           1)
         -22))
     (let _ (nativeClose invalidJob))
@@ -340,7 +343,7 @@
     (let stdJob nativeNew)
     (fault 15 0 1)
     (let stdFailed
-      (nativeSpawnInherited stdJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot inherited 1))
+      (nativeSpawnInherited stdJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot inherited 1))
     (let _ (nativeClose stdJob))
     (set bad (+ bad
                (say (&& (== stdFailed -13) (&& clean (&& (== (stat 25) 0) (== (stat 3) 0))))
@@ -350,7 +353,7 @@
     (let listJob nativeNew)
     (fault 16 0 1)
     (let listFailed
-      (nativeSpawnInherited listJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot inherited 1))
+      (nativeSpawnInherited listJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot inherited 1))
     (let _ (nativeClose listJob))
     (set bad (+ bad
                (say (&& (== listFailed -22) (&& clean (&& (== (stat 26) 1) (== (stat 3) 0))))
@@ -358,7 +361,7 @@
     (reset)
     (__store64 slot 0 0)
     (let pollJob nativeNew)
-    (let pollPid (nativeSpawn pollJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot))
+    (let pollPid (nativeSpawn pollJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot))
     (set bad (+ bad
                (say (&& (== (nativePoll pollPid) 0) (&& (== (stat 19) 1) (== (stat 14) 0)))
                  "polling a running process preserves its handle")))
@@ -382,7 +385,7 @@
     (reset)
     (__store64 slot 0 0)
     (let killJob nativeNew)
-    (let killPid (nativeSpawn killJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot))
+    (let killPid (nativeSpawn killJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot))
     (fault 9 81 1)
     (let killFailed (nativeKill killPid 42))
     (let stillOwned (&& (== (stat 0) 1) (== (stat 19) 1)))
@@ -396,7 +399,7 @@
     (let createJob nativeNew)
     (fault 3 81 1)
     (let createFailed
-      (nativeSpawnInherited createJob (strCStr "C:/ok.exe") inheritedArgv sysEnvp slot inherited 1))
+      (nativeSpawnInherited createJob (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment slot inherited 1))
     (let _ (nativeClose createJob))
     (set bad (+ bad
                (say
@@ -408,7 +411,7 @@
     (reset)
     (fault 10 0 1)
     (fault 7 0 1)
-    (let firstCleanupError (failedCloseCommands argv sysEnvp))
+    (let firstCleanupError (failedCloseCommands argv nativeEnvironment))
     (set bad (+ bad
                (say
                  (&& (== firstCleanupError -13)
@@ -419,13 +422,13 @@
                  "job-close error wins over a later dispose error while all children are retired")))
     (reset)
     (fault 7 0 1)
-    (let disposeWaitError (failedCloseCommands argv sysEnvp))
+    (let disposeWaitError (failedCloseCommands argv nativeEnvironment))
     (set bad (+ bad
                (say (&& (== disposeWaitError -9) (&& clean (&& (== (stat 4) 2) (== (stat 14) 2))))
                  "dispose wait error propagates after cleanup attempts every child")))
     (reset)
     (fault 11 0 1)
-    (let disposeCloseError (failedCloseCommands argv sysEnvp))
+    (let disposeCloseError (failedCloseCommands argv nativeEnvironment))
     (set bad (+ bad
                (say
                  (&& (== disposeCloseError -9)
@@ -496,7 +499,7 @@
     (reset)
     (fault 17 0 3)
     (let ordinaryNoStd
-      (WindowsSpawnTest::ordinarySpawn (strCStr "C:/ok.exe") inheritedArgv sysEnvp))
+      (WindowsSpawnTest::ordinarySpawn (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment))
     (let ordinaryNoStdStatus (nativeWait ordinaryNoStd))
     (set bad (+ bad
                (say
@@ -506,7 +509,7 @@
     (reset)
     (fault 16 0 1)
     (let ordinaryAttributeFailure
-      (WindowsSpawnTest::ordinarySpawn (strCStr "C:/ok.exe") inheritedArgv sysEnvp))
+      (WindowsSpawnTest::ordinarySpawn (strCStr "C:/ok.exe") inheritedArgv nativeEnvironment))
     (set bad (+ bad
                (say
                  (&& (== ordinaryAttributeFailure -22)

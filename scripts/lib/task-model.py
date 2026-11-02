@@ -1042,7 +1042,7 @@ def install(ns):
         (TASK, "taskArgvVector", "(commandArgvVector argv)"),
         (TASK, "taskRunCommand", "(commandRun argv)"),
         (TASK, "taskRunCommands", "(commandPoolRun cmds width)"),
-        (COMMAND, "commandRun", "(sysRunPath (strDup (rawVecGetStr argv 0)) (commandArgvVector argv) sysEnvp)"),
+        (COMMAND, "commandRun", "(sysRunPath (rawVecGetStr argv 0) argv)"),
         (COMMAND, "commandRunWord", "(match (commandRun argv)"),
         (COMMAND_POOL, "commandPoolRun", "(wordPoolMap (lambda (i) (commandRunWord (vecGet cmds i))) (vecLen cmds) width)"),
         (TASK, "taskMapCompute", "(taskMapDecodedWith (lambda (index) (taskComputeEncode (worker index))) taskComputeDecode count"),

@@ -44,17 +44,20 @@ def main():
     original = source.read_text()
     # A fixture remains ordinary source on disk. Only this private library copy
     # receives imports of the production implementations it probes.
-    transformed, signatures = re.subn(r'\(:: main\b', '(pub :: internalProbeMain', original)
-    transformed, bodies = re.subn(r'\(fn \(main\b', '(pub fn (internalProbeMain', transformed)
+    transformed, signatures = re.subn(r'\((?:pub )?:: main\b', '(pub :: internalProbeMain', original)
+    transformed, bodies = re.subn(r'\((?:pub )?fn \(main\b', '(pub fn (internalProbeMain', transformed)
     if bodies != 1 or signatures > 1:
         raise ValueError(f'unsupported probe entry point: {source}')
-    entry_tags = re.search(r'((?:;[^\n]*\n)*)\(fn \(main\b', original).group(1)
+    entry_tags = re.search(r'((?:;[^\n]*\n)*)\((?:pub )?fn \(main\b', original).group(1)
+    # The outer shim only calls a trusted library function; unsafe operations
+    # and their claim stay on the original fixture body.
+    entry_tags = entry_tags.replace(';@axiom:effect(unsafe)\n', '')
     with tempfile.TemporaryDirectory(prefix='axiom-internal-probe-') as temporary:
         work = Path(temporary)
         library = work / 'stdlib'
         shutil.copytree(Path(os.environ.get('AXIOM_STDLIB', ROOT / 'stdlib')).resolve(), library)
         (library / 'InternalProbeFixture.ax').write_text(
-            '(import Internal.Wait)\n(import Internal.Mapping)\n(import Internal.Platform)\n' + transformed)
+            '(import Internal.Wait)\n(import Internal.Mapping)\n(import Internal.Platform)\n(import Internal.ProcessRaw)\n' + transformed)
         entry = work / 'probe.ax'
         entry.write_text('(import InternalProbeFixture)\n' + entry_tags +
                          '(fn (main) internalProbeMain)\n')

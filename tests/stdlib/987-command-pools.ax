@@ -155,7 +155,7 @@
       (vecPush argv "poolabort")
       (vecPush argv started)
       (vecPush argv late)
-      (let exited (sysRunPathErrTo selfPath (taskArgvVector argv) sysEnvp errors))
+      (let exited (sysRunPathErrTo selfPath argv errors))
       (let _ (sysSleepNanos 1500000000))
       (let good
         (&& (isOk exited)

@@ -1708,9 +1708,12 @@ The slices, in order, each green before the next starts:
 
    **Processes.** `sysSpawn`, `sysWaitPid`, `sysRun` and `sysRunPath`
    answer `(Result Int Error)`. `sysRun`'s three-way
-   contract is split by type rather than by sign. `Err` means the child
-   never ran, and carries the spawn's own errno. `Ok` means it ran, and
-   carries what it answered, including `128+n` for a signal.
+   contract is split by type rather than by sign. `Err` carries validation,
+   launch or wait failure. `Ok` carries the child's exit code, including
+   `128+n` for a signal. Launch takes typed paths and argument vectors
+   and inherits the environment. Empty vectors and embedded NUL bytes
+   answer `Err` 22 before launch. Tested by
+   `tests/stdlib/301-process-argv.ax`.
 
    **Socket configuration.** `netBind`, `netListen`, `netConnect`,
    `netShutdown`, `netSetOptInt`, `netSetBlocking` and

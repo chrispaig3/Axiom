@@ -1,0 +1,17 @@
+run literal argv: true
+spawn literal argv: true
+redirect status: true
+redirect stdout: true
+redirect stderr: true
+child stdout
+stderr-only status: true
+stderr-only bytes: true
+argv unchanged: true
+empty argv refused: true
+spawn empty argv refused: true
+NUL argument refused: true
+spawn NUL argument refused: true
+NUL path refused: true
+NUL stderr refused: true
+NUL stdout refused: true
+invalid redirects unopened: true

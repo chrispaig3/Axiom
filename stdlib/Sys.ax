@@ -1,56 +1,7 @@
-;;! Sys - portable syscall wrappers.
+;;! Sys - portable process, clock and system operations.
 ;
-; The lowest portable layer of Axiom's standard library. Everything here
-; is written in Axiom on top of the `__syscallN` primitives; there is no
-; C binding anywhere in this file, and none anywhere above it.
-;
-; NO PUBLIC FUNCTION HERE TAKES OR ANSWERS A FILE DESCRIPTOR. Every
-; descriptor a program reaches is held by an owner `IO` declares - a
-; `File`, a `Poller` or a `TermGuard` - and the calls that act on one
-; are private to `IO`. The two that remain here, an open and a close for
-; the spawn path's ENOENT probe and the PATH search, are private and
-; close what they open within one call.
-;
-; Per-platform numbers and flags come from `Sys.Platform`, which the
-; compiler resolves to the right `Sys/Platform.<os>[-<arch>].ax` for the
-; target being compiled for. Branching on a *capability* exposed by that
-; module (`openNeedsDirFd`) rather than on an OS name keeps this file
-; from growing a platform list.
-;
-; ONE EXCEPTION TO "THE PLATFORM MODULE IS A TABLE", stated here because
-; this is where the rule is. `Sys/Platform.windows.ax` is not a table
-; of syscall numbers - Windows has no syscall ABI a program may use -
-; so it answers the capability `usesSyscallAbi` 0 and DOES THE WORK
-; ITSELF over `extern "kernel32"` bindings. This file still names no
-; OS: where it would call `__syscallN` it asks `usesSyscallAbi` and,
-; when the answer is 0, calls the platform module's own function
-; (`platformWriteFd`, `platformReadFd`, `platformExitWith`) instead.
-; The asymmetry - three modules of constants, one of functions - is
-; accepted rather than levelled, because levelling it would move every
-; syscall in this file into four copies of the platform layer. The
-; clocks and sleep go the same way (`platformMonotonicNanos`,
-; `platformRealtimeNanos`, `platformSleepNanos`). Entropy fills live
-; in Internal.Entropy, behind Crypto.Random's typed interface.
-; Waiting on a word, mapping and locking memory and the signal mask go
-; the same way too. What is NOT yet routed that way (sockets, and the
-; console's control events) reaches its `__syscallN` arm on Windows,
-; which the compiler lowers there to a trap that says so
-; (`emitPrimSyscall`).
-;
-; Return values are raw kernel results, not exceptions: a successful
-; result as-is, or `-errno` on failure. That convention holds on every
-; supported platform because the backend's BSD syscall sequences
-; normalise the carry-flag/positive-errno protocol Darwin and FreeBSD
-; share into a negative result (see `targetSyscallAsm` in
-; `core/codegen.ax`, whose BSD templates branch on carry and
-; negate), so a failure is a single portable comparison rather than
-; a per-OS special case.
-;
-; Paths and buffers cross as raw addresses, and these functions trust
-; them. A path is the address of live NUL-terminated bytes (`strCStr`
-; makes one), and a buffer holds as many live bytes as the call reads
-; or writes. A bad address is not caught: the call reads or writes
-; whatever is there.
+; Process launch takes typed paths and argument vectors and inherits the
+; current environment. Raw addresses stay in Internal.ProcessRaw.
 (import Sys.Platform)
 (import Internal.Clock)
 (import Internal.Wait)
@@ -65,7 +16,7 @@
 (import Err)
 (import Str)
 (import Internal.Raw)
-(import Internal.ProcessPath)
+(import Internal.ProcessRaw)
 (import Vec)
 
 ;; The errno behind a failed result, or 0 if it did not fail.
@@ -74,41 +25,6 @@
   (if (< n 0)
     (Err (mkError (- 0 n) op))
     (Ok n)))
-
-; open(path, flags) with mode 0644, answering the raw descriptor or
-; `-errno`. `path` is the address of NUL-terminated bytes. Private: the
-; spawn path's ENOENT probe and the PATH search open and close within
-; one call, and the Axqlite file calls below open through the mode form.
-(:: sysOpenRaw (-> Int Int Int))
-;@axiom:effect(io)
-(fn (sysOpenRaw path flags)
-  (sysOpenPathMode path flags 420))
-
-; open(path, flags, mode). A mode of 0 with `O_CREAT` would create a file
-; nobody can read back, which is why the short form passes 0644.
-(:: sysOpenPathMode (-> Int Int Int Int))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (sysOpenPathMode path flags mode)
-  (if (== usesSyscallAbi 0)
-      (platformOpen path flags mode)
-    (== openNeedsDirFd 1)
-      (__syscall4 sysOpenNum atFdCwd path flags mode)
-    (__syscall3 sysOpenNum path flags mode)))
-
-; Close a descriptor.
-;
-; ANSWERS `(Result Int Error)`; `Ok 0` on success. A close that fails
-; is not a formality - on a written-to file it is where a deferred
-; write error surfaces, and it is the one errno a caller cannot get
-; anywhere else.
-(:: sysCloseFd (-> Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (sysCloseFd fd)
-  (if (== usesSyscallAbi 1)
-    (sysResult "sysCloseFd" (__syscall1 sysCloseNum fd))
-    (sysResult "sysCloseFd" (platformClose fd))))
 
 ;; End the process with status `code`. Never returns.
 (pub :: sysExitWith (-> Int Int))
@@ -135,7 +51,7 @@
 ; does not make a syscall. `IO` means "reaches the outside world", and
 ; the command line is input this process did not compute: a function
 ; that reads it is not a function of its arguments, which is the thing
-; `MM-EXEC-9b` says a purity claim ought to exclude. The same applies to the environment block below, which `sysEnvp`
+; `MM-EXEC-9b` says a purity claim ought to exclude. The same applies to the environment block below, which the internal process layer
 ; reaches through `__argv` past the end of the argument vector.
 ; ------------------------------------------------------------------
 ;; How many arguments the process received, including the program name.
@@ -155,566 +71,78 @@
     ""
     (rawStrFromLit (__argv i))))
 
-; ------------------------------------------------------------------
-; The environment.
-;
-; There is no `__envp` primitive and none is needed. The kernel lays the
-; initial process stack out as
-;
-;   argc, argv[0..n-1], NULL, envp[0..m-1], NULL, ...
-;
-; contiguously, on Darwin and Linux alike, and `__argv` indexes that
-; vector without bounds-checking - the primitives are where the type
-; system stops. So `argv[argc]` is the NULL that ends the arguments and
-; `argv[argc+1+i]` is the i-th environment entry. Probed: `argv[argc]`
-; reads 0 and `argv[argc+1]` reads a `NAME=value` string.
-;
-; Deriving it beats adding a third parameter to the entry wrapper,
-; which would have had to land in both compilers to keep the bootstrap
-; building.
-; ------------------------------------------------------------------
-; The address of the i-th environment entry's bytes, or 0 past the end.
-(:: sysEnvSlot (-> Int Int))
-;@axiom:effect(io)
-(fn (sysEnvSlot i)
-  (__argv (+ (+ __argc 1) i)))
-
-; How many entries the environment has.
-(:: sysEnvCount Int)
-;@axiom:effect(io)
-(fn (sysEnvCount)
-  (sysEnvCountFrom 0))
-
-(:: sysEnvCountFrom (-> Int Int))
-;@axiom:effect(io)
-(fn (sysEnvCountFrom i)
-  (if (== (sysEnvSlot i) 0)
-    i
-    (sysEnvCountFrom (+ i 1))))
-
-;; The value of the environment variable `name`, or "" when it is unset.
-;
-; The answer SHARES the environment's bytes rather than copying them,
-; so it is not NUL-terminated - `strSlice` wraps an interior pointer.
-; Anything handing it to a syscall as a path must copy it first, which
-; `concat` and `strDup` both do.
+;; The value of an environment variable, or "" when unset.
 (pub :: sysEnv (-> String String))
 ;@axiom:effect(io)
 (pub fn (sysEnv name)
-  (sysEnvLookup (concat name "=") 0))
+  (processRawEnv name))
 
-(:: sysEnvLookup (-> String Int String))
-;@axiom:effect(io)
-(fn (sysEnvLookup prefix i)
-  {
-    (let p (sysEnvSlot i))
-    (if (== p 0)
-      ""
-      {
-        (let e (rawStrFromLit p))
-        (if (sysEnvNameIs e prefix)
-          (strSlice e (strLen prefix) (- (strLen e) (strLen prefix)))
-          (sysEnvLookup prefix (+ i 1)))
-      })
-  })
-
-; Whether the entry `e` starts with `prefix`, the name and its `=`.
-; Where `envNamesFoldCase` says so the compare folds ASCII case, which
-; is how Windows finds `Path` when asked for `PATH`. Bytes above 127
-; compare exactly, so a name outside ASCII matches only as spelled.
-(:: sysEnvNameIs (-> String String Bool))
-(fn (sysEnvNameIs e prefix)
-  (if (== envNamesFoldCase 0)
-    (strStartsWith e prefix)
-    (if (> (strLen prefix) (strLen e))
-      false
-      (sysEnvFoldFrom e prefix 0))))
-
-(:: sysEnvFoldFrom (-> String String Int Bool))
-(fn (sysEnvFoldFrom e prefix k)
-  (if (>= k (strLen prefix))
-    true
-    (if (== (sysAsciiLower (strByte e k)) (sysAsciiLower (strByte prefix k)))
-      (sysEnvFoldFrom e prefix (+ k 1))
-      false)))
-
-(:: sysAsciiLower (-> Int Int))
-(fn (sysAsciiLower c)
-  (if (&& (>= c 65) (<= c 90))
-    (+ c 32)
-    c))
-
-;; A NULL-terminated copy of the process's own environment vector, in the
-;; form a child expects.
-;
-; The pointers are the parent's own environment strings, which live for
-; the whole run, so only the vector is copied. A child spawned with this
-; inherits the environment exactly; spawning with 0 instead gives it an
-; empty one, which is rarely what a compiler driver wants - `cc` in
-; particular resolves its toolchain through the environment.
-(pub :: sysEnvp Int)
-;@axiom:effect(io)
-(pub fn (sysEnvp)
-  {
-    (let n sysEnvCount)
-    {
-      (let v (rawAlloc (* (+ n 1) 8)))
-      {
-        (sysEnvpFill v 0 n)
-        v
-      }
-    }
-  })
-
-(:: sysEnvpFill (-> Int Int Int Int))
-;@axiom:effect(io)
-(fn (sysEnvpFill v i n)
-  (if (>= i n)
-    (rawSetWord v n 0)
-    {
-      (rawSetWord v i (sysEnvSlot i))
-      (sysEnvpFill v (+ i 1) n)
-    }))
-
-; ------------------------------------------------------------------
-; Child processes.
-;
-; A compiler driver has to run `llc` and `cc`, which is the one thing
-; this standard library could not do at all. The two platforms reach it
-; differently, and the difference is forced rather than chosen: Darwin's
-; `fork` returns TWO values - the pid in x0 and an "am I the child" flag
-; in x1 - and `__syscallN` yields one register, so a Darwin child would
-; read its parent's pid and both processes would take the parent branch.
-; `posix_spawn` returns the pid through a pointer, which one register
-; carries. Linux's `fork` returns 0 in the child through that same
-; single register, so there it is expressible directly.
-;
-; `Sys.Platform.spawnUsesPosixSpawn` is the capability selecting between
-; them, in keeping with `openNeedsDirFd`: nothing here names an OS.
-; (Nor does `usesSyscallAbi`, the capability under which a platform
-; module does this work itself - see the header - which is how a third
-; shape of process creation will arrive without a third arm here.)
-; ------------------------------------------------------------------
-;; Start `path` with argument vector `argv` and environment `envp`.
-;; `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means
-;; no child exists, which is what a caller must not confuse with a
-;; child that started and failed.
-;
-; `path` is a raw NUL-terminated char*, as `sysOpenPath` takes one.
-; `argv` and `envp` are NULL-terminated arrays of such pointers; `argv`
-; must include the program name at index 0, since the kernel does not
-; supply it. Neither vector is searched for on `PATH` - `sysRunPath`
-; does that.
-(pub :: sysSpawn (-> Int Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:effect(spawn)
-(pub fn (sysSpawn path argv envp)
-  (sysResult
-    "sysSpawn"
-    (if (== usesSyscallAbi 0)
-        (platformSpawn path argv envp)
-      (== spawnUsesPosixSpawn 1)
-        {
-          (let pidbuf (rawAlloc 8))
-          {
-            (rawSetWord pidbuf 0 0)
-            ; FIVE arguments, not libc's six: the kernel entry point fuses
-            ; the file actions and the attributes into one descriptor, so
-            ; `(pid, path, adesc, argv, envp)` is the shape. See the note
-            ; on `sysPosixSpawnNum` in the Darwin platform module for what the
-            ; six-argument spelling does instead, and why it is nearly
-            ; invisible.
-            {
-              (let rc (__syscall5 sysPosixSpawnNum pidbuf path 0 argv envp))
-              (if (< rc 0)
-                rc
-                (rawGetWord pidbuf 0))
-            }
-          }
-        }
-      ; The path is tested BEFORE the fork, and only this backend needs
-      ; the test. `posix_spawn` resolves the path in the PARENT and
-      ; answers `-ENOENT` without creating a process; here the fork
-      ; always succeeds, the failed `execve` is the CHILD's problem, and
-      ; the only thing the parent gets back is the exit status set
-      ; below - 127, a positive number indistinguishable from a tool
-      ; that ran and exited 127. Conflating those two is exactly what
-      ; `sysRun`'s contract says it does not do.
-      ;
-      ; `processSearchPath` has its own test for the same reason and it is
-      ; not this one: that one skips a candidate on ANY open failure,
-      ; which is `execvp`'s rule for a PATH walk. This is the direct
-      ; path, where ENOENT ONLY is deliberate - a file that cannot be
-      ; opened can still be executable (mode 0711 is readable by nobody
-      ; and runnable by everyone), and `execve` is the only thing
-      ; entitled to decide that, so every other open failure still
-      ; forks and asks it.
-      {
-        (let probe (sysOpenRaw path oRdonly))
-        (if (== probe (- 0 2))
-          probe
-          {
-            (if (>= probe 0)
-              {
-                (let _ (sysCloseFd probe))
-                ()
-              })
-            ; Through `sysForkProcess` rather than the raw syscall, because
-            ; the test below is `pid == 0` and that is only the child on a
-            ; platform where `fork` answers 0 to one of them. Darwin does
-            ; not, so while this branch is unreachable there today -
-            ; `spawnUsesPosixSpawn` sends it elsewhere - a raw fork here
-            ; would have the CHILD fall through to `pid` and return into
-            ; the caller as a second copy of the driver, which is the one
-            ; failure the comment below is guarding against.
-            {
-              (let pid sysForkProcess)
-              (if (< pid 0)
-                pid
-                (if (== pid 0)
-                  ; The child. `execve` replaces this image, so
-                  ; reaching the next line means it failed - and
-                  ; the child must then die rather than return
-                  ; into the caller's code and become a second
-                  ; copy of the driver. 127 is the shell's
-                  ; convention for "command not found".
-                  {
-                    (__syscall3 sysExecveNum path argv envp)
-                    (__syscall1 sysExitNum 127)
-                    0
-                  }
-                  pid))
-            }
-          })
-      })))
-
-;; Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)`
-;; carries the errno of a wait that could not be performed.
+;; Wait for a child and return its raw wait status.
 (pub :: sysWaitPid (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 ;@axiom:effect(block)
 (pub fn (sysWaitPid pid)
-  (sysResult
-    "sysWaitPid"
-    (if (== usesSyscallAbi 0)
-      (platformWait pid)
-      {
-        (let statbuf (rawAlloc 8))
-        {
-          ; The kernel writes a 32-bit int into an 8-byte word, so the upper
-          ; half is whatever was there before. Zeroing first is what makes
-          ; the read below the status rather than the status plus garbage.
-          (rawSetWord statbuf 0 0)
-          {
-            (let w (__syscall4 sysWait4Num pid statbuf 0 0))
-            (if (< w 0)
-              w
-              (rawGetWord statbuf 0))
-          }
-        }
-      })))
+  (processRawWaitPid pid))
 
-;; The exit code carried by a wait status, for a child that exited
-;; normally.
+;; Decode a normal exit status.
 (pub :: sysExitCode (-> Int Int))
 (pub fn (sysExitCode status)
-  (& (>> status 8) 255))
+  (processRawExitCode status))
 
-;; The signal that killed a child, or 0 if it exited normally.
+;; Decode the terminating signal, or 0 for a normal exit.
 (pub :: sysTermSignal (-> Int Int))
 (pub fn (sysTermSignal status)
-  (& status 127))
+  (processRawTermSignal status))
 
-;; Run `path` to completion and answer its exit code.
-;
-; `(Err e)` is the spawn's own errno - THE CHILD NEVER RAN - which is
-; what distinguishes "could not start llc" from "llc rejected the
-; module", two failures a driver must not report the same way. `(Ok c)`
-; means it ran, and `c` is what it answered: its exit code, or
-; 128+signal if a signal killed it, the shell's convention.
-;
-; The two arms carry the distinction, so a caller cannot lose it.
-; `path`, `argv` and `envp` are as `sysSpawn` takes them.
-(pub :: sysRun (-> Int Int Int (Result Int Error)))
+;; Start a program, inheriting the process environment. argv includes argv[0].
+;; Empty argv or embedded NUL bytes answer Err 22 before launch.
+(pub :: sysSpawn (-> String (Vec String) (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+(pub fn (sysSpawn path argv)
+  (processTypedSpawn 0 path argv "" ""))
+
+;; Run a program, inheriting the process environment. argv includes argv[0].
+;; Empty argv or embedded NUL bytes answer Err 22 before launch.
+(pub :: sysRun (-> String (Vec String) (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
-(pub fn (sysRun path argv envp)
-  ; The three-way answer, now split by the type rather than by a sign.
-  ; `Err` means THE CHILD NEVER RAN - the spawn's own errno - which is
-  ; the distinction a driver must not lose: "could not start llc" and
-  ; "llc rejected the module" are different failures. `Ok` means it
-  ; ran, and carries what it answered, including `128+n` for a signal
-  ; on the shell's convention.
-  (match (sysSpawn path argv envp)
-    ((Err e) (Err e))
-    ((Ok pid)
-      (match (sysWaitPid pid)
-        ((Err e) (Err e))
-        ((Ok st)
-          (if (!= (sysTermSignal st) 0)
-            (Ok (+ 128 (sysTermSignal st)))
-            (Ok (sysExitCode st)))
-        ))
-    )))
+(pub fn (sysRun path argv)
+  (processTypedLaunch 1 path argv "" ""))
 
-;; Run `name`, searching `PATH` for it when it contains no slash.
-;
-; This is `execvp`'s rule: a name with a slash is a path and is used as
-; written, and a bare name is looked for in each `PATH` entry in order.
-; Where `pathBackslashSeparates` is 1 a backslash or a leading `C:` also
-; makes a path, the entries split on `pathListSep`, an entry in quotes
-; loses them, and where `exeSuffixTried` is 1 a name with no extension
-; is looked for as `NAME.exe`, the name `CreateProcessW` would run.
-;
-; The candidate is tested before it is spawned. Under `posix_spawn` an
-; attempt on a missing path answers `-ENOENT` without creating a
-; process, but under `fork` and `execve` the fork always succeeds and a
-; failed `execve` reaches the parent only as the child's exit status,
-; 127, which is not negative. Attempting each candidate in turn would
-; stop at the first `PATH` entry and report 127 as the tool's answer.
-; `sysOpenPath` is the test, so this needs no new syscall on any
-; platform; it routes through `openNeedsDirFd` for AArch64 Linux, which
-; has no `access`.
-;
-; Not yet: the file can vanish between the test and the spawn, and a
-; candidate that exists but is not executable is refused differently by
-; the two backends. `posix_spawn` refuses it in the parent with
-; `-EACCES` and the walk moves on; under `fork` and `execve` it comes
-; back as 127 and the walk stops. Both need a close-on-exec pipe
-; carrying the child's errno. A guard on 127 is not the fix, because a
-; tool may legitimately exit 127.
-;
-; With `PATH` unset or exhausted the answer is `(Err e)` with ENOENT (2),
-; which a caller reads as "not installed". An empty `PATH` is refused
-; before the walk: read as one empty entry it would mean ".", and a
-; compiler driver resolving `llc` with no `PATH` would run the working
-; directory's `./llc`. Nor does the walk fall back to a built-in
-; `/usr/bin:/bin`: that would guess at a host layout this library is
-; told nothing about, and guess wrong silently where the toolchain
-; lives elsewhere.
-; `argv` must be a NULL-terminated vector of addresses of NUL-terminated
-; bytes, and `envp` 0 or another such vector.
-(pub :: sysRunPath (-> String Int Int (Result Int Error)))
+;; Run a program, inheriting the process environment. argv includes argv[0].
+;; Empty argv or embedded NUL bytes answer Err 22 before launch.
+(pub :: sysRunPath (-> String (Vec String) (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
-(pub fn (sysRunPath name argv envp)
-  (sysResult "sysRunPath"
-    (processLaunchPath name (sysEnv "PATH") (lambda (path) (sysRunPathWord path argv envp))
-      sysPathExists)))
+(pub fn (sysRunPath path argv)
+  (processTypedLaunch 2 path argv "" ""))
 
-; The shared PATH walk carries a scalar failure code so the native
-; command pool can publish a child owner before allocating any Result.
-; This synchronous caller keeps `sysRun`'s existing wait semantics.
-(:: sysRunPathWord (-> String Int Int Int))
+;; Run a program, inheriting the process environment. argv includes argv[0].
+;; Empty argv or embedded NUL bytes answer Err 22 before launch.
+(pub :: sysRunPathErrTo (-> String (Vec String) String (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
-(fn (sysRunPathWord path argv envp)
-  (match (sysRun (strCStr path) argv envp)
-    ((Ok code) code)
-    ((Err e) (- 0 (errCode e)))))
+(pub fn (sysRunPathErrTo path argv errPath)
+  (processTypedLaunch 3 path argv "" errPath))
 
-(:: sysPathExists (-> String Bool))
-;@axiom:effect(io)
-(fn (sysPathExists path)
-  {
-    (let fd (sysOpenRaw (strCStr path) oRdonly))
-    (if (< fd 0)
-      false
-      {
-        (let _ (sysCloseFd fd))
-        true
-      })
-  })
-
-;; Run `name` as `sysRunPath` does, with the child's standard error
-;; written to the file at `errPath`, created or truncated, rather than
-;; to this process's. `(Ok code)` is the child's answer and `(Err e)` a
-;; child that never ran, as `sysRunPath` answers; a file that can't be
-;; opened is `(Err e)` too, and then nothing runs.
-;
-; The child inherits descriptor 2, so the swap happens here in the
-; parent, which works under both spawn backends - `posix_spawn` and
-; `fork`+`execve` - with no file actions: descriptor 2 is saved, the
-; file put in its place for the spawn, and the saved one put back.
-; `fcntl(fd, F_DUPFD, 2)` just after closing 2 answers 2, the lowest
-; free descriptor at or above it, which is `dup2` without needing
-; `dup2` (linux-aarch64 has none). F_DUPFD is 0 on every POSIX target.
-; For as long as the child runs, this process's own standard error is
-; the file too, so it is not for a program writing to standard error
-; from another thread meanwhile. The compiler driver captures `llc`
-; through it (`runToolErrTo`).
-(pub :: sysRunPathErrTo (-> String Int Int String (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:effect(spawn)
-;@axiom:effect(block)
-(pub fn (sysRunPathErrTo name argv envp errPath)
-  (if (== usesSyscallAbi 0)
-    (sysRunPathErrToPlatform name argv envp errPath)
-    {
-      (let fd (sysOpenPathMode (strCStr (strDup errPath)) (| oWronlyCreateTrunc oCloexec) 420))
-      (if (< fd 0)
-        (Err (mkError (- 0 fd) (concat "sysRunPathErrTo: " errPath)))
-        {
-          (let saved (__syscall3 sysFcntlNum 2 fDupFdCloexec 3))
-          (if (< saved 0)
-            {
-              (__syscall1 sysCloseNum fd)
-              (Err (mkError (- 0 saved) "sysRunPathErrTo: saving descriptor 2"))
-            }
-            {
-              (__syscall1 sysCloseNum 2)
-              (__syscall3 sysFcntlNum fd 0 2)
-              (__syscall1 sysCloseNum fd)
-              {
-                (let r (sysRunPath name argv envp))
-                {
-                  (__syscall1 sysCloseNum 2)
-                  (__syscall3 sysFcntlNum saved 0 2)
-                  (__syscall1 sysCloseNum saved)
-                  r
-                }
-              }
-            })
-        })
-    }))
-
-;; Spawn `path` as `sysSpawn` does, with the child's standard output
-;; written to the file at `outPath` and its standard error to the file
-;; at `errPath`, each created or truncated. Answers the child's pid,
-;; as `sysSpawn` does; a file that can't be opened is `(Err e)` and
-;; then nothing runs. The swap is the one `sysRunPathErrTo` makes,
-;; done for both descriptors and undone as soon as the child exists,
-;; because a spawned child keeps the descriptors it was born with.
-;; For as long as the spawn itself takes, this process's own output
-;; and error are the files too.
-(pub :: sysSpawnOutErrTo (-> Int Int Int String String (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:effect(spawn)
-(pub fn (sysSpawnOutErrTo path argv envp outPath errPath)
-  (if (== usesSyscallAbi 0)
-    (sysSpawnOutErrToPlatform path argv envp outPath errPath)
-    {
-      (let ofd (sysOpenPathMode (strCStr (strDup outPath)) (| oWronlyCreateTrunc oCloexec) 420))
-      (if (< ofd 0)
-        (Err (mkError (- 0 ofd) (concat "sysSpawnOutErrTo: " outPath)))
-        {
-          (let efd
-            (sysOpenPathMode (strCStr (strDup errPath)) (| oWronlyCreateTrunc oCloexec) 420))
-          (if (< efd 0)
-            {
-              (__syscall1 sysCloseNum ofd)
-              (Err (mkError (- 0 efd) (concat "sysSpawnOutErrTo: " errPath)))
-            }
-            {
-              (let savedOut (__syscall3 sysFcntlNum 1 fDupFdCloexec 3))
-              (let savedErr (__syscall3 sysFcntlNum 2 fDupFdCloexec 3))
-              (if (|| (< savedOut 0) (< savedErr 0))
-                {
-                  (__syscall1 sysCloseNum ofd)
-                  (__syscall1 sysCloseNum efd)
-                  (if (>= savedOut 0)
-                    (__syscall1 sysCloseNum savedOut))
-                  (if (>= savedErr 0)
-                    (__syscall1 sysCloseNum savedErr))
-                  (Err
-                    (mkError
-                      (- 0
-                        (if (< savedOut 0)
-                          savedOut
-                          savedErr))
-                      "sysSpawnOutErrTo: saving descriptors"))
-                }
-                {
-                  (__syscall1 sysCloseNum 1)
-                  (__syscall3 sysFcntlNum ofd 0 1)
-                  (__syscall1 sysCloseNum ofd)
-                  (__syscall1 sysCloseNum 2)
-                  (__syscall3 sysFcntlNum efd 0 2)
-                  (__syscall1 sysCloseNum efd)
-                  {
-                    (let r (sysSpawn path argv envp))
-                    {
-                      (__syscall1 sysCloseNum 1)
-                      (__syscall3 sysFcntlNum savedOut 0 1)
-                      (__syscall1 sysCloseNum savedOut)
-                      (__syscall1 sysCloseNum 2)
-                      (__syscall3 sysFcntlNum savedErr 0 2)
-                      (__syscall1 sysCloseNum savedErr)
-                      r
-                    }
-                  }
-                })
-            })
-        })
-    }))
-
-; The same two swaps where there is no syscall ABI. `platformSetStd`
-; puts a handle in place of standard error or output and answers the
-; one it replaced, which goes back once the child exists.
-(:: sysRunPathErrToPlatform (-> String Int Int String (Result Int Error)))
+;; Start a program, inheriting the process environment. argv includes argv[0].
+;; Empty argv or embedded NUL bytes answer Err 22 before launch.
+(pub :: sysSpawnOutErrTo (-> String (Vec String) String String (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
-;@axiom:effect(block)
-(fn (sysRunPathErrToPlatform name argv envp errPath)
-  {
-    (let fd (sysOpenPathMode (strCStr (strDup errPath)) (| oWronlyCreateTrunc oCloexec) 420))
-    (if (< fd 0)
-      (Err (mkError (- 0 fd) (concat "sysRunPathErrTo: " errPath)))
-      {
-        (let saved (platformSetStd 2 fd))
-        (if (< saved 0)
-          {
-            (let _ (sysCloseFd fd))
-            (Err (mkError (- 0 saved) "sysRunPathErrTo: saving standard error"))
-          }
-          {
-            (let r (sysRunPath name argv envp))
-            (platformSetStd 2 saved)
-            (let _ (sysCloseFd fd))
-            r
-          })
-      })
-  })
+(pub fn (sysSpawnOutErrTo path argv outPath errPath)
+  (processTypedSpawn 4 path argv outPath errPath))
 
-(:: sysSpawnOutErrToPlatform (-> Int Int Int String String (Result Int Error)))
+;; Fork this process: 0 in the child, pid in the parent, or negative errno.
+(pub :: sysForkProcess Int)
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
-(fn (sysSpawnOutErrToPlatform path argv envp outPath errPath)
-  {
-    (let ofd (sysOpenPathMode (strCStr (strDup outPath)) (| oWronlyCreateTrunc oCloexec) 420))
-    (if (< ofd 0)
-      (Err (mkError (- 0 ofd) (concat "sysSpawnOutErrTo: " outPath)))
-      {
-        (let efd (sysOpenPathMode (strCStr (strDup errPath)) (| oWronlyCreateTrunc oCloexec) 420))
-        (if (< efd 0)
-          {
-            (let _ (sysCloseFd ofd))
-            (Err (mkError (- 0 efd) (concat "sysSpawnOutErrTo: " errPath)))
-          }
-          {
-            (let savedOut (platformSetStd 1 ofd))
-            (let savedErr (platformSetStd 2 efd))
-            (let r
-              (if (|| (< savedOut 0) (< savedErr 0))
-                (Err (mkError 5 "sysSpawnOutErrTo: swapping standard handles"))
-                (sysSpawn path argv envp)))
-            (if (>= savedOut 0)
-              (platformSetStd 1 savedOut))
-            (if (>= savedErr 0)
-              (platformSetStd 2 savedErr))
-            (let _ (sysCloseFd ofd))
-            (let _ (sysCloseFd efd))
-            r
-          })
-      })
-  })
+(pub fn (sysForkProcess)
+  processRawForkProcess)
 
 ;; The calling process's own id, such as a suffix that keeps two
 ;; processes' scratch files apart.
@@ -920,51 +348,6 @@
     (if (== usesSyscallAbi 1)
       (__syscall3 sysKillNum pid signo 0)
       (platformKill pid signo))))
-
-; ------------------------------------------------------------------
-; Duplicating this process
-;
-; `sysSpawn` starts a DIFFERENT program; this starts another copy of
-; THIS one, which is what a pre-forked server needs and what `Job`'s
-; pool has never wanted.
-;
-; It answers the POSIX convention on every target - 0 in the child, the
-; child's pid in the parent, a negative errno on failure - and one
-; platform has to be normalised to reach it. Darwin's `fork` hands the
-; child pid back to BOTH processes and distinguishes them in x1, which
-; no primitive here reads; the child's answer equals its own pid and the
-; parent's does not, so one `getpid` separates them. `forkChildIsZero`
-; is which platform needs that.
-;
-; WHY THIS IS SAFE WHERE `posix_spawn` WAS CHOSEN INSTEAD: `sysSpawn`
-; needs the child to become another program, and a fork whose child
-; cannot tell it is the child would run the parent's code twice. That is
-; the whole hazard, and the comparison below removes it.
-;
-; MM-PAR-3 is what makes the result usable without any further work:
-; every process-wide mutable global - the five allocator words, the
-; size-class heads, argc/argv, and one evidence slot per effect - is
-; private after a fork. A worker inherits the parent's heap as it stood
-; and can never corrupt a sibling's.
-;; Start another copy of this process: 0 in the child, the child's pid
-;; in the parent, or a negative errno when no child was made.
-(pub :: sysForkProcess Int)
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-;@axiom:effect(spawn)
-(pub fn (sysForkProcess)
-  (if (== usesSyscallAbi 0)
-    (- 0 eNoSys)
-    {
-      (let r (__syscall5 sysForkNum sysForkArg 0 0 0 0))
-      (if (< r 0)
-        r
-        (if (== forkChildIsZero 1)
-          r
-          (if (== r (__syscall3 sysGetPidNum 0 0 0))
-            0
-            r)))
-    }))
 
 ; ------------------------------------------------------------------
 ; A TIMED wait on a shared word, and a look at a child that does not

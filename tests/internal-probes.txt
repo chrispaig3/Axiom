@@ -20,3 +20,5 @@ tests/stdlib/601-task-spawn-refused.ax
 tests/stdlib/602-par-spawn-refused.ax
 tests/stdlib/952-task-ranges-lifecycle.ax
 tests/stdlib/960-task-launch-cancellation.ax
+tests/stdlib/305-path-search.ax
+tests/platform/windows-command-pools.ax

@@ -1,3 +1,4 @@
+(import Internal.ProcessRaw)
 ;;! Internal.CommandPool - the Windows owned command-pool entry.
 (import Internal.WindowsCommands)
 (import Internal.CommandScratch)
@@ -37,8 +38,8 @@
           ((Ok pool)
             {
               (let hs (vecWithCapacity w))
-              (let scratch (commandScratchNew 1))
-              (let env sysEnvp)
+              (let scratch (commandScratchNew 2))
+              (let env (processRawEnvpInto scratch 1))
               (let path (sysEnv "PATH"))
               (let mut next 0)
               (let mut joined 0)

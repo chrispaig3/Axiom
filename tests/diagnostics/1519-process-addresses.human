@@ -1,0 +1,74 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
+  [1;34m--> [0m1519-process-addresses.ax:11:13
+[1;34m   |[0m
+[1;34m11 |[0m   (sysSpawn address address))
+[1;34m   |[0m             [1;31m^^^^^^^ this has type `Int`, expected `String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec String, found Int[0m
+  [1;34m--> [0m1519-process-addresses.ax:11:21
+[1;34m   |[0m
+[1;34m11 |[0m   (sysSpawn address address))
+[1;34m   |[0m                     [1;31m^^^^^^^ this has type `Int`, expected `Vec String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
+  [1;34m--> [0m1519-process-addresses.ax:18:11
+[1;34m   |[0m
+[1;34m18 |[0m   (sysRun address address))
+[1;34m   |[0m           [1;31m^^^^^^^ this has type `Int`, expected `String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec String, found Int[0m
+  [1;34m--> [0m1519-process-addresses.ax:18:19
+[1;34m   |[0m
+[1;34m18 |[0m   (sysRun address address))
+[1;34m   |[0m                   [1;31m^^^^^^^ this has type `Int`, expected `Vec String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Vec String, found Int[0m
+  [1;34m--> [0m1519-process-addresses.ax:25:25
+[1;34m   |[0m
+[1;34m25 |[0m   (sysRunPath "program" address))
+[1;34m   |[0m                         [1;31m^^^^^^^ this has type `Int`, expected `Vec String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
+  [1;34m--> [0m1519-process-addresses.ax:32:37
+[1;34m   |[0m
+[1;34m32 |[0m   (sysRunPathErrTo "program" vecNew address))
+[1;34m   |[0m                                     [1;31m^^^^^^^ this has type `Int`, expected `String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
+  [1;34m--> [0m1519-process-addresses.ax:38:38
+[1;34m   |[0m
+[1;34m38 |[0m   (sysSpawnOutErrTo "program" vecNew address address))
+[1;34m   |[0m                                      [1;31m^^^^^^^ this has type `Int`, expected `String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected String, found Int[0m
+  [1;34m--> [0m1519-process-addresses.ax:38:46
+[1;34m   |[0m
+[1;34m38 |[0m   (sysSpawnOutErrTo "program" vecNew address address))
+[1;34m   |[0m                                              [1;31m^^^^^^^ this has type `Int`, expected `String`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `sysEnvp`[0m
+  [1;34m--> [0m1519-process-addresses.ax:42:3
+[1;34m   |[0m
+[1;34m42 |[0m   sysEnvp)
+[1;34m   |[0m   [1;31m^^^^^^^ no binding named `sysEnvp` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma similarly named binding `sysEnv` is in scope; did you mean this?[1;35m ~> sysEnv[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+compilation failed due to 9 previous errors

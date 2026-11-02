@@ -746,10 +746,9 @@ needs no tag. `vecPush`, `concat` and `mapInsert` are trusted.
 `symbols` reports the role as `#unsafe=trusted`, so the trusted set of
 a program is one `grep`.
 
-Functions that take a raw address or handle are trusted too, such as
-`Sys.sysSpawn`. Safe code can still crash by passing a bad
-address or handle, because an `Int` carries no proof of what it points
-at. State a condition the arguments can show as a `;@axiom:pre(...)`
+Functions that take a raw address or handle are trusted too. An `Int`
+carries no proof of what it points at, so a trusted wrapper must validate
+its inputs or document the caller's obligations. State a condition the arguments can show as a `;@axiom:pre(...)`
 contract, which is checked on every call and traps 80, and describe
 the rest in a comment.
 
@@ -822,8 +821,12 @@ in a signature.
 
 *Withdrawn:* a function that hands the kernel a caller's address is a
 trusted encapsulation like any other (`MM-EXEC-9d`).
-`Sys.sysSpawn` still takes raw path, argument and environment addresses;
-`restrict(no-unsafe)` admits it. IO's public descriptor calls use owners
+Process launch takes typed paths and argument vectors, inherits the
+environment and owns its native buffers. Empty vectors and embedded NUL
+bytes answer `Err` 22 before launch; `sysEnvp` is removed. Tested by
+`tests/stdlib/301-process-argv.ax` and
+`tests/diagnostics/1519-process-addresses.ax`.
+IO's public descriptor calls use owners
 (`MM-EXEC-17a`), and their range checks hold (`MM-EXEC-9f`).
 Tested by `tests/diagnostics/1081-sys-buffer-calls.ax` and
 `tests/stdlib/580-kernel-precondition.ax`.
@@ -875,8 +878,8 @@ so a relative spelling of the library's directory is still the
 library. Tested by `tests/diagnostics/1470-internal-import.ax` and
 `tests/diagnostics/1471-internal-name.ax`.
 
-Not yet: some public functions still take a raw address, such as
-`Sys.sysSpawn` ([roadmap](roadmap.md)).
+Not yet: a complete safety review of public raw-address and foreign
+interfaces ([roadmap](roadmap.md)).
 
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:

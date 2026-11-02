@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Process launch takes typed paths and argument vectors, inherits the
+  environment and owns its native buffers. `sysEnvp` is removed. Empty
+  argument vectors and embedded NUL bytes answer `Err` 22 before launch.
+  Tested by `tests/stdlib/301-process-argv.ax` and
+  `tests/diagnostics/1519-process-addresses.ax`.
+
 - The public platform module exposes constants and safe operations through
   an explicit interface. Raw buffer, path, descriptor and socket calls stay
   internal, behind typed IO owners. Tested by

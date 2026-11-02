@@ -7,6 +7,7 @@
 (import IO)
 (import Str)
 (import Err)
+(import Vec)
 
 ;@axiom:effect(io)
 (:: randomBytes (-> Int (Result String Error)))
@@ -14,12 +15,12 @@
 (fn (randomBytes n)
   (secureRandomBytes n))
 
-(:: spawnsAt (-> Int (Result Int Error)))
+(:: spawnsAt (-> String (Vec String) (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:restrict(no-unsafe)
-(fn (spawnsAt address)
-  (sysSpawn address 0 0))
+(fn (spawnsAt path args)
+  (sysSpawn path args))
 
 (:: pureFill (-> Int (Result String Error)))
 ;@axiom:effect(pure)

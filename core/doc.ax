@@ -929,12 +929,11 @@
     (if (== (strLen (pathOfCommand opener)) 0)
       0
       {
-        (let v (memAlloc (* 3 8)))
+        (let v vecNew)
         {
-          (memSetWord v 0 (strCStr (strDup opener)))
-          (memSetWord v 1 (strCStr (strDup index)))
-          (memSetWord v 2 0)
-          (match (sysRunPath opener v sysEnvp)
+          (vecPush v opener)
+          (vecPush v index)
+          (match (sysRunPath opener v)
             ((Ok _) 0)
             ((Err _) (writeStderrStr (concat (concat "warning: could not run " opener) "\n"))))
         }

@@ -315,6 +315,8 @@ echo "ok   every stdlib module either contributes declarations or is exempt with
 # file simply had not applied it. The `comm` calls need it too: `comm`
 # requires both inputs collated the same way, and silently answers
 # nonsense when they are not.
+# Platform-family filenames, including internal mapping and wait modules,
+# lose their target suffix before entering the golden.
 # AND `Platform.<host>.ax` COLLAPSES TO `Platform.ax`, for the reason
 # the locale paragraph above gives about the seed stamp: this file is a
 # golden, so it must be a property of the TREE and not of the machine
@@ -339,7 +341,7 @@ echo "ok   every stdlib module either contributes declarations or is exempt with
 # run reached it until today.)
 grep -oE '^F [^ ]+ [^ ]+ .*#effects=[A-Za-z,]+' "$work/rows" \
   | sed -E 's|^F ([^ ]+) [^ ]*/([^/ :]+):[0-9].*#effects=([A-Za-z,]+)$|\1 \2 \3|' \
-  | sed -E 's|^([^ ]+) Platform\.[A-Za-z0-9_-]+\.ax |\1 Platform.ax |' \
+  | sed -E 's|^([^ ]+) ([A-Za-z0-9_]*Platform)\.[A-Za-z0-9_-]+\.ax |\1 \2.ax |' \
   | LC_ALL=C sort -u > "$work/derived"
 
 echo

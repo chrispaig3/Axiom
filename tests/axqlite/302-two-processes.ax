@@ -34,13 +34,12 @@
 (fn (spawnChild mode)
   {
     (let self (sysArg 0))
-    (let argv (memAlloc 32))
+    (let argv (vecNew))
     {
-      (memSetWord argv 0 (strCStr self))
-      (memSetWord argv 1 (strCStr "--child"))
-      (memSetWord argv 2 (strCStr mode))
-      (memSetWord argv 3 0)
-      (sysSpawn (strCStr self) argv sysEnvp)
+      (vecPush argv self)
+      (vecPush argv "--child")
+      (vecPush argv mode)
+      (sysSpawn self argv)
     }
   })
 

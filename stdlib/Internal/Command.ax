@@ -30,7 +30,7 @@
 (pub fn (commandRun argv)
   (if (== (vecLen argv) 0)
     (Err (mkError 2 "commandRun: an empty argv names no program"))
-    (sysRunPath (strDup (rawVecGetStr argv 0)) (commandArgvVector argv) sysEnvp)))
+    (sysRunPath (rawVecGetStr argv 0) argv)))
 
 ; Encode a command result as the word carried by a join: an exit code
 ; or 128 plus its signal, or a negative errno if it could not start.

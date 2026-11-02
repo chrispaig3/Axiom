@@ -2013,9 +2013,9 @@ A mutual-exclusion lock between `parallel` bindings, in both lowerings
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 33 public names
+`stdlib/Sys.ax` — 32 public names
 
-Sys - portable syscall wrappers.
+Sys - portable process, clock and system operations.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
@@ -2023,16 +2023,16 @@ Sys - portable syscall wrappers.
 | `sysExitWith` | value | `(-> Int Int)` | `IO,Unsafe` |  | End the process with status `code`. Never returns. |
 | `sysArgc` | value | `Int` | `IO` |  | How many arguments the process received, including the program name. |
 | `sysArg` | value | `(-> Int String)` | `Alloc,IO,Mut` |  | The i-th argument as a Str (0 is the program name), or "" when `i` is out of range. The bytes are the process's own argv storage - NUL-terminated, alive for the whole run, never freed or moved - so wrapping them without copying is sound. |
-| `sysEnv` | value | `(-> String String)` | `Alloc,IO,Mut` |  | The value of the environment variable `name`, or "" when it is unset. |
-| `sysEnvp` | value | `Int` | `Alloc,IO,Mut` |  | A NULL-terminated copy of the process's own environment vector, in the form a child expects. |
-| `sysSpawn` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,IO,Mut,Spawn,Unsafe` |  | Start `path` with argument vector `argv` and environment `envp`. `(Ok pid)`, or `(Err e)` whose code is the errno - and `Err` means no child exists, which is what a caller must not confuse with a child that started and failed. |
-| `sysWaitPid` | value | `(-> Int (Result Int Error))` | `Alloc,Block,IO,Mut,Unsafe` |  | Wait for `pid`. `(Ok status)` is the raw wait status; `(Err e)` carries the errno of a wait that could not be performed. |
-| `sysExitCode` | value | `(-> Int Int)` |  |  | The exit code carried by a wait status, for a child that exited normally. |
-| `sysTermSignal` | value | `(-> Int Int)` |  |  | The signal that killed a child, or 0 if it exited normally. |
-| `sysRun` | value | `(-> Int Int Int (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn` |  | Run `path` to completion and answer its exit code. |
-| `sysRunPath` | value | `(-> String Int Int (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn` |  | Run `name`, searching `PATH` for it when it contains no slash. |
-| `sysRunPathErrTo` | value | `(-> String Int Int String (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn,Unsafe` |  | Run `name` as `sysRunPath` does, with the child's standard error written to the file at `errPath`, created or truncated, rather than to this process's. `(Ok code)` is the child's answer and `(Err e)` a child that never ran, as `sysRunPath` answers; a file that can't be opened is `(Err e)` too, and then nothing runs. |
-| `sysSpawnOutErrTo` | value | `(-> Int Int Int String String (Result Int Error))` | `Alloc,IO,Mut,Spawn,Unsafe` |  | Spawn `path` as `sysSpawn` does, with the child's standard output written to the file at `outPath` and its standard error to the file at `errPath`, each created or truncated. Answers the child's pid, as `sysSpawn` does; a file that can't be opened is `(Err e)` and then nothing runs. The swap is the one `sysRunPathErrTo` makes, done for both descriptors and undone as soon as the child exists, because a spawned child keeps the descriptors it was born with. For as long as the spawn itself takes, this process's own output and error are the files too. |
+| `sysEnv` | value | `(-> String String)` | `Alloc,IO,Mut` |  | The value of an environment variable, or "" when unset. |
+| `sysWaitPid` | value | `(-> Int (Result Int Error))` | `Alloc,Block,IO,Mut` |  | Wait for a child and return its raw wait status. |
+| `sysExitCode` | value | `(-> Int Int)` |  |  | Decode a normal exit status. |
+| `sysTermSignal` | value | `(-> Int Int)` |  |  | Decode the terminating signal, or 0 for a normal exit. |
+| `sysSpawn` | value | `(-> String (Vec String) (Result Int Error))` | `Alloc,IO,Mut,Spawn` |  | Start a program, inheriting the process environment. argv includes argv[0]. Empty argv or embedded NUL bytes answer Err 22 before launch. |
+| `sysRun` | value | `(-> String (Vec String) (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn` |  | Run a program, inheriting the process environment. argv includes argv[0]. Empty argv or embedded NUL bytes answer Err 22 before launch. |
+| `sysRunPath` | value | `(-> String (Vec String) (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn` |  | Run a program, inheriting the process environment. argv includes argv[0]. Empty argv or embedded NUL bytes answer Err 22 before launch. |
+| `sysRunPathErrTo` | value | `(-> String (Vec String) String (Result Int Error))` | `Alloc,Block,IO,Mut,Spawn` |  | Run a program, inheriting the process environment. argv includes argv[0]. Empty argv or embedded NUL bytes answer Err 22 before launch. |
+| `sysSpawnOutErrTo` | value | `(-> String (Vec String) String String (Result Int Error))` | `Alloc,IO,Mut,Spawn` |  | Start a program, inheriting the process environment. argv includes argv[0]. Empty argv or embedded NUL bytes answer Err 22 before launch. |
+| `sysForkProcess` | value | `Int` | `IO,Spawn` |  | Fork this process: 0 in the child, pid in the parent, or negative errno. |
 | `sysPid` | value | `Int` | `IO,Unsafe` |  | The calling process's own id, such as a suffix that keeps two processes' scratch files apart. |
 | `sysHasMonotonic` | value | `Bool` | `Mut` |  | Whether this target has a monotonic clock, so that `sysNowMonotonic`, `sysNowMonotonicNanos` and `sysSleepNanos` answer `Ok`. Linux, FreeBSD, darwin-aarch64 and Windows have one; bare metal and darwin-x86_64 don't. |
 | `sysNowMicros` | value | `(Result Int Error)` | `Alloc,IO` |  | Microseconds from the platform clock. Darwin and Windows read realtime; Linux and FreeBSD read monotonic time. Use `sysNowMonotonic` for durations. The call owns and releases its scratch buffer. No caller address is used. |
@@ -2047,7 +2047,6 @@ Sys - portable syscall wrappers.
 | `sysSigBit` | value | `(-> Int Int)` |  |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int (Result Int Error))` | `Alloc,IO,Mut` |  | Block the signals in `mask` so they become observable instead of fatal. The call owns and releases 16 bytes of kernel scratch. It zeroes the whole platform sigset_t before writing the mask: 4 bytes on Darwin, 8 on Linux and 16 on FreeBSD, including FreeBSD's upper signal bits. Answers `Ok 0` on success. Call before a server forks so every worker inherits the mask. |
 | `sysKill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  | Send a signal, which is how a test raises one against itself. |
-| `sysForkProcess` | value | `Int` | `IO,Spawn,Unsafe` |  | Start another copy of this process: 0 in the child, the child's pid in the parent, or a negative errno when no child was made. |
 | `sysTimedOut` | value | `Int` |  |  | The `Error` code a timed operation answers when its time ran out: `chanRecvTimeout`, `chanSendTimeout`, `mutexLockTimeout`, and a task past its deadline. |
 | `sysSleepUntilNanos` | value | `(-> Int (Result Int Error))` | `Alloc,Block,IO,Mut` |  | Sleep until the monotonic clock reads at least `deadline` nanoseconds (`sysNowMonotonicNanos`): `Ok 0` once it does, at once for a deadline already past, or `Err` 78 on a target with no monotonic clock, where nothing could tell when to wake. A wake that comes early, from a signal or the kernel's 71-minute cap on one wait on Darwin, sleeps again for what is left, so the sleep never ends short. A clock that fails mid-sleep answers its `Err`. The thread blocks in the kernel; on FreeBSD, which has no blocking timed wait here, it spins as every timed wait there does. |
 | `sysSleepNanos` | value | `(-> Int (Result Int Error))` | `Alloc,Block,IO,Mut` |  | Sleep for at least `nanos` nanoseconds of the monotonic clock: `sysSleepUntilNanos` with a deadline `nanos` from now, saturating at the clock's end. A non-positive `nanos` answers `Ok 0` at once. |
@@ -2284,13 +2283,6 @@ Structured tasks with typed results across the process boundary
 ## `Task.Worker`
 
 `stdlib/Task/Worker.ax` — 18 public names
-
-Task.Worker - isolated executable workers with bounded byte messages.
-
-Build a separate executable whose main calls `workerServe handler`.
-`workerMap` starts that executable afresh for every input. Strings are
-binary messages: no closure or managed reference crosses the process.
-Standard output and standard error remain ordinary side effects.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|

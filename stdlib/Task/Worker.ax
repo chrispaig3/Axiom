@@ -1,3 +1,4 @@
+(import Internal.ProcessRaw)
 ;;! Task.Worker - isolated executable workers with bounded byte messages.
 ;;!
 ;;! Build a separate executable whose main calls `workerServe handler`.
@@ -309,7 +310,7 @@
               (if (workerTokenCancelled token)
                 -1002
                 (workerProcessesStart processes index (vecGet argv 0)
-                  (commandScratchArgv scratch 0 args) sysEnvp path mapping))
+                  (commandScratchArgv scratch 0 args) (processRawEnvpInto scratch 1) path mapping))
             })
         }
       ))))

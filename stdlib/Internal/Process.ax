@@ -3,7 +3,8 @@
 ; Ordinary POSIX launch and wait keep Sys's existing raw boundary and
 ; effect refinements. A Windows caller supplies native operations that
 ; publish a child owner before allocating or exposing a new handle.
-(import Sys)
+(import Sys.Platform)
+(import Internal.ProcessRaw)
 (import Err)
 
 ;; Use the native operation where no syscall ABI exists; elsewhere use
@@ -15,7 +16,7 @@
 (pub fn (processSpawnWith nativeSpawn path argv envp)
   (if (== usesSyscallAbi 0)
     (nativeSpawn path argv envp)
-    (match (sysSpawn path argv envp)
+    (match (processRawSpawn path argv envp)
       ((Ok pid) pid)
       ((Err e) (- 0 (errCode e))))))
 
@@ -27,6 +28,6 @@
 (pub fn (processWaitWith nativeWait pid)
   (if (== usesSyscallAbi 0)
     (nativeWait pid)
-    (match (sysWaitPid pid)
+    (match (processRawWaitPid pid)
       ((Ok status) status)
       ((Err e) (- 0 (errCode e))))))

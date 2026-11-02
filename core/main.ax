@@ -1199,21 +1199,13 @@
 ; forwards nothing, because its operand may be a DIRECTORY and there
 ; would be no one program to forward to.
 ;
-; A RAW BLOCK, not a `Vec`, because that is what `sysRunPath` passes
-; to `execve`: a NUL-terminated array of C string addresses. Built as
-; a `Vec` of `Str` handles first, this compiled, type-checked and ran
-; - and `execve` read the vector header as its first argument
-; pointer, failed, and `test` exited 4 with nothing on either stream.
-; `runArgv` beside it has the shape this must have.
-(pub :: testArgv (-> String Int))
+; The launch boundary owns native pointer encoding; this vector keeps strings typed.
+(pub :: testArgv (-> String Strings))
 (pub fn (testArgv name)
   {
-    (let v (memAlloc (* 2 8)))
-    {
-      (memSetWord v 0 (strCStr (strDup name)))
-      (memSetWord v 1 0)
-      v
-    }
+    (let words vecNew)
+    (vecPush words name)
+    words
   })
 
 ; Run one file's tests, answering the number of failures - or 1 for a
@@ -1328,7 +1320,7 @@
                                             1
                                           }
                                           {
-                                            (let code (sysRunPath exe (testArgv exe) sysEnvp))
+                                            (let code (sysRunPath exe (testArgv exe)))
                                             {
                                               (unwrapOr (removeFile exe) 0)
                                               ; `Err` is the spawn failing - the
@@ -1392,41 +1384,33 @@
 ; file, and the flags that change what a file's run means. `--jobs`
 ; is not forwarded: the child's target is a file, which runs in
 ; process either way.
-(pub :: testChildArgv (-> String String String Int))
+(pub :: testChildArgv (-> String String String Strings))
 ;@axiom:effect(io)
 (pub fn (testChildArgv self file filter)
   {
     (let words vecNew)
     {
-      (vecPushStr words self)
-      (vecPushStr words "test")
-      (vecPushStr words file)
+      (vecPush words self)
+      (vecPush words "test")
+      (vecPush words file)
       (if (> (strLen filter) 0)
         {
-          (vecPushStr words "--filter")
-          (vecPushStr words filter)
+          (vecPush words "--filter")
+          (vecPush words filter)
         })
       (if (let (Some opt) (flagValue "--opt" 1))
         (if (> (strLen opt) 0)
           {
-            (vecPushStr words "--opt")
-            (vecPushStr words opt)
+            (vecPush words "--opt")
+            (vecPush words opt)
           }))
       (if (let (Some fmt) (flagValue "--diagnostic-format" 1))
         (if (> (strLen fmt) 0)
           {
-            (vecPushStr words "--diagnostic-format")
-            (vecPushStr words fmt)
+            (vecPush words "--diagnostic-format")
+            (vecPush words fmt)
           }))
-      {
-        (let v (memAlloc (* (+ (vecLen words) 1) 8)))
-        {
-          (for i in 0..(vecLen words)
-            (memSetWord v i (strCStr (strDup (vecGetStr words i)))))
-          (memSetWord v (vecLen words) 0)
-          v
-        }
-      }
+      words
     }
   })
 
@@ -1495,8 +1479,8 @@
             {
               (let f (vecGet files next))
               {
-                (match (sysSpawnOutErrTo (strCStr (strDup self)) (testChildArgv self f filter)
-                         sysEnvp (testCapName f "out" next) (testCapName f "err" next))
+                (match (sysSpawnOutErrTo self (testChildArgv self f filter)
+                         (testCapName f "out" next) (testCapName f "err" next))
                   ((Ok pid)
                     {
                       (vecPush pids pid)
@@ -2031,7 +2015,7 @@
 (pub fn (mkdirOne dir)
   ; `strDup` before `strCStr`: a prefix is a SLICE sharing its bytes
   ; with the whole path and stopping at no NUL, so the raw pointer
-  ; would name garbage past the slice - `fillArgv` in driver.ax
+  ; would name garbage past the slice - the typed process boundary
   ; copies for the same reason.
   (if (== (strLen dir) 0)
     0
@@ -2572,7 +2556,7 @@
                                             (if (!= rc 0)
                                               (die "" rc)
                                               {
-                                                (let code (sysRunPath exe (runArgv exe) sysEnvp))
+                                                (let code (sysRunPath exe (runArgv exe)))
                                                 {
                                                   (unwrapOr (removeFile exe) 0)
                                                   ; `Err` means the child never
@@ -2781,7 +2765,7 @@
 ; --verbose` passes `--verbose` on rather than refusing it as a flag
 ; this compiler does not know. A leading-dash argument that would
 ; otherwise be ambiguous can be forced across with `--`.
-(pub :: runArgv (-> String Int))
+(pub :: runArgv (-> String Strings))
 ;@axiom:effect(io)
 (pub fn (runArgv name)
   ; In manifest mode the operands after `--` are PROGRAM arguments -
@@ -2806,36 +2790,30 @@
               ))
           )))
       {
-        (let v (memAlloc (* (+ (- n extra) 2) 8)))
+        (let v (vecWithCapacity (+ (- n extra) 1)))
         {
-          (memSetWord v 0 (strCStr (strDup name)))
-          (fillRunArgv v extra n 1)
+          (vecPush v name)
+          (fillRunArgv v extra n)
           v
         }
       }
     }
   })
 
-; Copy argv[from..to) into `v` starting at slot `slot`, NUL-terminated.
+; Append argv[from..to) to the typed argument vector.
 ;
 ; `--` is dropped as it passes: it is this compiler's end-of-options
 ; marker, not an argument the program asked for.
-(pub :: fillRunArgv (-> Int Int Int Int Int))
+(pub :: fillRunArgv (-> Strings Int Int Int))
 ;@axiom:effect(io)
-(pub fn (fillRunArgv v from to slot)
+(pub fn (fillRunArgv v from to)
   (if (>= from to)
-    {
-      (memSetWord v slot 0)
-      0
-    }
+    0
     {
       (let a (sysArg from))
-      (if (strEq a "--")
-        (fillRunArgv v (+ from 1) to slot)
-        {
-          (memSetWord v slot (strCStr (strDup a)))
-          (fillRunArgv v (+ from 1) to (+ slot 1))
-        })
+      (if (! (strEq a "--"))
+        (vecPush v a))
+      (fillRunArgv v (+ from 1) to)
     }))
 
 (pub :: die (-> String Int Int))

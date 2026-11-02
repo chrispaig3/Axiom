@@ -3,8 +3,8 @@
 ; Both must answer -2, and neither can be seen from a process whose
 ; environment the harness chose - `run-stdlib-tests.sh` runs every case
 ; with its own `PATH` set and gives a case no way to change it. So this
-; one builds the environment it wants and RUNS ITSELF IN IT: `sysRun`
-; takes the `envp` its caller supplies, and the child reads it back
+; this isolated library probe builds the environment with `processRawRun`,
+; while its child exercises typed `sysRunPath`, and the child reads it back
 ; through the same `argv[argc + 1]` derivation `sysEnv` uses in any
 ; other process.
 ;
@@ -92,7 +92,7 @@
 (pub fn (probe label env)
   {
     (println label)
-    (unwrapOr (sysRun (strCStr (strDup (sysArg 0))) (argv2 selfName "search") (envp1 env)) 0)
+    (unwrapOr (processRawRun (strCStr (strDup (sysArg 0))) (argv2 selfName "search") (envp1 env)) 0)
   })
 
 (pub :: main Int)
@@ -103,12 +103,16 @@
 ; constant for every failure and this case would pass whatever went
 ; wrong - the vacuous pass the comment below is about, reintroduced by
 ; the migration itself.
+(:: searchArgs (-> String (Vec String)))
+(fn (searchArgs name)
+  { (let args (vecNew)) (vecPush args name) (vecPush args "victim") args })
+
 (:: searchAnswer (-> String Int))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
 (fn (searchAnswer name)
-  (match (sysRunPath name (argv2 name "victim") 0)
+  (match (sysRunPath name (searchArgs name))
     ((Ok code) code)
     ((Err e) (- 0 (errCode e)))))
 
