@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- The test runner keeps test records and file names in typed owners.
+  Bootstrap can check the compiler entry point outside `core` without
+  erasing those references.
+  Tested by `scripts/bootstrap-from-seed.sh` and `scripts/check-test-runner.sh`.
+
 - An erasing cast outside the compiler and the standard library is
   `AX3073` unless the declaration says `effect(unsafe)`. `addrOf`
   remains the way to compare identity. The compiler and the library

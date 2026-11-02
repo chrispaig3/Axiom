@@ -1006,12 +1006,9 @@
 ; an empty list and a node that is not a `fn` has no list at all.
 (pub :: testArity (-> ASTNode Int))
 (pub fn (testArity d)
-  {
-    (let p (nodeBChildren d))
-    (if (== (as p Int) 0)
-      0
-      (vecLen p))
-  })
+  (if (== (nodeTag d) TAG_D_FN)
+    (vecLen (nodeBNames d))
+    0))
 
 ; Does the `::` signature declared alongside `d` carry `;@axiom:expect`?
 ; A linear scan over `decls` by name, the same shape `findFnDecl` scans
@@ -1044,31 +1041,23 @@
     1
     (testExpectFailSig decls (bareOf (nodeAName d)) 0)))
 
-; One test record: word 0 is its name, word 1 is 1 when it is tagged
-; `;@axiom:expect` and 0 otherwise. A raw two-word block rather
-; than a second `Vec`, the same shape `testArgv` below packs an argv
-; entry into - one allocation per test, never freed, in a process that
-; is about to exec or exit.
-(pub :: testMkRec (-> String Int Int))
+; Each test record owns its name until the generated driver is written.
+(pub struct TestCase
+  (name : String)
+  (xfail : Int))
+
+(pub :: testMkRec (-> String Int TestCase))
 (pub fn (testMkRec name xfail)
-  {
-    (let v (memAlloc (* 2 8)))
-    {
-      (memSetWord v 0 (as name Int))
-      (memSetWord v 1 xfail)
-      v
-    }
-  })
+  (TestCase :name name :xfail xfail))
 
 ; The tests in `decls`, in declaration order, refusing a `test`-named
-; function that takes parameters. Each answer is a `testMkRec` block,
-; not a bare name, so `testCallLines` below knows which report
-; function a test wants without re-scanning `decls` itself.
+; function that takes parameters. Each record keeps its name and expected
+; outcome, so `testCallLines` can choose the report function directly.
 ;
 ; Declaration order rather than sorted, because a file is read top to
 ; bottom and a report that reorders makes the reader find each test
 ; twice.
-(pub :: testCollect (-> (Vec ASTNode) String String Ints))
+(pub :: testCollect (-> (Vec ASTNode) String String (Vec TestCase)))
 ;@axiom:effect(io)
 (pub fn (testCollect decls file filter)
   {
@@ -1145,7 +1134,7 @@
 ; Doubling them compiled, ran, and printed `ok   {name}` five times -
 ; the generated program was emitting the hole syntax instead of
 ; interpolating it.
-(pub :: testCallLines (-> Ints Int Int String))
+(pub :: testCallLines (-> (Vec TestCase) Int Int String))
 (pub fn (testCallLines names hasSetup hasTeardown)
   {
     (let n (vecLen names))
@@ -1154,9 +1143,9 @@
       (for i in 0..n
         {
           (let rec (vecGet names i))
-          (let name (memGetWordStr rec 0))
+          (let name rec.name)
           (let reporter
-            (if (== (memGetWord rec 1) 1)
+            (if (== rec.xfail 1)
               "axiomTestReportXFail"
               "axiomTestReport"))
           (let head (concat "    (set failed (+ failed (" (concat reporter "\"")))
@@ -1196,7 +1185,7 @@
 ; are generated into every driver, used or not, because which one a
 ; given call needs is `testCallLines`'s decision and this text has no
 ; way to omit half of itself conditionally.
-(pub :: testDriverText (-> String Ints Int Int String))
+(pub :: testDriverText (-> String (Vec TestCase) Int Int String))
 (pub fn (testDriverText src names hasSetup hasTeardown)
   (concat (concat "(import IO)\n" (strSlice src (pastBom src 0) (- (strLen src) (pastBom src 0))))
     (concat
@@ -1483,7 +1472,7 @@
 ; captured per file and printed in name order once all have
 ; finished, so a parallel run reports exactly what a sequential one
 ; does, in the same order.
-(pub :: testRunFilesParallel (-> Ints String Int Int))
+(pub :: testRunFilesParallel (-> (Vec String) String Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
 ;@axiom:effect(block)
@@ -1504,7 +1493,7 @@
         {
           (while (&& (< next n) (< (- next head) jobs))
             {
-              (let f (vecGetStr files next))
+              (let f (vecGet files next))
               {
                 (match (sysSpawnOutErrTo (strCStr (strDup self)) (testChildArgv self f filter)
                          sysEnvp (testCapName f "out" next) (testCapName f "err" next))
@@ -1532,7 +1521,7 @@
         {
           (for i in 0..n
             {
-              (let f (vecGetStr files i))
+              (let f (vecGet files i))
               {
                 (replOut (concat "== " (concat f " ==\n")))
                 (replOut (unwrapOr (readFile (testCapName f "out" i)) ""))
@@ -1553,7 +1542,7 @@
 ; is sorted - so a directory run reports the same order everywhere,
 ; and the generated drivers a previous run left behind are skipped by
 ; name rather than compiled as tests of their own.
-(pub :: testFilesIn (-> String Ints))
+(pub :: testFilesIn (-> String (Vec String)))
 ;@axiom:effect(io)
 (pub fn (testFilesIn dir)
   {
@@ -1568,7 +1557,7 @@
                 (if (strStartsWith name ".axiom-test.")
                   false
                   true))
-            (vecPush out (as (pathJoin dir name) Int)))
+            (vecPush out (pathJoin dir name)))
         })
       out
     }
@@ -1607,7 +1596,7 @@
                     (if (|| (<= jobs 1) (== n 1))
                       (for i in 0..n
                         {
-                          (let f (vecGetStr files i))
+                          (let f (vecGet files i))
                           {
                             (replOut (concat "== " (concat f " ==\n")))
                             (if (!= (testRunFile f filter) 0)

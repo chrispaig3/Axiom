@@ -468,10 +468,14 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 # Against d3ba9d3c with one compiler, extraction removes 79 Rust binding
 # generator rows and 22 Cargo/tool helpers; packageBuildOutput and pkgIsLibrary
 # add two Alloc,IO,Mut rows. No surviving row changes effects or parameter marks.
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3640 "exactly Alloc,Mut"
+# The 37517fc2 baseline already has ten more Alloc,Mut, one more Alloc
+# and two more pure rows than these pins. The typed test runner then
+# moves only testMkRec from Alloc,Mut to Alloc under the same compiler;
+# every required effect and every other existing row is unchanged.
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3649 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 505 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 285 "exactly Mut"
-have "$(bucket "$work/main.axsym" 'Alloc')" 473 "exactly Alloc"
+have "$(bucket "$work/main.axsym" 'Alloc')" 475 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 13 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 5 "IO,Mut"
@@ -503,7 +507,7 @@ have "$(bucket "$work/main.axsym" 'Alloc,Block,IO,Mut')" 16 "Alloc,Block,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Block,IO')" 2 "Alloc,Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO')" 1 "Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO,Mut')" 1 "Block,IO,Mut"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2386 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2388 "pure (neither row nor mark)"
 have "$(grep '^F ' "$work/main.axsym" | grep -o '#effects=[^ #]*' | LC_ALL=C sort -u | wc -l | tr -d ' ')" 32 "distinct compiler effect rows"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 54 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 42 "effect-params rows"

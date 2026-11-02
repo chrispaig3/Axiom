@@ -1,0 +1,189 @@
+; Counted captures fit in a closure map only through 46 slots.
+; The small control reclaims its strings after the closure drops. The
+; oversized closure currently keeps its captured shares: this pins a
+; known leak, not a guarantee that callers should depend on.
+; Warm both allocation shapes before comparing allocator backlog.
+(import Mem)
+(import Str)
+(import IO)
+
+(:: make2 (-> Int Int Int))
+(fn (make2 seed)
+  {
+    (let s0 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s1 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (lambda (i) (+ (strByte s1 0) (+ (strByte s0 0) 0)))
+  })
+
+(:: use2 (-> Int Int))
+(fn (use2 k)
+  {
+    (let f (make2 k))
+    (f 0)
+  })
+
+(:: loop2 (-> Int Int))
+(fn (loop2 n)
+  (if (<= n 0)
+    0
+    {
+      (use2 n)
+      (loop2 (- n 1))
+    }))
+
+(:: make47 (-> Int Int Int))
+(fn (make47 seed)
+  {
+    (let s0 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s1 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s2 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s3 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s4 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s5 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s6 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s7 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s8 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s9 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s10 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s11 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s12 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s13 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s14 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s15 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s16 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s17 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s18 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s19 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s20 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s21 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s22 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s23 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s24 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s25 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s26 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s27 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s28 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s29 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s30 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s31 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s32 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s33 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s34 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s35 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s36 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s37 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s38 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s39 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s40 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s41 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s42 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s43 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s44 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s45 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (let s46 (strDup "abcdefghijklmnopqrstuvwxyz0123456789ABCD"))
+    (lambda (i)
+      (+ (strByte s46 0)
+        (+ (strByte s45 0)
+          (+ (strByte s44 0)
+            (+ (strByte s43 0)
+              (+ (strByte s42 0)
+                (+ (strByte s41 0)
+                  (+ (strByte s40 0)
+                    (+ (strByte s39 0)
+                      (+ (strByte s38 0)
+                        (+ (strByte s37 0)
+                          (+ (strByte s36 0)
+                            (+ (strByte s35 0)
+                              (+ (strByte s34 0)
+                                (+ (strByte s33 0)
+                                  (+ (strByte s32 0)
+                                    (+ (strByte s31 0)
+                                      (+ (strByte s30 0)
+                                        (+ (strByte s29 0)
+                                          (+ (strByte s28 0)
+                                            (+ (strByte s27 0)
+                                              (+ (strByte s26 0)
+                                                (+ (strByte s25 0)
+                                                  (+ (strByte s24 0)
+                                                    (+ (strByte s23 0)
+                                                      (+ (strByte s22 0)
+                                                        (+ (strByte s21 0)
+                                                          (+ (strByte s20 0)
+                                                            (+ (strByte s19 0)
+                                                              (+ (strByte s18 0)
+                                                                (+ (strByte s17 0)
+                                                                  (+ (strByte s16 0)
+                                                                    (+ (strByte s15 0)
+                                                                      (+ (strByte s14 0)
+                                                                        (+ (strByte s13 0)
+                                                                          (+ (strByte s12 0)
+                                                                            (+ (strByte s11 0)
+                                                                              (+ (strByte s10 0)
+                                                                                (+ (strByte s9 0)
+                                                                                  (+ (strByte s8 0)
+                                                                                    (+
+                                                                                      (strByte s7 0)
+                                                                                      (+
+                                                                                        (strByte s6
+                                                                                          0)
+                                                                                        (+
+                                                                                          (strByte
+                                                                                            s5 0)
+                                                                                          (+
+                                                                                            (strByte
+                                                                                              s4 0)
+                                                                                            (+
+                                                                                              (strByte
+                                                                                                s3
+                                                                                                0)
+                                                                                              (+
+                                                                                                (strByte
+                                                                                                  s2
+                                                                                                  0)
+                                                                                                (+
+                                                                                                  (strByte
+                                                                                                    s1
+                                                                                                    0)
+                                                                                                  (+
+                                                                                                    (strByte
+                                                                                                      s0
+                                                                                                      0)
+                                                                                                    0)))))))))))))))))))))))))))))))))))))))))))))))
+    )
+  })
+
+(:: use47 (-> Int Int))
+(fn (use47 k)
+  {
+    (let f (make47 k))
+    (f 0)
+  })
+
+(:: loop47 (-> Int Int))
+(fn (loop47 n)
+  (if (<= n 0)
+    0
+    {
+      (use47 n)
+      (loop47 (- n 1))
+    }))
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (loop2 100)
+    (loop47 100)
+    (let before memStats)
+    (loop2 100)
+    (let small memStats)
+    (loop47 100)
+    (let large memStats)
+    (let ds (- small.backlogBytes before.backlogBytes))
+    (let smallReclaimed (< ds 1024))
+    (println "small capture reclaimed: {smallReclaimed}")
+    (let dl (- large.backlogBytes small.backlogBytes))
+    (let largeRetained (> dl 500000))
+    (println "large capture retained: {largeRetained}")
+    0
+  })

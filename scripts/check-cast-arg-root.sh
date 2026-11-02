@@ -564,7 +564,10 @@ echo "--- 4. the compiler's erasures do not grow ---"
 # further reference erasures: 260 to 249 under the same compiler.
 # Optional namespace modules and symbol-unit lookup remove two more
 # reference erasures: 249 to 247 under the same compiler.
-erasure_pin=247
+# Typed test-runner records and file paths remove three erasures: 243 to
+# 240 with the same compiler. The previous 247 pin included four sites
+# already removed or reclassified before this migration.
+erasure_pin=240
 erasure_sum() {  # <axsym> -> the #erasures= total over core/ rows
   awk '$1 == "F" && index($3, "core/") == 1 {
          for (i = 4; i <= NF; i++)

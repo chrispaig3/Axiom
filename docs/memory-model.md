@@ -3623,13 +3623,16 @@ either alone leads to the wrong conclusion. With the event but without
 pushed 300 boundaries earlier reads a length of 2: freed, re-issued and
 read back as garbage.
 
-Closure captures follow the same logic. A lambda captures everything in
-scope, so a closure escaping the loop would hold a parameter the next
-boundary releases. A capture that is a reference parameter of the
-enclosing function therefore takes a share. A captured `let` binding
-stays unretained, because nothing releases a binding a lambda mentions
-(event 3 treats the lambda as an escape). The rule is "retain what
-something else may hand back", not "retain every capture".
+Closure captures follow the same logic. A capture of a reference
+parameter, a counted `let` binding or an owning `mut` slot takes a
+share. For up to 46 captures, the closure's reference map releases
+those shares when the closure dies. Larger closures retain the shares
+without a map to release them (`tests/stdlib/1004-capture-map-limit.ax`).
+`captureCounted` classifies the binding the name resolves
+to, so a local that shadows a parameter uses the local's class.
+Unclassified captures keep their outer binding alive conservatively.
+
+Tested by `tests/stdlib/556-count-balance.ax`.
 
 **Event 3 emits** (`tests/stdlib/364-arc-frame-release.ax`, exit 127).
 A `let` binding whose initialiser is a direct construction is released
@@ -4335,15 +4338,15 @@ reference into an `Int` field is unsafe (`MM-EXEC-9d`). Inside those
 two, keeping that value alive remains the program's obligation, as for
 raw `__alloc` storage in section 10.
 
-Closure capture words are stored unretained, with the one exception
-event 4 requires: a capture that is a reference parameter of the
-enclosing function takes a share. The closure record's reference map
-names those captures, so the record's death hands the shares
-back. For every other capture, the closure-outlives-frame dangle stays
-a recorded program obligation, beside `MM-VAL-15`'s price sentence.
-The evidence record's two words are not part of that obligation: the
-record carries a map, so its retains are legal (`MM-LIFE-2d`,
-`tests/stdlib/360-arc-evidence-map.ax`).
+Closure captures of reference parameters, counted local bindings and
+owning mutable slots take shares. The closure record's reference map
+names those captures when there are at most 46, so the record's death
+returns their shares. Larger records have no capture map and keep those
+shares. Unclassified captures take no share; the escape analysis conservatively
+keeps their outer bindings alive. Match-arm capture cleanup remains a
+[known defect](assurance.md#known-defects).
+The evidence record's two words carry a map too, so their retains are
+legal (`MM-LIFE-2d`, `tests/stdlib/360-arc-evidence-map.ax`).
 
 The §3.3 primitives are legal, permanently. ARC is withdrawn, and the
 arenas are the reclamation (`MM-ALLOC-22`, `MM-LIFE-2a`). Composing
