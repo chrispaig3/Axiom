@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Erasing casts require an unsafe declaration in compiler source and
+  user directories named `core`. Directory names grant no exemption;
+  the trusted standard library keeps its internal erasure boundary.
+  Tested by `tests/selfhost/erasure-path-boundary.py`.
+
 - Interner operations take counted `InternState` owners. Raw addresses
   and explicit release stay internal; retained lookup strings survive
   the owner. Oversized capacity requests stop before arithmetic wraps.

@@ -22,6 +22,7 @@
 ; and a construction allocates (`MM-EXEC-9a`).
 ;@axiom:restrict(no-io,no-foreign)
 (pub :: mkSpan (-> Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (mkSpan start end)
   (as (Span :start start :end end) Int))
 

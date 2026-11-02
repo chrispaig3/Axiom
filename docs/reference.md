@@ -1751,9 +1751,8 @@ effect and restriction checks in place.
 
 Hover over `as`, or run `axiom explain as`, for ownership guidance.
 A word obtained from a reference holds no share; keep its owner alive
-while using the word. Outside the compiler and the standard library
-that cast requires `effect(unsafe)`
-([roadmap](roadmap.md#memory-and-resource-safety)). Use `addrOf` for
+while using the word. Outside the trusted standard library, that
+cast requires `effect(unsafe)`, regardless of its source directory. Use `addrOf` for
 identity comparisons and hashing.
 `axiom symbols FILE --diagnostic-format=ai` reports `#erasures=n` on
 functions that turn references into words. These conversions do not

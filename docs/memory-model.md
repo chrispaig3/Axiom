@@ -685,10 +685,9 @@ operations:
   for the word it casts (`MM-PAR-8`);
 - an *erasing cast*: `(as v W)`, where `v` is a reference and `W` is a
   word (`Int`, `Foreign`, another number, or an alias of one), in a
-  module outside the compiler and the standard library. The compiler's
-  directory `core` and the library still erase, because their handles
-  are words. A file whose parent directory is named `core` is treated
-  as the compiler for now.
+  module outside the trusted standard library. Compiler declarations
+  follow the same rule as other user declarations. Directory names
+  grant no exemption.
 
 An untagged operation is `AX3073`, even when the declaration claims
 another effect, such as `effect(io)`. Under `effect(pure)` it is
@@ -2864,10 +2863,10 @@ by part:
   (Bx "kept"))       ; AX3004: expected Int, found Box
 ```
 
-Outside the compiler and the standard library, `(as v Int)` and the
-other erasing casts are unsafe (`MM-EXEC-9d`). The declaration says
-`effect(unsafe)`, or the cast is `AX3073`. The compiler's directory
-and the library still erase. `Mem.addrOf` answers a sealed `Addr` word
+Outside the trusted standard library, `(as v Int)` and the other
+erasing casts are unsafe (`MM-EXEC-9d`). The declaration says
+`effect(unsafe)`, or the cast is `AX3073`. Directory names do not
+change this rule. `Mem.addrOf` answers a sealed `Addr` word
 (`MM-VAL-10a`) that compares and hashes `v`'s identity and takes no
 share. A function whose declared result is a word struct aliases none
 of its parameters, so `(addrOf v)` leaves `v`'s release where it was.
@@ -4369,10 +4368,10 @@ AST stores record which slots contain references. Replacing a slot or
 releasing the node returns those shares. Owning containers also record
 their element class and release their elements (`MM-LIFE-2m`).
 
-Outside the compiler and the library, the cast that would put a
-reference into an `Int` field is unsafe (`MM-EXEC-9d`). Inside those
-two, keeping that value alive remains the program's obligation, as for
-raw `__alloc` storage in section 10.
+Outside the trusted library, the cast that puts a reference into an
+`Int` field requires an unsafe declaration (`MM-EXEC-9d`). Keeping
+that value alive remains the unsafe implementation's obligation, as
+for raw `__alloc` storage in section 10.
 
 Closure captures of reference parameters, counted local bindings and
 owning mutable slots take shares. The closure record's reference map

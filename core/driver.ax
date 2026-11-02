@@ -2111,6 +2111,7 @@
     }))
 
 (pub :: findExternItemIn (-> (Vec ASTNode) String Int (Option ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (findExternItemIn items sym i)
   (if (== (as items Int) 0)
     None

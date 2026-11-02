@@ -93,10 +93,10 @@ Tested by `tests/diagnostics/1512-entropy-addresses.ax`.
 
 Not yet: public raw-address interfaces remain
 ([roadmap](roadmap.md#memory-and-resource-safety)). Outside the
-compiler and the standard library, an erasing cast is `AX3073` unless
-the declaration says `effect(unsafe)`. The compiler and the library
-still erase; the compiler's `core` directory-name exemption also admits
-user files in a directory with that name.
+trusted standard library, an erasing cast is `AX3073` unless the
+declaration says `effect(unsafe)`. This includes compiler source and
+user files in directories named `core` or `stdlib`.
+Tested by `tests/selfhost/erasure-path-boundary.py`.
 
 ### Ownership
 
@@ -128,10 +128,9 @@ Tested by `tests/stdlib/846-vec-pop-release.ax` and
 Leak freedom is unproved. `MM-LIFE-3` permits cycles, and the memory
 model's lifetime rules describe conservative retention. A `mut` local
 keeps its value when a read may survive replacement, or when its type
-is a type variable. Outside the compiler and the library, explicit
-erasure to `Int` is `AX3073` (`MM-VAL-24`). Inside those two, it
-remains. A leaked resource owner may also delay its destructor
-indefinitely.
+is a type variable. Outside the trusted library, explicit erasure to
+`Int` requires `effect(unsafe)` (`MM-VAL-24`). A leaked resource owner
+may also delay its destructor indefinitely.
 
 ### Regions
 

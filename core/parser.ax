@@ -26,6 +26,7 @@
   (addrEq (addrOf a) (addrOf b)))
 
 (:: nodeWord (-> ASTNode Int Int))
+;@axiom:effect(unsafe)
 (fn (nodeWord n index)
   (if (nodeSame n nilNode)
     0
@@ -7355,6 +7356,7 @@
 
 ; Is `n` one of the constructor's declared fields?
 (pub :: declaredHasField (-> Names String Int))
+;@axiom:effect(unsafe)
 (pub fn (declaredHasField declared n)
   (if (== (as declared Int) 0)
     0
@@ -8431,6 +8433,7 @@
   })
 
 (pub :: nodeIdentityKey (-> ASTNode String))
+;@axiom:effect(unsafe)
 (pub fn (nodeIdentityKey node)
   (fmtInt (as node Int)))
 

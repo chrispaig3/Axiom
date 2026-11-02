@@ -1825,6 +1825,7 @@
     }))
 
 (pub :: scanExternSigs (-> (Vec ASTNode) (Vec FSig) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (scanExternSigs items sigs i)
   (if (== (as items Int) 0)
     0
@@ -1903,6 +1904,7 @@
 ; arity, so the index is built in declaration order and only the first
 ; writer of a name touches [4].
 (pub :: buildNameIndexes (-> CG CG))
+;@axiom:effect(unsafe)
 (pub fn (buildNameIndexes cg)
   {
     (let sigs (cgFloatSigs cg))
@@ -2459,6 +2461,7 @@
 ; row length is recorded on the signature (word 11) as the count
 ; is settled.
 (pub :: callersIdxBuildCg (-> CG (Vec ASTNode) Ints))
+;@axiom:effect(unsafe)
 (pub fn (callersIdxBuildCg cg decls)
   {
     (let byId (cgSigById cg))
@@ -2777,6 +2780,7 @@
       0)))
 
 (pub :: tailOwnedArms (-> CG (Vec ASTNode) Names FlowEnv Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tailOwnedArms cg arms params env i)
   (if (>= i (vecLen arms))
     1
@@ -2902,6 +2906,7 @@
     }))
 
 (pub :: envPushPatVec (-> CG FlowEnv (Vec ASTNode) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (envPushPatVec cg v subs flag i)
   (if (== (as subs Int) 0)
     0
@@ -3772,6 +3777,7 @@
       (flowMaskSel cg e n_ params env mask (+ i 1)))))
 
 (pub :: flowMaskArms (-> CG (Vec ASTNode) Names FlowEnv Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (flowMaskArms cg arms params env scrut i)
   (if (>= i (vecLen arms))
     0
@@ -4213,6 +4219,7 @@
     }))
 
 (pub :: setFlowsVec (-> CG String (Vec ASTNode) Names FlowEnv Int Int))
+;@axiom:effect(unsafe)
 (pub fn (setFlowsVec cg name v params env i)
   (if (== (as v Int) 0)
     0
@@ -4221,6 +4228,7 @@
       (| (setFlows cg name (vecGet v i) params env) (setFlowsVec cg name v params env (+ i 1))))))
 
 (pub :: setFlowsArms (-> CG String (Vec ASTNode) Names FlowEnv Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (setFlowsArms cg name arms params env scrut i)
   (if (== (as arms Int) 0)
     0
@@ -4303,6 +4311,7 @@
   })
 
 (pub :: flowStashesVec (-> CG (Vec ASTNode) Names FlowEnv Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (flowStashesVec cg v params env cell i)
   (if (== (as v Int) 0)
     0
@@ -4314,6 +4323,7 @@
       })))
 
 (pub :: flowStashesArms (-> CG (Vec ASTNode) Names FlowEnv Int Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (flowStashesArms cg arms params env cell scrut i)
   (if (>= i (vecLen arms))
     0
@@ -4858,6 +4868,7 @@
       })))
 
 (pub :: valueOwnedRefArms (-> CG (Vec ASTNode) FlowEnv Int Int))
+;@axiom:effect(unsafe)
 (pub fn (valueOwnedRefArms cg arms env i)
   (if (>= i (vecLen arms))
     (if (== i 0)
@@ -4921,6 +4932,7 @@
     }))
 
 (pub :: cgSigVarsVec (-> Nodes Names Int))
+;@axiom:effect(unsafe)
 (pub fn (cgSigVarsVec xs acc)
   (if (== (as xs Int) 0)
     0
@@ -5843,6 +5855,7 @@
     full))
 
 (pub :: isNullaryFn (-> (Vec ASTNode) String Bool))
+;@axiom:effect(unsafe)
 (pub fn (isNullaryFn decls name)
   (if (== (as decls Int) 0)
     false
@@ -5874,6 +5887,7 @@
 ; Whether `name` is an item of this block whose declared type is not an
 ; arrow - i.e. takes no arguments.
 (pub :: externHasNullary (-> (Vec ASTNode) String Int Bool))
+;@axiom:effect(unsafe)
 (pub fn (externHasNullary items name i)
   (if (== (as items Int) 0)
     false
@@ -7118,6 +7132,7 @@
     }))
 
 (pub :: exprsNamePrim (-> String (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (exprsNamePrim nm v i)
   (if (== (as v Int) 0)
     0
@@ -7129,6 +7144,7 @@
 
 ; A match arm's word b is its body.
 (pub :: armsNamePrim (-> String (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (armsNamePrim nm v i)
   (if (== (as v Int) 0)
     0
@@ -9722,6 +9738,7 @@
 ; satisfy a library import that resolves to the library's own file.
 (pub :: cachedModuleWrongOrigin (-> FrontModule Units String Int Bool))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (cachedModuleWrongOrigin module units parentName tcode)
   {
     (let parent
@@ -9809,6 +9826,7 @@
 
 (pub :: parseModuleOrDieUnitSerial (-> String Int String Units String ASTNode (Vec ASTNode)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (parseModuleOrDieUnitSerial name tcode entryDir units parentName site)
   {
     (let parent
@@ -10145,6 +10163,7 @@
     }))
 
 (pub :: recordExternSyms (-> MangleIdx Strings Strings (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (recordExternSyms idx bares fulls items i)
   (if (== (as items Int) 0)
     0
@@ -10220,6 +10239,7 @@
     }))
 
 (pub :: externItemSyms (-> (Vec ASTNode) Names Int Int))
+;@axiom:effect(unsafe)
 (pub fn (externItemSyms items acc i)
   (if (|| (== (as items Int) 0) (>= i (vecLen items)))
     0
@@ -10385,6 +10405,7 @@
   (-> (Vec ASTNode) (Vec ASTNode) Strings Int String MangleIdx Strings Strings ModuleImports
     (Option Names) Int String (Vec core::CUnit2) Int FrontCache (Vec ASTNode)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (resolveDeclsPhase decls acc seen i modName idx bares fulls mods filter tcode entryDir
           units phase cache)
   (if (>= i (vecLen decls))
@@ -10513,6 +10534,7 @@
 ; every list, not the first one.
 (pub :: resolveRepeatImport
   (-> String ASTNode MangleIdx Strings Strings ModuleImports (Vec ASTNode) (Vec ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (resolveRepeatImport mod imp idx bares fulls mods acc)
   {
     (let sub (nodeBNames imp))
@@ -19416,6 +19438,7 @@
     }))
 
 (pub :: emitExternItems (-> (Vec ASTNode) CG Int Strings CG))
+;@axiom:effect(unsafe)
 (pub fn (emitExternItems items cg i seen)
   (if (== (as items Int) 0)
     cg
@@ -19677,6 +19700,7 @@
     }))
 
 (pub :: bodyHasMatchVec (-> (Vec ASTNode) Int))
+;@axiom:effect(unsafe)
 (pub fn (bodyHasMatchVec xs)
   (if (== (as xs Int) 0)
     0
@@ -20064,6 +20088,7 @@
     }))
 
 (pub :: collectTailsArms (-> CG (Vec ASTNode) Names FlowEnv String (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (collectTailsArms cg arms params env self acc i)
   (if (>= i (vecLen arms))
     0
@@ -21316,6 +21341,7 @@
     }))
 
 (pub :: strIndexIn (-> (Vec a) String Int))
+;@axiom:effect(unsafe)
 (pub fn (strIndexIn v name)
   (if (== (as v Int) 0)
     (- 0 1)
@@ -21884,6 +21910,7 @@
   (vecLen (cgSymNames cg)))
 
 (pub :: symRestore (-> CG Int CG))
+;@axiom:effect(unsafe)
 (pub fn (symRestore cg mark)
   {
     (let names (cgSymNames cg))
@@ -22706,6 +22733,7 @@
 ; the tag) and recurse into the subpattern, carrying the field's
 ; declared float flag to whatever binder it bottoms out in.
 (pub :: emitPatFields (-> (Vec ASTNode) Ints String String CG Int CG))
+;@axiom:effect(unsafe)
 (pub fn (emitPatFields subs flags vr failB cg i)
   (if (>= i (vecLen subs))
     cg
@@ -23951,6 +23979,7 @@
       (paramIndexIn params name (+ i 1)))))
 
 (pub :: isDefinedFn (-> (Vec ASTNode) String Bool))
+;@axiom:effect(unsafe)
 (pub fn (isDefinedFn decls name)
   (if (== (as decls Int) 0)
     false
@@ -27969,6 +27998,7 @@
   })
 
 (:: writesBoundIn (-> ASTNode Names ()))
+;@axiom:effect(unsafe)
 (fn (writesBoundIn e out)
   (if (! (nodeSame e nilNode))
     {
@@ -29628,6 +29658,7 @@
 ; derived from a field type that is a type variable. A third type
 ; wants its own line, which is why this refuses rather than guesses.
 (pub :: pairPayloadClass (-> CG ASTNode String Int))
+;@axiom:effect(unsafe)
 (pub fn (pairPayloadClass cg rt cname)
   {
     (let args (nodeBChildren rt))
@@ -29652,6 +29683,7 @@
 ; program - a handful - so a scan is cheaper than an index and cannot
 ; go stale between `buildNameIndexes` and emission.
 (pub :: pairNamesHas (-> Names String Int))
+;@axiom:effect(unsafe)
 (pub fn (pairNamesHas names name)
   (if (== (as names Int) 0)
     0
@@ -29749,6 +29781,7 @@
   (strVecCopyFrom xs 0 vecNew))
 
 (pub :: strVecCopyFrom (-> Names Int Names Names))
+;@axiom:effect(unsafe)
 (pub fn (strVecCopyFrom xs i acc)
   (if (== (as xs Int) 0)
     acc
@@ -29789,6 +29822,7 @@
 ; definition. That is the whole safety argument: an unrecognised shape
 ; costs a speedup, never an answer.
 (pub :: pairTailsOK (-> CG ASTNode Names Int))
+;@axiom:effect(unsafe)
 (pub fn (pairTailsOK cg e bound)
   (if (nodeSame e nilNode)
     0
@@ -31369,6 +31403,7 @@
       })))
 
 (pub :: escapesSeq (-> CG String Nodes Int Int BinderSummary Int))
+;@axiom:effect(unsafe)
 (pub fn (escapesSeq cg name v vp i bound)
   (if (== (as v Int) 0)
     0
@@ -31387,6 +31422,7 @@
 ; A match arm's word 2 is its body, and it inherits the position.
 ; An arm PATTERN cannot mention an outer binding as a value.
 (pub :: escapesArms (-> CG String (Vec ASTNode) Int Int BinderSummary Int))
+;@axiom:effect(unsafe)
 (pub fn (escapesArms cg name v vp i bound)
   (if (== (as v Int) 0)
     0
@@ -31419,6 +31455,7 @@
 ; bind NOTHING grew 0. The 32 bytes were the `Result` block, and the
 ; only thing holding it was `v`, an `Int`.
 (pub :: escapesViaBinders (-> CG (Vec ASTNode) Int Int BinderSummary Int))
+;@axiom:effect(unsafe)
 (pub fn (escapesViaBinders cg arms vp i bound)
   (if (== (as arms Int) 0)
     0
@@ -31820,6 +31857,7 @@
     }))
 
 (pub :: binderCollectVec (-> InternState (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (binderCollectVec set v i)
   (if (== (as v Int) 0)
     0
@@ -31830,6 +31868,7 @@
         (binderCollectVec set v (+ i 1))))))
 
 (pub :: binderCollectNames (-> InternState Names Int Int))
+;@axiom:effect(unsafe)
 (pub fn (binderCollectNames set v i)
   (if (== (as v Int) 0)
     0
@@ -31841,6 +31880,7 @@
       })))
 
 (pub :: binderCollectArms (-> InternState (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (binderCollectArms set v i)
   (if (== (as v Int) 0)
     0
@@ -31978,6 +32018,7 @@
 ; and `true`/`false` are names nobody references, so listing them
 ; costs nothing.
 (pub :: patBindersCg (-> ASTNode Names Names))
+;@axiom:effect(unsafe)
 (pub fn (patBindersCg pat acc)
   (if (nodeSame pat nilNode)
     acc
@@ -32002,6 +32043,7 @@
     }))
 
 (pub :: patBindersCgHead (-> ASTNode Names Names))
+;@axiom:effect(unsafe)
 (pub fn (patBindersCgHead pat acc)
   (if (== (nodeTag pat) TAG_E_APP)
     (if (== (as (patBindersCg (nodeBChild pat) acc) Int) 0)
@@ -32010,6 +32052,7 @@
     acc))
 
 (pub :: patBindersCgVec (-> (Vec ASTNode) Names Int Names))
+;@axiom:effect(unsafe)
 (pub fn (patBindersCgVec subs acc i)
   (if (== (as subs Int) 0)
     acc
@@ -32031,6 +32074,7 @@
 ; `collectTailsArms`). A scalar binder is still a binding; it is only
 ; the escape question it cannot answer yes to.
 (pub :: patBindersEsc (-> CG ASTNode Names Names))
+;@axiom:effect(unsafe)
 (pub fn (patBindersEsc cg pat acc)
   (if (nodeSame pat nilNode)
     acc
@@ -32056,6 +32100,7 @@
     }))
 
 (pub :: patBindersEscHead (-> CG ASTNode Names Names))
+;@axiom:effect(unsafe)
 (pub fn (patBindersEscHead cg pat acc)
   (if (== (nodeTag pat) TAG_E_APP)
     (if (== (as (patBindersEsc cg (nodeBChild pat) acc) Int) 0)
@@ -32064,6 +32109,7 @@
     acc))
 
 (pub :: patBindersEscVec (-> CG (Vec ASTNode) Names Int Names))
+;@axiom:effect(unsafe)
 (pub fn (patBindersEscVec cg subs acc i)
   (if (== (as subs Int) 0)
     acc
@@ -32182,6 +32228,7 @@
     }))
 
 (pub :: mentionsVec (-> String (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (mentionsVec name v i)
   (if (== (as v Int) 0)
     0
@@ -32192,6 +32239,7 @@
         (mentionsVec name v (+ i 1))))))
 
 (pub :: mentionsArms (-> String (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (mentionsArms name v i)
   (if (== (as v Int) 0)
     0
@@ -33021,6 +33069,7 @@
   })
 
 (pub :: slotArmAliases (-> Names (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (slotArmAliases names arms i)
   (if (>= i (vecLen arms))
     0
@@ -33075,6 +33124,7 @@
     }))
 
 (pub :: slotArmsBind (-> String (Vec ASTNode) Int))
+;@axiom:effect(unsafe)
 (pub fn (slotArmsBind name arms)
   {
     (let mut r 0)

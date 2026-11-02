@@ -1558,6 +1558,7 @@
 ; Check each bound expression of a SUBCHECK node's bounds Vec.
 ; Bounds must be Int; a non-Int bound is AX3004 at the bound.
 (pub :: checkSubtypeBounds (-> TC (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (checkSubtypeBounds tc bounds i)
   (if (== (as bounds Int) 0)
     0
@@ -1693,6 +1694,7 @@
     }))
 
 (pub :: tyHasSrcVarVec (-> (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tyHasSrcVarVec xs i)
   (if (== (as xs Int) 0)
     0
@@ -1742,6 +1744,7 @@
       (tyInstVar tc name env (+ i 1)))))
 
 (pub :: tyInstVec (-> TC Nodes TypeEnv Nodes Int Nodes))
+;@axiom:effect(unsafe)
 (pub fn (tyInstVec tc xs env acc i)
   (if (== (as xs Int) 0)
     acc
@@ -1797,6 +1800,7 @@
     }))
 
 (pub :: sigTyVarsVec (-> Nodes Names Int))
+;@axiom:effect(unsafe)
 (pub fn (sigTyVarsVec xs acc)
   (if (== (as xs Int) 0)
     0
@@ -1828,6 +1832,7 @@
     }))
 
 (pub :: tyHasPoisonVec (-> (Vec ASTNode) Int))
+;@axiom:effect(unsafe)
 (pub fn (tyHasPoisonVec xs)
   (if (== (as xs Int) 0)
     0
@@ -2222,6 +2227,7 @@
     }))
 
 (pub :: evWalkVec (-> TC ASTNode (Vec ASTNode) (Vec ASTNode) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (evWalkVec tc st ps as castArg late)
   (if (|| (== (as ps Int) 0) (== (as as Int) 0))
     0
@@ -2893,6 +2899,7 @@
   })
 
 (pub :: defIdxAddExternKeys (-> StringRows (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (defIdxAddExternKeys bs names i)
   (if (== (as names Int) 0)
     0
@@ -2941,6 +2948,7 @@
 ; own import sites because resolution consumes them before `allDecls`.
 ; ------------------------------------------------------------------
 (pub :: checkImportNames (-> Decls Decls (Vec diag::Diag) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (checkImportNames sites allDecls out unit i)
   (if (>= i (vecLen sites))
     0
@@ -5404,6 +5412,7 @@
 ; refused instead, MM-LIFE-2d. AX3017 because the shape is
 ; unsupported, not wrong.
 (pub :: checkEffectOpTyvars (-> TC (Vec ASTNode) Int))
+;@axiom:effect(unsafe)
 (pub fn (checkEffectOpTyvars tc fields)
   (if (== (as fields Int) 0)
     0
@@ -5602,6 +5611,7 @@
 ; one report. Population in tree: 0 untyped operations (the syntax zoo
 ; types all three of its own).
 (pub :: checkEffectOpTyped (-> TC (Vec ASTNode) String Int))
+;@axiom:effect(unsafe)
 (pub fn (checkEffectOpTyped tc fields effName)
   (if (== (as fields Int) 0)
     0
@@ -5648,6 +5658,7 @@
 ; tree: 0 - every struct in `stdlib/`, `core/`, `tests/` and
 ; `examples/` spells the colon, which is why this went unreported.
 (pub :: checkStructFieldTyped (-> TC (Vec ASTNode) String Int))
+;@axiom:effect(unsafe)
 (pub fn (checkStructFieldTyped tc fields structName)
   (if (== (as fields Int) 0)
     0
@@ -5700,6 +5711,7 @@
 ; kept, which is the same sentence the self-hosting record writes
 ; about `parseSigDecl`.
 (pub :: tcCollectEffectOps (-> TC (Vec ASTNode) Int String (Option String) Int))
+;@axiom:effect(unsafe)
 (pub fn (tcCollectEffectOps tc fields i effName modName)
   (if (== (as fields Int) 0)
     0
@@ -5841,6 +5853,7 @@
 ; view. Registering a second bare entry loses declaration provenance
 ; when several modules export the same name.
 (pub :: tcCollectExternItems (-> TC (Vec ASTNode) Int (Option String) Int))
+;@axiom:effect(unsafe)
 (pub fn (tcCollectExternItems tc fields i modName)
   (if (== (as fields Int) 0)
     0
@@ -5906,6 +5919,7 @@
     }))
 
 (pub :: tcCollectData (-> TC ASTNode Int))
+;@axiom:effect(unsafe)
 (pub fn (tcCollectData tc d)
   {
     (let tvs (nodeTyNames d))
@@ -5940,6 +5954,7 @@
   })
 
 (pub :: tvNamesToNodes (-> Names Nodes Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tvNamesToNodes tvs acc i)
   (if (== (as tvs Int) 0)
     0
@@ -7260,6 +7275,7 @@
 ; frees. Measured on the scale probe (8,000 struct declarations,
 ; 32,000 type references): 0.29s with the Vec, 0.23s without.
 (pub :: tyMultiDecl (-> TC Int String Int))
+;@axiom:effect(unsafe)
 (pub fn (tyMultiDecl tc kind name)
   {
     (let v (tyIdxBucket tc name))
@@ -7288,6 +7304,7 @@
 ; `definingModules` answers the same question from a table built at
 ; collection; this one reads the bucket, which is the same one entry.
 (pub :: tyAmbigMods (-> TC Int String Names))
+;@axiom:effect(unsafe)
 (pub fn (tyAmbigMods tc kind name)
   {
     (let v (tyIdxBucket tc name))
@@ -8390,6 +8407,7 @@
     }))
 
 (pub :: tyHasAliasConVec (-> TC (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tyHasAliasConVec tc xs i)
   (if (== (as xs Int) 0)
     0
@@ -8477,6 +8495,7 @@
       (aliasPathHas seen al (+ i 1)))))
 
 (pub :: tyExpandAliasPathVec (-> TC Nodes Nodes Nodes Int Nodes))
+;@axiom:effect(unsafe)
 (pub fn (tyExpandAliasPathVec tc xs seen acc i)
   (if (== (as xs Int) 0)
     acc
@@ -8628,6 +8647,7 @@
     }))
 
 (pub :: aliasBadParam (-> Names Int (Option Int)))
+;@axiom:effect(unsafe)
 (pub fn (aliasBadParam params i)
   (if (== (as params Int) 0)
     None
@@ -8659,6 +8679,7 @@
   })
 
 (pub :: aliasFirstUnused (-> Names Names Int (Option Int)))
+;@axiom:effect(unsafe)
 (pub fn (aliasFirstUnused params used i)
   (if (== (as params Int) 0)
     None
@@ -8669,6 +8690,7 @@
         (aliasFirstUnused params used (+ i 1))))))
 
 (pub :: aliasFreeVar (-> ASTNode Names (Option ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (aliasFreeVar t params)
   (if (nodeSame t nilNode)
     None
@@ -8699,6 +8721,7 @@
     }))
 
 (pub :: aliasFreeVarVec (-> Nodes Names Int (Option ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (aliasFreeVarVec xs params i)
   (if (== (as xs Int) 0)
     None
@@ -8775,6 +8798,7 @@
     }))
 
 (pub :: aliasCycleVec (-> TC (Vec ASTNode) Nodes Int (Option ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (aliasCycleVec tc xs seen i)
   (if (== (as xs Int) 0)
     None
@@ -8907,6 +8931,7 @@
 ; Declared arity, including empty data types and abstract builtins.
 ; Unknown constructors are left to AX3002's resolver.
 (pub :: tyDeclaredArity (-> TC String (Option Int)))
+;@axiom:effect(unsafe)
 (pub fn (tyDeclaredArity tc name)
   (if (let (Some alias) (tcAliasFind tc name))
     (Some (aliasParamCount alias))
@@ -8926,6 +8951,7 @@
   (tyCheckArityVecIn tc xs span i false))
 
 (pub :: tyCheckArityVecIn (-> TC (Vec ASTNode) Int Int Bool Int))
+;@axiom:effect(unsafe)
 (pub fn (tyCheckArityVecIn tc xs span i aliasesOnly)
   (if (== (as xs Int) 0)
     1
@@ -8963,6 +8989,7 @@
     }))
 
 (pub :: tyPoisonBadArityVec (-> TC Nodes Nodes Int Nodes))
+;@axiom:effect(unsafe)
 (pub fn (tyPoisonBadArityVec tc xs out i)
   (if (== (as xs Int) 0)
     out
@@ -9145,6 +9172,7 @@
 ; conversion into it then fails at run time. Refuse it where it is
 ; declared when both bounds are integer literals.
 (pub :: tcCheckSubtypeRange (-> TC ASTNode Int))
+;@axiom:effect(unsafe)
 (pub fn (tcCheckSubtypeRange tc d)
   {
     (let bounds (nodeCChildren d))
@@ -9220,6 +9248,7 @@
 ; An operation's inline arrow lives in its field's b slot. Resolve it
 ; before the operation becomes a callable entry, in the effect module.
 (:: tcResolveOperationTypes (-> TC (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (fn (tcResolveOperationTypes tc fields i)
   (if (|| (== (as fields Int) 0) (>= i (vecLen fields)))
     0
@@ -9352,6 +9381,7 @@
 ; trusted it. Such values cross as a `Foreign` handle or through the
 ; generated wrapper `axiom-bindgen` writes (docs/ffi.md).
 (pub :: tcCheckExternTypes (-> TC (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tcCheckExternTypes tc items i)
   (if (== (as items Int) 0)
     0
@@ -10038,6 +10068,7 @@
     }))
 
 (pub :: sigSplitPolarVec (-> Nodes Int Names Names Int))
+;@axiom:effect(unsafe)
 (pub fn (sigSplitPolarVec xs pol pos neg)
   (if (== (as xs Int) 0)
     0
@@ -14672,6 +14703,7 @@
     }))
 
 (pub :: tyPinVarVec (-> Nodes String ASTNode Nodes Int Nodes))
+;@axiom:effect(unsafe)
 (pub fn (tyPinVarVec xs name rep acc i)
   (if (== (as xs Int) 0)
     acc
@@ -15082,6 +15114,7 @@
     }))
 
 (pub :: showTyGroundVec (-> (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (showTyGroundVec xs i)
   (if (== (as xs Int) 0)
     1
@@ -16269,6 +16302,7 @@
   })
 
 (pub :: castSameVec (-> TC (Vec ASTNode) (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (castSameVec tc xs ys i)
   (if (|| (== (as xs Int) 0) (== (as ys Int) 0))
     (if (&& (== (as xs Int) 0) (== (as ys Int) 0))
@@ -17207,6 +17241,7 @@
 ; above has ruled out a sealed word struct: an ambiguous name, the
 ; field count, then each argument against its field's declared type.
 (pub :: checkStructConAt (-> TC Nodes Int StructEnt String ASTNode))
+;@axiom:effect(unsafe)
 (pub fn (checkStructConAt tc args span ent sourceName)
   (if (== (checkAmbiguousType tc TY_ANY sourceName span) 1)
     ; Poison rather than "the first one" - `tyFind` answered a
@@ -17415,6 +17450,7 @@
 ; `pairRetOK`: `(Option T)` or `(Result T E)` whose arguments are
 ; each a word or a reference.
 (pub :: tcPairRetOK (-> TC ASTNode Int))
+;@axiom:effect(unsafe)
 (pub fn (tcPairRetOK tc rt)
   (if (nodeSame rt nilNode)
     0
@@ -17474,6 +17510,7 @@
     }))
 
 (pub :: tcTyVecHasSrcVar (-> (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tcTyVecHasSrcVar xs i)
   (if (== (as xs Int) 0)
     0
@@ -17522,6 +17559,7 @@
   })
 
 (pub :: tcDataAllNullary (-> (Vec CtorEnt) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tcDataAllNullary ctors i)
   (if (== (as ctors Int) 0)
     1
@@ -17554,6 +17592,7 @@
 ; Is `full` - a declaration's own spelling, `Mod$name` for an import -
 ; in the pair set?
 (pub :: tcIsPairName (-> Names String Int))
+;@axiom:effect(unsafe)
 (pub fn (tcIsPairName pn full)
   (if (== (as pn Int) 0)
     0
@@ -17593,6 +17632,7 @@
 ; `pairTailsOK`, collecting: every tail leaf of `e` is a constructor
 ; leaf or a forwarding call, and each is pushed onto `acc`.
 (pub :: tcPairTails (-> TC ASTNode Names Names (Vec ASTNode) Int))
+;@axiom:effect(unsafe)
 (pub fn (tcPairTails tc e bound pn acc)
   (if (nodeSame e nilNode)
     0
@@ -17638,6 +17678,7 @@
 ; `tailCallsSelf`, as the emitter asks it: does a tail of `e` call
 ; `name` with exactly `arity` arguments?
 (pub :: tcTailCallsSelf (-> ASTNode String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tcTailCallsSelf e name arity)
   (if (nodeSame e nilNode)
     0
@@ -17674,6 +17715,7 @@
     }))
 
 (pub :: tcArmsCallSelf (-> (Vec ASTNode) String Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tcArmsCallSelf arms name arity i)
   (if (== (as arms Int) 0)
     0
@@ -17690,6 +17732,7 @@
   (tcParamNamesFrom (nodeBNames d) 0 vecNew))
 
 (pub :: tcParamNamesFrom (-> Names Int Names Names))
+;@axiom:effect(unsafe)
 (pub fn (tcParamNamesFrom ps i acc)
   (if (== (as ps Int) 0)
     acc
@@ -17793,6 +17836,7 @@
   (tcNodeInFrom v e 0))
 
 (pub :: tcNodeInFrom (-> (Vec ASTNode) ASTNode Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tcNodeInFrom v e i)
   (if (== (as v Int) 0)
     0
@@ -17868,6 +17912,7 @@
 
 ; `pairArmsOK`.
 (pub :: tcPairArmsOK (-> TC (Vec ASTNode) Int Int))
+;@axiom:effect(unsafe)
 (pub fn (tcPairArmsOK tc arms i)
   (if (== (as arms Int) 0)
     0
@@ -19494,6 +19539,7 @@
   })
 
 (pub :: fieldDeclFor (-> UState StructEnt String (Option FieldDecl)))
+;@axiom:effect(unsafe)
 (pub fn (fieldDeclFor u sent fname)
   {
     (let mut found None)
@@ -20309,6 +20355,7 @@
 ; constructor that allocates nothing" have the same consequence here,
 ; and no caller needs to tell them apart.
 (pub :: ctorAllocArity (-> TC String Int))
+;@axiom:effect(unsafe)
 (pub fn (ctorAllocArity tc n)
   {
     (let ctorFound (rfindCtor tc n))
@@ -20519,6 +20566,7 @@
     )))
 
 (pub :: escapeArgs (-> BScope Nodes Int Strings (Option ASTNode) Int))
+;@axiom:effect(unsafe)
 (pub fn (escapeArgs bound args i acc cty)
   (if (>= i (vecLen args))
     0
@@ -21797,6 +21845,7 @@
     (vecGet callable i)))
 
 (:: fnEntryIn (-> (Vec FnEnt) FnEnt Int Int))
+;@axiom:effect(unsafe)
 (fn (fnEntryIn entries entry i)
   (if (>= i (vecLen entries))
     0
@@ -22422,6 +22471,7 @@
   })
 
 (pub :: callersIdxAddEdges (-> CallerIndex Names Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (callersIdxAddEdges bs calls i who)
   (if (== (as calls Int) 0)
     0
@@ -23156,6 +23206,7 @@
     None))
 
 (pub :: structSubstField (-> StructEnt ASTNode (Vec ASTNode) ASTNode))
+;@axiom:effect(unsafe)
 (pub fn (structSubstField ent fty args)
   {
     (let tvs (structEntTyvars ent))
@@ -23936,6 +23987,7 @@
 
 ; The first self-call across a vector of expressions, in order, or None.
 (pub :: selfCallInVec (-> (Vec ASTNode) String String Int Int Int (Option ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (selfCallInVec v name bare nullary shadowed i)
   (if (|| (== (as v Int) 0) (>= i (vecLen v)))
     None
@@ -23974,6 +24026,7 @@
 ; vector at all. The vector is `(Vec Int)` - names are words, read
 ; with `vecGetStr` - whatever its elements were pushed as.
 (pub :: strsHasName (-> Names String String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (strsHasName v name bare i)
   (if (|| (== (as v Int) 0) (>= i (vecLen v)))
     0
@@ -24925,6 +24978,7 @@
       (tyEnvSubstVar t name env (+ i 1)))))
 
 (pub :: tyEnvSubstVec (-> Nodes TypeEnv Nodes Int Nodes))
+;@axiom:effect(unsafe)
 (pub fn (tyEnvSubstVec xs env acc i)
   (if (== (as xs Int) 0)
     acc
@@ -26328,6 +26382,7 @@
   })
 
 (:: checkImportedSignature (-> TC ASTNode Int))
+;@axiom:effect(unsafe)
 (fn (checkImportedSignature tc d)
   {
     (if (let (Some declared) (fnEntExact tc (nodeAName d)))
@@ -26364,6 +26419,7 @@
 ; beside `#effects=IO` while `check` said OK. `symbols` keys tags by
 ; name and was right: a signature has no body to contradict a claim.
 (pub :: checkAxtags (-> TC ASTNode Int))
+;@axiom:effect(unsafe)
 (pub fn (checkAxtags tc d)
   ; THERE IS NO EARLY RETURN FOR AN UNTAGGED DECLARATION, and its
   ; absence is the point. `(if (&& (== own 0) (== sig 0)) 0 ...)`
@@ -26417,8 +26473,7 @@
             0))
         ; Claim support includes exempt erasures; requirements above and
         ; below keep using only the erasures this unit must declare.
-        (let lex (unsafeLexical (nodeCChild d) sink forges
-          (eraseConfirmed tc (tcEraseSites tc))))
+        (let lex (unsafeLexical (nodeCChild d) sink forges (eraseConfirmed tc (tcEraseSites tc))))
         {
           ; The signature's first: it is written first.
           (if (! (== (as sig Int) 0))
@@ -26701,6 +26756,7 @@
 ; words whatever the declaration says, so the declaration must say
 ; exactly that: five parameters, each `Int`, and an `Int` result.
 (pub :: checkIsrParams (-> TC ASTNode (Option String) Int))
+;@axiom:effect(unsafe)
 (pub fn (checkIsrParams tc d v)
   (if (!= (nodeTag d) TAG_D_FN)
     0
@@ -26726,6 +26782,7 @@
 ; (`mkTArr`), each from `Int`, ending in `Int`. A declaration the table
 ; has no entry for is not asked: there is nothing to compare.
 (pub :: isrFaultSigOk (-> TC ASTNode Int))
+;@axiom:effect(unsafe)
 (pub fn (isrFaultSigOk tc d)
   {
     (let ps (nodeBNames d))
@@ -27026,6 +27083,7 @@
 ; **0**. Nothing in this tree changes; the check costs one `vecLen`
 ; per restriction claim on the silent path.
 (pub :: restrictTransparent (-> TC ASTNode String Int))
+;@axiom:effect(unsafe)
 (pub fn (restrictTransparent tc d r)
   (if (== (restrictIsTransitive r) 0)
     0
@@ -27102,6 +27160,7 @@
 ; with the index rather than a crash, because a diagnostic is not the
 ; place to discover that.
 (pub :: restrictParamName (-> ASTNode Int String))
+;@axiom:effect(unsafe)
 (pub fn (restrictParamName d k)
   {
     (let ps (nodeBNames d))
@@ -29557,48 +29616,10 @@
       (eraseConfirmedFrom tc sites kept (+ i 3))
     }))
 
-; A path separator, `/` or `\`.
-(pub :: pathSepByte (-> Int Bool))
-(pub fn (pathSepByte b)
-  (|| (== b 47) (== b 92)))
-
-; The directory name that holds `path`'s file, or empty when the path
-; names no parent. `core/typecheck.ax` and `C:\src\core\main.ax` both
-; answer `core`. A trailing separator is not part of the file name.
-(pub :: pathParentSegment (-> String String))
-(pub fn (pathParentSegment path)
-  {
-    (let mut i (- (strLen path) 1))
-    {
-      (while (&& (>= i 0) (pathSepByte (strByte path i)))
-        (set i (- i 1)))
-      (while (&& (>= i 0) (! (pathSepByte (strByte path i))))
-        (set i (- i 1)))
-      (while (&& (>= i 0) (pathSepByte (strByte path i)))
-        (set i (- i 1)))
-      (if (< i 0)
-        ""
-        {
-          (let end i)
-          {
-            (while (&& (>= i 0) (! (pathSepByte (strByte path i))))
-              (set i (- i 1)))
-            (strSlice path (+ i 1) (- end i))
-          }
-        })
-    }
-  })
-
-; Whether `path` is a file whose parent directory is the compiler.
-(pub :: compilerSourceFile (-> String Bool))
-(pub fn (compilerSourceFile path)
-  (strEq (pathParentSegment path) "core"))
-
 ; 1 when an erasing cast in the unit now being checked must say
-; `effect(unsafe)`. The compiler's own directory and the standard
-; library still erase: their handles are words. A unit index outside
-; the table fails closed. A user file whose parent directory is named
-; `core` is exempt for the same reason, until those handles are typed.
+; `effect(unsafe)`. Only the trusted library is exempt. Compiler bodies
+; declare their erasures explicitly; a directory name grants no trust.
+; A unit index outside the table fails closed.
 (pub :: erasureNeedsUnsafe (-> TC Int))
 (pub fn (erasureNeedsUnsafe tc)
   {
@@ -29608,14 +29629,14 @@
       1
       {
         (let unit (as (vecGet units i) CUnit2))
-        (if (|| unit.library (compilerSourceFile (unitFile unit)))
+        (if unit.library
           0
           1)
       })
   })
 
 ; This body's erasing casts when the unit must declare them, else empty.
-; Library and compiler erasures stay in `#erasures` and out of AX3073.
+; Library erasures stay in `#erasures` and out of AX3073.
 (pub :: userEraseSites (-> TC Nodes))
 (pub fn (userEraseSites tc)
   (if (== (erasureNeedsUnsafe tc) 0)
@@ -29645,6 +29666,7 @@
   (eraseLookup (tcEraseCounts tc) ent 0))
 
 (pub :: eraseLookup (-> (Vec EraseCount) FnEnt Int Int))
+;@axiom:effect(unsafe)
 (pub fn (eraseLookup pairs ent i)
   (if (>= i (vecLen pairs))
     0
@@ -29885,6 +29907,7 @@
 ; that made `axiom test` discovery a NAME rule; it unions them since
 ; 2026-08-29.)
 (pub :: deprecatedBuild (-> (Vec ASTNode) (Vec ASTNode) Int (Vec ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (deprecatedBuild decls acc i)
   (if (== (as decls Int) 0)
     acc
@@ -29904,6 +29927,7 @@
 ; The first indexed declaration wins. A missing or empty tag on that
 ; declaration yields Some empty text; None means no declaration matched.
 (pub :: deprecatedFrom (-> (Vec ASTNode) String Int (Option String)))
+;@axiom:effect(unsafe)
 (pub fn (deprecatedFrom tbl name i)
   (if (== (as tbl Int) 0)
     None
@@ -29922,6 +29946,7 @@
       })))
 
 (pub :: sigTagsBuild (-> (Vec ASTNode) (Vec ASTNode) Int (Vec ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (sigTagsBuild decls acc i)
   (if (== (as decls Int) 0)
     acc
@@ -32740,6 +32765,7 @@
   })
 
 (pub :: rgnSeq (-> RgnCtx (Vec ASTNode) Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (rgnSeq rc v i last)
   (if (== (as v Int) 0)
     last
@@ -32748,6 +32774,7 @@
       (rgnSeq rc v (+ i 1) (rgnExpr rc (vecGet v i))))))
 
 (pub :: rgnArgsUnion (-> RgnCtx Nodes Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (rgnArgsUnion rc v i acc)
   (if (== (as v Int) 0)
     acc
@@ -32875,6 +32902,7 @@
     }))
 
 (pub :: rgnBindPats (-> RgnCtx Nodes Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (rgnBindPats rc pats i s)
   (if (== (as pats Int) 0)
     0
@@ -33038,6 +33066,7 @@
     cap))
 
 (pub :: rgnBindTypedParams (-> RgnCtx Strings Int Int (Option ASTNode) Int))
+;@axiom:effect(unsafe)
 (pub fn (rgnBindTypedParams rc params i mask ty)
   (if (== (as params Int) 0)
     0
@@ -34898,6 +34927,7 @@
 ; A spelling is not a proof: compare the actual frame entry with the
 ; declaration's parameter entry, so a shadowing let/lambda cannot inherit it.
 (:: computeForwarded (-> TC ASTNode Bool))
+;@axiom:effect(unsafe)
 (fn (computeForwarded tc e)
   (if (let (Some d) (tcCurDeclNode tc))
     (if (!= (nodeTag e) TAG_E_VAR)

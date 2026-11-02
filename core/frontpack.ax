@@ -245,6 +245,7 @@
 ; A records own their annotation entries and text. Offset zero and an
 ; allocated empty string remain ordinary present values in the packet.
 (:: frontPutAxtags (-> FrontWriter Axtags Int Int))
+;@axiom:effect(unsafe)
 (fn (frontPutAxtags out tags depth)
   {
     (if (> depth 512)
@@ -277,6 +278,7 @@
   })
 
 (:: frontPutMacroRule (-> FrontWriter MacroRule Int Int))
+;@axiom:effect(unsafe)
 (fn (frontPutMacroRule out rule depth)
   {
     (if (> depth 512)
@@ -298,6 +300,7 @@
   })
 
 (:: frontPutMacroLiterals (-> FrontWriter MacroLiterals Int Int))
+;@axiom:effect(unsafe)
 (fn (frontPutMacroLiterals out literals depth)
   {
     (if (> depth 512)
@@ -475,6 +478,7 @@
   })
 
 (:: frontGetVector (-> FrontReader Int Int Int))
+;@axiom:effect(unsafe)
 (fn (frontGetVector input kind depth)
   (if (== kind 110)
     {
@@ -491,6 +495,7 @@
       (frontGetRawVector input kind depth))))
 
 (:: frontGetRawVector (-> FrontReader Int Int Int))
+;@axiom:effect(unsafe)
 (fn (frontGetRawVector input kind depth)
   {
     (let count (frontGetWord input))
@@ -517,6 +522,7 @@
 ; An annotation entry requires owned text and a valid source offset.
 ; A real empty list or empty text is still present.
 (:: frontGetAxtags (-> FrontReader Int (Option Axtags)))
+;@axiom:effect(unsafe)
 (fn (frontGetAxtags input depth)
   {
     (let count (frontGetWord input))
@@ -549,6 +555,7 @@
 ; Every field of an R/L record is required except its expression.
 ; Null or malformed required vectors refuse the packet before expansion.
 (:: frontGetMacroNames (-> FrontReader Int (Option Names)))
+;@axiom:effect(unsafe)
 (fn (frontGetMacroNames input depth)
   (if (> depth 512)
     None
@@ -568,6 +575,7 @@
     }))
 
 (:: frontGetMacroNodes (-> FrontReader Int (Option Nodes)))
+;@axiom:effect(unsafe)
 (fn (frontGetMacroNodes input depth)
   (if (> depth 512)
     None
@@ -762,6 +770,7 @@
     }))
 
 (:: frontGetValue (-> FrontReader Int Int Int))
+;@axiom:effect(unsafe)
 (fn (frontGetValue input kind depth)
   (if (|| (! input.good) (> depth 512))
     {
@@ -810,6 +819,7 @@
       ))))
 
 (:: frontPutParsed (-> FrontWriter FrontParsed Int))
+;@axiom:effect(unsafe)
 (fn (frontPutParsed out parsed)
   {
     (frontPutWord out frontMagic)
@@ -909,6 +919,7 @@
     }))
 
 (pub :: frontDecode (-> String (Option FrontParsed)))
+;@axiom:effect(unsafe)
 (pub fn (frontDecode bytes)
   (if (|| (> (strLen bytes) frontPacketLimit) (!= (% (strLen bytes) 8) 0))
     None

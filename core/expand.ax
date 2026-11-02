@@ -731,6 +731,7 @@
     ((Some m) (concat (concat m "::") (bareOf s)))))
 
 (pub :: expSameMod (-> String String Int))
+;@axiom:effect(unsafe)
 (pub fn (expSameMod a b)
   (if (== (as a Int) 0)
     (if (== (as b Int) 0)
@@ -770,6 +771,7 @@
 ; The backward walk for a QUALIFIED reference: name and module both,
 ; visible when exported or when the invocation site IS that module.
 (pub :: expFindMacroQual (-> (Vec ASTNode) String String String Int (Option ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (expFindMacroQual ms bare qm site i)
   (if (< i 0)
     None
@@ -798,6 +800,7 @@
 ; still expands from outside. That is the same definition-site rule
 ; `expQualify` applies to a template's free identifiers.
 (pub :: expFindMacroIn (-> (Vec ASTNode) String String Int (Option ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (expFindMacroIn ms name site i)
   (if (< i 0)
     None
@@ -1154,6 +1157,7 @@
 ; in word b; the field names are the struct's, not binders.
 ; ------------------------------------------------------------------
 (pub :: expRenamePat (-> ASTNode Names (Vec ASTNode) MEnv Int ASTNode))
+;@axiom:effect(unsafe)
 (pub fn (expRenamePat p params args env isp)
   (if (nodeSame p nilNode)
     nilNode
@@ -1356,6 +1360,7 @@
       (nodeAName e))))
 
 (pub :: expCaptureVar (-> ASTNode MEnv ScopeBinds ASTNode))
+;@axiom:effect(unsafe)
 (pub fn (expCaptureVar e env bs)
   {
     (let local
@@ -3520,6 +3525,7 @@
 
 ; Does the TEMPLATE bind this name around the substitution in flight?
 (pub :: expTplBound (-> MEnv String Int))
+;@axiom:effect(unsafe)
 (pub fn (expTplBound env name)
   {
     (let tb env.tplbinds)
@@ -3771,6 +3777,7 @@
   })
 
 (pub :: substTpl (-> ASTNode Names (Vec ASTNode) MEnv Int ASTNode))
+;@axiom:effect(unsafe)
 (pub fn (substTpl tpl params args env isp)
   (if (nodeSame tpl nilNode)
     nilNode
@@ -4061,6 +4068,7 @@
   (substLamParamsIn ps params args env isp vecNew 0))
 
 (pub :: substLamParamsIn (-> Names Names (Vec ASTNode) MEnv Int Strings Int Strings))
+;@axiom:effect(unsafe)
 (pub fn (substLamParamsIn ps params args env isp acc i)
   (if (>= i (vecLen ps))
     acc
@@ -7767,6 +7775,7 @@
 ; answering the diagnostic so the call wraps a `mkDiagNote` in place.
 ; A module with no unit uses the entry-file diagnostic convention.
 (pub :: expMarkUnit (-> MEnv diag::Diag a diag::Diag))
+;@axiom:effect(unsafe)
 (pub fn (expMarkUnit env dg m)
   {
     (diagSetUnit dg (expUnitForDiag env.units (expModuleWordOpt (as m Int))))
@@ -8187,6 +8196,7 @@
 ; and `+` are one binding although the spellings differ, which is
 ; the case the key exists to catch.
 (pub :: expCanonKey (-> (Vec ASTNode) Int String String))
+;@axiom:effect(unsafe)
 (pub fn (expCanonKey decls modW name)
   {
     (let qual (expModOf name))
@@ -10160,6 +10170,7 @@
     }))
 
 (pub :: expSubstTyVec (-> (Vec ASTNode) Names (Vec ASTNode) MEnv Int Nodes))
+;@axiom:effect(unsafe)
 (pub fn (expSubstTyVec v params args env isp)
   (if (== (as v Int) 0)
     vecNew
@@ -11125,6 +11136,7 @@
     0))
 
 (pub :: expUnitMod (-> Units Int (Option String)))
+;@axiom:effect(unsafe)
 (pub fn (expUnitMod units idx)
   (if (|| (== (as units Int) 0) (>= idx (vecLen units)))
     None
@@ -11153,6 +11165,7 @@
     ((Some u) u)))
 
 (pub :: expAttachFrames (-> Diags Frames Units Int))
+;@axiom:effect(unsafe)
 (pub fn (expAttachFrames diags table units)
   (if (== (as table Int) 0)
     0

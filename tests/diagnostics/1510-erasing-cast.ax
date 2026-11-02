@@ -1,6 +1,6 @@
 ; A cast that turns a reference into a word drops the type and the
 ; share (docs/memory-model.md MM-VAL-24, MM-EXEC-9d). Outside the
-; compiler and the standard library the declaration says
+; trusted standard library the declaration says
 ; `;@axiom:effect(unsafe)` or draws AX3073 at the cast.
 ;
 ; `fromStr`, `fromVec`, `fromHid`, `fromForeign`, `toWord` and

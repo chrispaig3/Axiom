@@ -96,6 +96,7 @@
 ;   TPtr          *a
 ; ------------------------------------------------------------------
 (pub :: symTy (-> ASTNode String))
+;@axiom:effect(unsafe)
 (pub fn (symTy t)
   (if (nodeSame t nilNode)
     "{unknown}"
@@ -279,6 +280,7 @@
 ; print in order, each as ` #meta`.
 ; ------------------------------------------------------------------
 (pub :: symLine (-> String String String String String Strings String))
+;@axiom:effect(unsafe)
 (pub fn (symLine kind name loc ty nid metas)
   {
     (let s (strBuilderPush strBuilderNew kind))
@@ -714,6 +716,7 @@
     false))
 
 (pub :: smCollect (-> SymMaps ASTNode Units Int))
+;@axiom:effect(unsafe)
 (pub fn (smCollect sm d units)
   (if (smGenerated (nodeAName d))
     0
@@ -1369,6 +1372,7 @@
 ; prints edges the effect walk already resolved, `--mir` runs a walk
 ; that would otherwise never run at all (see `symMirMetas`).
 (pub :: symbolsRenderGens (-> TC Int GeneratedOrigins Int Int String))
+;@axiom:effect(unsafe)
 (pub fn (symbolsRenderGens tc builtins gens calls mir)
   ; --- functions --------------------------------------------
   ; Demanded HERE, before the row walk, because the fixpoint is a

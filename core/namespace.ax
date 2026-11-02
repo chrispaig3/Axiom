@@ -303,6 +303,7 @@
 ; Record qualified identities for every item and bare names for the
 ; exported items. A private binding remains callable within its module.
 (pub :: mangleExternItems (-> (Vec ASTNode) Int MangleIdx Strings Strings String Int))
+;@axiom:effect(unsafe)
 (pub fn (mangleExternItems items i idx bares fulls modName)
   (if (== (as items Int) 0)
     0
@@ -331,6 +332,7 @@
 ; Apply the import filter to declaration names, or to individual extern
 ; items. Preserve the written public surface for repeat-import unions.
 (pub :: moduleDeclExport (-> ASTNode String ModuleImports (Option Names) Int))
+;@axiom:effect(unsafe)
 (pub fn (moduleDeclExport d mod mods filter)
   (if (== (nodeTag d) TAG_D_EXTERN)
     (moduleExternExport (nodeCChildren d) mod mods filter
@@ -347,6 +349,7 @@
     }))
 
 (pub :: moduleExternExport (-> (Vec ASTNode) String ModuleImports (Option Names) Int Int Int Int))
+;@axiom:effect(unsafe)
 (pub fn (moduleExternExport items mod mods filter writtenPub i visible)
   (if (>= i (vecLen items))
     visible

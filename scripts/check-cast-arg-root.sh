@@ -367,13 +367,14 @@ cast_count="$(git -C "$repo_root" grep -h -o '(as ' -- stdlib tests examples ':!
 # and bringing the pinned census to 1577.
 # Typed interner ownership probes add four live-owner observations and
 # intentional unmatched-retain controls under MM-VAL-23. The tracked
-# census is 1581; these casts add no production erasure.
+# census is 1581. The directory-boundary probe adds one refusal subject,
+# bringing it to 1582; these casts add no production erasure.
 if [ "$cast_count" -eq 0 ]; then
   bad "user-level: the cast count read 0 - the measurement is broken, not the tree clean"
-elif [ "$cast_count" -le 1581 ]; then
-  ok "user-level (cast count $cast_count <= 1581)"
+elif [ "$cast_count" -le 1582 ]; then
+  ok "user-level (cast count $cast_count <= 1582)"
 else
-  bad "user-level (cast count $cast_count > 1581): new casts need a MM-VAL-23 reason and a baseline bump"
+  bad "user-level (cast count $cast_count > 1582): new casts need a MM-VAL-23 reason and a baseline bump"
 fi
 
 echo "--- 2. type-preserving casts keep ownership ---"
@@ -700,6 +701,13 @@ if python3 "$repo_root/tests/selfhost/erasure-claim-support.py" --axiom "$axc"; 
   ok "compiler and library erasures support unsafe claims; no-op claims remain refused"
 else
   bad "erasure claim support or unchanged user diagnostics failed"
+fi
+
+echo "--- 5. erasure declarations do not depend on directory names ---"
+if python3 "$repo_root/tests/selfhost/erasure-path-boundary.py" --axiom "$axc"; then
+  ok "user paths cannot grant the library erasure exemption"
+else
+  bad "erasure path boundary regression"
 fi
 
 echo

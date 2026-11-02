@@ -2592,7 +2592,7 @@ The body performs an unsafe operation, and its declaration does not say `;@axiom
 - an extern call, whose implementation is outside the safety checker;
 - a raw primitive, such as `__load64`, `__store8`, `__retain` or `__addr`;
 - a forging cast: `(as x T)` where `T` is a reference - a `String`, a `Vec`, a `Handle`, a struct, a `data` type with a field, a function, a tuple or a type variable - or a spawn handle, `Spawn`, and `x` is not already a `T`;
-- an erasing cast: `(as v Int)` or `(as v Foreign)` where `v` is a reference, in a module outside the compiler and the standard library. The compiler and the library still erase. Keep the value in a typed binding, or use `addrOf` when the question is identity.
+- an erasing cast: `(as v Int)` or `(as v Foreign)` where `v` is a reference, outside the trusted standard library. Compiler declarations follow the same rule; directory names grant no exemption. Keep the value in a typed binding, or use `addrOf` when the question is identity.
 
     (struct Hid (name : String) (n : Int))
     (fn (peek k) { (let h (as k Hid)) h.n })

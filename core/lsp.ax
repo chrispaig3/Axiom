@@ -7517,6 +7517,7 @@
     }))
 
 (pub :: lspNavIsTyvar (-> Names String Bool))
+;@axiom:effect(unsafe)
 (pub fn (lspNavIsTyvar tvs name)
   (if (== (as tvs Int) 0)
     false
@@ -8392,6 +8393,7 @@
 
 (pub :: lspNavImporters (-> LspWorkspace String Strings Strings (Vec LspImporter)))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (lspNavImporters workspace uri uris texts)
   {
     (let target (lspNavAbs (lspUriToPath uri)))
@@ -8464,6 +8466,7 @@
 ; ------------------------------------------------------------------
 (pub :: lspReferences (-> LspWorkspace String String Int Strings Strings String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (lspReferences workspace src uri params uris texts gen)
   {
     (let decls (lspNavParse src))
@@ -8525,6 +8528,7 @@
 (pub :: lspNavHomeLocations
   (-> LspWorkspace Int String String (Vec ASTNode) String Int Strings Strings Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (lspNavHomeLocations workspace out path src decls bare incl uris texts)
   {
     (let huri (lspNavHomeUri workspace path src decls bare uris))
@@ -8560,6 +8564,7 @@
 ; each occurrence with the kind of use it is.
 ; ------------------------------------------------------------------
 (pub :: lspDocumentHighlight (-> String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (lspDocumentHighlight src params)
   {
     (let decls (lspNavParse src))
@@ -9083,6 +9088,7 @@
           (Some t))))))
 
 (pub :: lspShapeSubstVec (-> Nodes Strings Nodes Int Nodes (Option Nodes)))
+;@axiom:effect(unsafe)
 (pub fn (lspShapeSubstVec ts params args i acc)
   (if (|| (== (as ts Int) 0) (>= i (vecLen ts)))
     (Some acc)
@@ -9106,6 +9112,7 @@
 
 ; The field types of a struct's fields, in order.
 (pub :: lspShapeFieldTys (-> (Vec ASTNode) Int (Vec ASTNode) (Option (Vec ASTNode))))
+;@axiom:effect(unsafe)
 (pub fn (lspShapeFieldTys fs i acc)
   (if (|| (== (as fs Int) 0) (>= i (vecLen fs)))
     (Some acc)
@@ -9249,6 +9256,7 @@
 
 ; A block's shape is its last expression's.
 (pub :: lspShapeBegin (-> (Vec ASTNode) (Vec LspOcc) (Vec ASTNode) Int (Option ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (lspShapeBegin decls occs xs fuel)
   (if (== (as xs Int) 0)
     None
@@ -9258,6 +9266,7 @@
 
 ; A `match`'s shape: every arm body's, when they agree.
 (pub :: lspShapeMatch (-> (Vec ASTNode) (Vec LspOcc) (Vec ASTNode) Int (Option ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (lspShapeMatch decls occs arms fuel)
   (if (== (as arms Int) 0)
     None
@@ -9364,6 +9373,7 @@
 ; `lspFieldBaseStruct` answers None; that function's own
 ; migration onto this walk is the next slice.
 (pub :: lspShapeField (-> (Vec ASTNode) (Vec LspOcc) ASTNode Int (Option ASTNode)))
+;@axiom:effect(unsafe)
 (pub fn (lspShapeField decls occs e fuel)
   (match (lspShapeOf decls occs (nodeAChild e) fuel)
     ((None) None)
@@ -9609,6 +9619,7 @@
 ; it is beats saying nothing.
 (pub :: lspDeclaration (-> LspWorkspace String String Int String Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (lspDeclaration workspace src uri params gen)
   {
     (let decls (lspNavParse src))
@@ -9943,6 +9954,7 @@
 ; and a document that does not parse are all null, which is the
 ; protocol's "nothing here".
 (pub :: lspPrepareCallHierarchy (-> String String Int Int))
+;@axiom:effect(unsafe)
 (pub fn (lspPrepareCallHierarchy src uri params)
   {
     (let decls (lspNavParse src))
@@ -9983,6 +9995,7 @@
 ; declare `name` as a `fn`. Answers `None` when any of those fails,
 ; and every caller turns that into null.
 (pub :: lspChSubject (-> Int Strings Strings (Option LspHierSubject)))
+;@axiom:effect(unsafe)
 (pub fn (lspChSubject params uris texts)
   {
     (let item (jsonGet params "item"))
@@ -10456,6 +10469,7 @@
 ; that does not parse are all null.
 (pub :: lspPrepareTypeHierarchy (-> LspWorkspace String String Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (lspPrepareTypeHierarchy workspace src uri params)
   {
     (let decls (lspNavParse src))
@@ -10508,6 +10522,7 @@
 ; of those holds, and every caller turns that into null. The declaration
 ; is None for a builtin subject.
 (pub :: lspThSubject (-> Int Strings Strings (Option LspHierSubject)))
+;@axiom:effect(unsafe)
 (pub fn (lspThSubject params uris texts)
   {
     (let item (jsonGet params "item"))
@@ -10586,6 +10601,7 @@
 ; open document, each in declaration order. `[]` when the search ran
 ; and found nothing; null when the subject did not resolve.
 (pub :: lspSubtypes (-> Int Strings Strings Int))
+;@axiom:effect(unsafe)
 (pub fn (lspSubtypes params uris texts)
   (if (let (Some s) (lspThSubject params uris texts))
     {
@@ -11353,6 +11369,7 @@
 ; checker's own printer and labelled as a parameter, so the client
 ; bolds the field being written.
 (pub :: lspViewSigCtor (-> ASTNode Int))
+;@axiom:effect(unsafe)
 (pub fn (lspViewSigCtor c)
   {
     (let tys (nodeTyChildren c))
@@ -11834,6 +11851,7 @@
 (pub :: lspViewHintsVec
   (-> Int String Ints LspNodeBuckets LspBuckets (Vec ASTNode) (Vec LspOcc) (Vec ASTNode) Int Int
     Int))
+;@axiom:effect(unsafe)
 (pub fn (lspViewHintsVec out src ix fns locals decls occs xs rs re)
   (if (== (as xs Int) 0)
     0
@@ -11847,6 +11865,7 @@
 (pub :: lspViewHintsArms
   (-> Int String Ints LspNodeBuckets LspBuckets (Vec ASTNode) (Vec LspOcc) (Vec ASTNode) Int Int
     Int))
+;@axiom:effect(unsafe)
 (pub fn (lspViewHintsArms out src ix fns locals decls occs arms rs re)
   (if (== (as arms Int) 0)
     0
@@ -12524,6 +12543,7 @@
 ; The URI and line index of unit `u`, made on first use.
 (pub :: lspViewUnitPrep (-> Strings Ints core::CUnit2 Int Int))
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (pub fn (lspViewUnitPrep uuris uixs unit u)
   (if (== (vecGet uixs u) 0)
     {
@@ -16780,6 +16800,7 @@
 ; ` (a b)` for a `data`'s type parameters; ` a b` bare for a `type`
 ; or `trait`, which is what their parsers read; "" for none.
 (pub :: lspTyvarsOf (-> Names String))
+;@axiom:effect(unsafe)
 (pub fn (lspTyvarsOf tvs)
   (if (== (as tvs Int) 0)
     ""
@@ -16808,6 +16829,7 @@
   })
 
 (pub :: lspRenderCtor (-> ASTNode String))
+;@axiom:effect(unsafe)
 (pub fn (lspRenderCtor c)
   {
     (let tys
@@ -17714,6 +17736,7 @@
   (len : Int))
 
 (pub :: lspHlState (-> String Ints (Vec ASTNode) LspHl))
+;@axiom:effect(unsafe)
 (pub fn (lspHlState src ix decls)
   {
     (let parsed (!= (as decls Int) 0))
@@ -19285,6 +19308,7 @@
 ; overwritten raw: a typed `set` releases the old value first, which
 ; writes into whatever lives there now. The order is `LspStore`'s.
 (:: lspStoreAdopt (-> LspStore LspRestored ()))
+;@axiom:effect(unsafe)
 (fn (lspStoreAdopt store restored)
   {
     (let s (as store Int))
@@ -19330,6 +19354,7 @@
 (pub :: lspWorkSpawn (-> (-> Int Int) LspWorkInput Int))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
+;@axiom:effect(unsafe)
 (pub fn (lspWorkSpawn worker input)
   (__axiom_recover __axiom_arena_mark
     (lambda (x)
