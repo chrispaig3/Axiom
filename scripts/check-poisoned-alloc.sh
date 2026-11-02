@@ -32,6 +32,7 @@ cat > "$work/p/witness.ax" <<'AX'
 
 (:: main ())
 ;@axiom:effect(io)
+;@axiom:effect(unsafe)
 (fn (main)
   { (let s (strDup "freed-value-12345678"))
     {
