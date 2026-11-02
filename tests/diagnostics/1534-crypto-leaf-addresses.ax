@@ -1,0 +1,61 @@
+; Typed crypto wrappers may use raw kernels; callers cannot name those kernels.
+(import Crypto.Aes)
+(import Crypto.ChaCha20)
+(import Crypto.Ghash)
+(import Crypto.Poly1305)
+(import Crypto.Field25519)
+(import Crypto.Curve25519Scalar)
+(import Crypto.Curve25519)
+(import Crypto.AesGcm)
+(import Crypto.ChaCha20Poly1305)
+(import Crypto.X25519)
+(import Crypto.Ed25519)
+
+(:: aesAddress (-> Int Int))
+(fn (aesAddress address)
+  (aesKeyExpand address 16 address address))
+
+(:: chachaAddress (-> Int Int))
+(fn (chachaAddress address)
+  (chacha20Block address 0 address address))
+
+(:: ghashAddress (-> Int Int))
+(fn (ghashAddress address)
+  (ghashUpdate address address address 16))
+
+(:: polyAddress (-> Int Int))
+(fn (polyAddress address)
+  (poly1305Init address address))
+
+(:: fieldAddress (-> Int Int))
+(fn (fieldAddress address)
+  (fe25519Add address address address))
+
+(:: scalarAddress (-> Int Int))
+(fn (scalarAddress address)
+  (sc25519Reduce address address))
+
+(:: groupAddress (-> Int Int))
+(fn (groupAddress address)
+  (ge25519ScalarMultBase address address))
+
+; Safe size queries remain available without unsafe declarations.
+(:: safeSizes Int)
+;@axiom:restrict(no-unsafe)
+(fn (safeSizes)
+  (+ (aesRounds 16)
+    (+ (aesScheduleBytes 16)
+      (+ aesKeyWorkBytes
+        (+ aesStateBytes
+          (+ aesCtrWorkBytes
+            (+ chacha20BlockBytes
+              (+ poly1305StateBytes
+                (+ fe25519Bytes
+                  (+ ge25519P2Bytes
+                    (+ ge25519P3Bytes
+                      (+ ge25519P1P1Bytes
+                        (+ ge25519PrecompBytes (+ ge25519CachedBytes 0))))))))))))))
+
+(:: main ())
+(fn (main)
+  ())

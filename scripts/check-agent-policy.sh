@@ -269,6 +269,8 @@ echo "ok   the probe imports $modcount stdlib modules and lists $rows declaratio
 # reason it is empty. Measured 2026-08-23 with `symbols` over a probe
 # importing all 19.
 cat > "$work/rowless.exempt" <<'ROWLESS'
+Crypto.Ghash all GHASH entry points consume raw addresses; kernels are private to Internal.CryptoGhash and applications use Crypto.AesGcm.
+Crypto.Curve25519Scalar all scalar entry points consume raw addresses; kernels are private to Internal.CryptoCurve25519Scalar and applications use Crypto.Ed25519.
 Pre    macros only - `deriveEq` and `deriveArity`. A macro is
 Pre    expanded into its caller and has no declaration of its own to
 Pre    carry an effect row.

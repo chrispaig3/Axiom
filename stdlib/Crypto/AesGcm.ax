@@ -68,8 +68,8 @@
 (import Crypto.Random)
 (import Internal.Entropy)
 (import Crypto.Secret)
-(import Crypto.Aes)
-(import Crypto.Ghash)
+(import Internal.CryptoAes)
+(import Internal.CryptoGhash)
 (import Crypto.Aead)
 
 ;; An AES-128-GCM key: 16 bytes, with its schedule and hash key, in the

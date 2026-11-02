@@ -312,7 +312,9 @@ the neighbourhood of the corpus.
   (`tests/diagnostics/1520-crypto-byte-addresses.ax`). Interners use counted
   `InternState` owners (`tests/diagnostics/1521-intern-addresses.ax`).
   Cereal exposes typed values; legacy JSON storage is internal
-  (`tests/diagnostics/1533-cereal-addresses.ax`).
+  (`tests/diagnostics/1533-cereal-addresses.ax`). Cipher, authenticator
+  and curve address kernels are internal
+  (`tests/diagnostics/1534-crypto-leaf-addresses.ax`).
 - Generic match-arm captures with unknown reference types and scoped
   recovery wrappers can retain their outer owners. Concrete reference
   captures reclaim their shares, including a captured `File`.

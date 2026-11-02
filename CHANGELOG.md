@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Cipher, authenticator and curve memory kernels move into internal
+  crypto modules. Typed encryption and curve APIs retain their
+  behaviour, and safe size and round-count queries remain public.
+  Tested by `tests/diagnostics/1534-crypto-leaf-addresses.ax` and
+  `scripts/check-crypto.sh`.
+
 - Cereal exposes typed values and codecs. Its 22 legacy JSON operations
   move behind the internal library boundary. Compiler JSON-RPC keeps
   its missing/null and numeric behaviour in its own raw storage layer.

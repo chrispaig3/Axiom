@@ -2084,3 +2084,57 @@
 0.8.1  F  jsonStr  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
 0.8.1  F  jsonStrVal  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
 0.8.1  F  jsonWrite  raw JSON storage is internal; use CerealValue and the typed Cereal codecs
+
+0.8.1  F  aesKeyExpand  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  aesEncryptBlocks  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  aesDecryptBlocks  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  aesCtr32Xor  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  chacha20Block  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  chacha20Xor  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ghashUpdate  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  poly1305Init  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  poly1305Blocks  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  poly1305AbsorbPadded  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  poly1305Finish  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  poly1305Mac  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Set  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Zero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519One  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Copy  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519SqrtM1  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Add  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Sub  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Neg  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Mul  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Sq  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Sq2  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Mul121666  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Invert  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519Pow22523  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519CSwap  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519CMov  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519FromBytes  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519ToBytes  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519IsNegative  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  fe25519IsZero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  sc25519Reduce  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  sc25519MulAdd  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  sc25519IsCanonical  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519D  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519D2  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519Base  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519P3Zero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519P2Zero  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519P1P1ToP2  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519P1P1ToP3  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519P3ToCached  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519P2Dbl  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519Add  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519Sub  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519Madd  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519ToBytes  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519FromBytesVartime  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519P3Neg  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519CombTable  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519ScalarMultBase  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+0.8.1  F  ge25519DoubleScalarMultVartime  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs

@@ -725,22 +725,9 @@ that never hands out the same one twice.
 
 ## `Crypto.Aes`
 
-`stdlib/Crypto/Aes.ax` — 9 public names
+`stdlib/Crypto/Aes.ax` — 5 public names
 
-Crypto.Aes - the AES block cipher (FIPS 197), all three key sizes,
-as a constant-time bitsliced kernel. Hazardous layer.
-
-    {
-      (let sched (strAlloc (aesScheduleBytes 32)))
-      (let work (strAlloc aesKeyWorkBytes))
-      (let q (strAlloc aesStateBytes))
-      {
-        (aesKeyExpand (strData sched) (strData key) 32 (strData work))
-        (aesEncryptBlocks (strData sched) 14 (strData pt) (strData ct) 1 (strData q))
-        (ctWipe (strData sched) (aesScheduleBytes 32))
-        (ctWipe (strData q) aesStateBytes)
-      }
-    }
+Aes - public algorithm sizes.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
@@ -749,10 +736,6 @@ as a constant-time bitsliced kernel. Hazardous layer.
 | `aesKeyWorkBytes` | value | `Int` |  |  | The scratch `aesKeyExpand` needs: the 60-word FIPS 197 schedule and an 8-word state. |
 | `aesStateBytes` | value | `Int` |  |  | The bitsliced state: eight words, four blocks. |
 | `aesCtrWorkBytes` | value | `Int` |  |  | The scratch `aesCtr32Xor` needs: the state and one 64-byte run of keystream. |
-| `aesKeyExpand` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` |  | Expand the `keyLen`-byte key at `key` into the bitsliced schedule at `out`, `aesScheduleBytes keyLen` bytes. Answers the number of rounds, or 0, writing nothing, when `keyLen` is not 16, 24 or 32. The scratch at `work` is wiped before this returns. |
-| `aesEncryptBlocks` | value | `(-> Int Int Int Int Int Int Int)` | `Mut` |  | Encrypt `n` 16-byte blocks from `src` to `dst`, each on its own (the raw cipher, FIPS 197 5.1; ECB when read as a mode). `src` and `dst` may be the same address. `q` is scratch the caller wipes. |
-| `aesDecryptBlocks` | value | `(-> Int Int Int Int Int Int Int)` | `Mut` |  | Decrypt `n` 16-byte blocks from `src` to `dst` (FIPS 197 5.3). |
-| `aesCtr32Xor` | value | `(-> Int Int Int Int Int Int Int Int Int)` | `Mut,Unsafe` |  | XOR `len` bytes from `src` with the keystream E(iv \|\| ctr), E(iv \|\| ctr + 1), ... into `dst`, where `iv` is 12 bytes and the counter is the last 4 bytes of each block, big-endian, incremented modulo 2^32. Answers the counter after the last block used. `src` and `dst` may be the same address. `work` holds keystream when this returns; the caller wipes it. |
 
 ## `Crypto.AesGcm`
 
@@ -849,23 +832,13 @@ Crypto.Bytes - byte strings as the Crypto modules pass them around.
 
 ## `Crypto.ChaCha20`
 
-`stdlib/Crypto/ChaCha20.ax` — 3 public names
+`stdlib/Crypto/ChaCha20.ax` — 1 public names
 
-Crypto.ChaCha20 - the ChaCha20 stream cipher of RFC 8439, with a
-256-bit key, a 96-bit nonce and a 32-bit block counter. Hazardous
-layer.
-
-      {
-        (let block (strAlloc chacha20BlockBytes))
-        (chacha20Block (strData block) keyAddr 1 (strData nonce))
-      }
-    ; block holds keystream block 1 for that key and nonce
+ChaCha20 - public algorithm sizes.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
 | `chacha20BlockBytes` | value | `Int` |  |  | The bytes `chacha20Block` writes through: 64 of keystream, then 64 of scratch it wipes. |
-| `chacha20Block` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` |  | Write keystream block `counter` for the 32-byte key at `key` and the 12-byte nonce at `nonce` to the first 64 bytes at `out` (RFC 8439 2.3): the state after 20 rounds, ten column rounds alternating with ten diagonal rounds, added word by word to the state it started from. `out` also holds the working state, so it names `chacha20BlockBytes`; the second 64 bytes are wiped before this returns. `counter` is taken modulo 2^32. |
-| `chacha20Xor` | value | `(-> Int Int Int Int Int Int Int Int)` | `Mut,Unsafe` |  | XOR `len` bytes from `src` with the keystream starting at block `counter` into `dst` (RFC 8439 2.4). `src` and `dst` may be the same address. `work` is `chacha20BlockBytes` of scratch; its first 64 bytes hold the last keystream block when this returns, and the caller wipes them. Answers the counter after the last block used. The caller keeps `counter` plus the number of blocks within 2^32. |
 
 ## `Crypto.ChaCha20Poly1305`
 
@@ -923,21 +896,9 @@ shares.
 
 ## `Crypto.Curve25519`
 
-`stdlib/Crypto/Curve25519.ax` — 23 public names
+`stdlib/Crypto/Curve25519.ax` — 5 public names
 
-Crypto.Curve25519 - the Ed25519 group: points of the twisted Edwards
-curve -x^2 + y^2 = 1 + d x^2 y^2 over GF(2^255 - 19), their
-arithmetic and their 32-byte encoding.
-
-    {
-      (let h (rawAlloc ge25519P3Bytes))
-      (let enc (strAlloc 32))
-      {
-        (ge25519ScalarMultBase h (strData scalar))  ; h = [scalar]B
-        (ge25519ToBytes (strData enc) h)  ; RFC 8032 encoding
-        (ge25519FromBytesVartime h (strData enc))  ; 0: decoded again
-      }
-    }
+Curve25519 - public algorithm sizes.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
@@ -946,41 +907,12 @@ arithmetic and their 32-byte encoding.
 | `ge25519P1P1Bytes` | value | `Int` |  |  | Bytes in a P1P1 point, the output of an addition or doubling. |
 | `ge25519PrecompBytes` | value | `Int` |  |  | Bytes in a Precomp point (y+x, y-x, 2dxy). |
 | `ge25519CachedBytes` | value | `Int` |  |  | Bytes in a Cached point (Y+X, Y-X, Z, 2dT). |
-| `ge25519D` | value | `(-> Int Int)` | `Mut` |  | The curve constant d = -121665/121666 (ref10's d.h). |
-| `ge25519D2` | value | `(-> Int Int)` | `Mut` |  | 2d (ref10's d2.h). |
-| `ge25519Base` | value | `(-> Int Int)` | `Mut` |  | The base point B = (x, 4/5) with x even (RFC 8032, section 5.1), as a P3 at `h`. |
-| `ge25519P3Zero` | value | `(-> Int Int)` | `Mut` |  | The neutral element (0, 1) as a P3. |
-| `ge25519P2Zero` | value | `(-> Int Int)` | `Mut` |  | The neutral element as a P2. |
-| `ge25519P1P1ToP2` | value | `(-> Int Int Int)` | `Mut` |  | r = p as a P2 (ge_p1p1_to_p2). |
-| `ge25519P1P1ToP3` | value | `(-> Int Int Int)` | `Mut` |  | r = p as a P3 (ge_p1p1_to_p3). |
-| `ge25519P3ToCached` | value | `(-> Int Int Int Int)` | `Mut` |  | r = p as a Cached point (ge_p3_to_cached). `t` is one field element of scratch. |
-| `ge25519P2Dbl` | value | `(-> Int Int Int Int)` | `Mut` |  | r = 2p, for a P2 (or a P3's first three coordinates) at `p` (ge_p2_dbl.h). `t` is one field element of scratch. |
-| `ge25519Add` | value | `(-> Int Int Int Int Int)` | `Mut` |  | r = p + q, for a P3 `p` and a Cached `q` (ge_add.h). `t` is one field element of scratch. |
-| `ge25519Sub` | value | `(-> Int Int Int Int Int)` | `Mut` |  | r = p - q, for a P3 `p` and a Cached `q` (ge_sub.h). |
-| `ge25519Madd` | value | `(-> Int Int Int Int Int)` | `Mut` |  | r = p + q, for a P3 `p` and a Precomp `q` (ge_madd.h). |
-| `ge25519ToBytes` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` |  | Write the 32-byte encoding of the P2 (or P3) at `h` at `s`: y, with the low bit of x in bit 255 (ge_tobytes.c). |
-| `ge25519FromBytesVartime` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` |  | Decode the 32 bytes at `s` into the P3 at `h`, strictly (RFC 8032, section 5.1.3): answers 0, or -1 when y is not below p, when no x satisfies the curve equation, or when x is 0 and the sign bit is set, and `h` is then unspecified. Variable time: for public keys and signatures only. Points of small order decode; nothing here asks what order a point has. |
-| `ge25519P3Neg` | value | `(-> Int Int)` | `Mut` |  | h = -h, for a P3. |
-| `ge25519CombTable` | value | `(-> Int Int)` | `Mut` |  | The two combs as sixteen Precomp points at `t`: entry j of the low comb (0 <= j < 8) is 2^96 B + sum over k < 3 of (+/-) 2^(32k) B, the sign of 2^(32k) B being bit k of j; the high comb, entries 8 to 15, is 2^128 times the low. These are Monocypher's b_comb_low and b_comb_high; tests/crypto/302-curve25519-group.ax recomputes them. |
-| `ge25519ScalarMultBase` | value | `(-> Int Int Int)` | `Alloc,Mut,Unsafe` |  | h = [a]B for the 32-byte scalar at `a`, any value below 2^256, in time that does not depend on `a`. |
-| `ge25519DoubleScalarMultVartime` | value | `(-> Int Int Int Int Int)` | `Alloc,Mut,Unsafe` |  | r = [a]A + [b]B, as a P2, for 32-byte scalars `a` and `b` below 2^253 and the P3 `A`. Variable time: for verification only. |
 
 ## `Crypto.Curve25519Scalar`
 
-`stdlib/Crypto/Curve25519Scalar.ax` — 3 public names
+`stdlib/Crypto/Curve25519Scalar.ax` — 0 public names
 
-Crypto.Curve25519Scalar - arithmetic modulo L, the order of the
-Ed25519 base point: L = 2^252 + 27742317777372353535851937790883648493.
-
-    (sc25519Reduce r (strData digest))       ; r = SHA-512 digest mod L
-    (sc25519MulAdd s k a r)                  ; s = (k a + r) mod L
-    (sc25519IsCanonical (+ (strData sig) 32)) ; 1 when S < L
-
-| Name | Kind | Type | Effects | Contracts | Summary |
-|---|---|---|---|---|---|
-| `sc25519Reduce` | value | `(-> Int Int Int)` | `Alloc,Mut` |  | Write the 64 little-endian bytes at `in` reduced modulo L as 32 bytes at `out`. |
-| `sc25519MulAdd` | value | `(-> Int Int Int Int Int)` | `Alloc,Mut,Unsafe` |  | Write (a b + c) mod L as 32 bytes at `out`, for 32-byte scalars `a`, `b` and `c` of any value below 2^256. |
-| `sc25519IsCanonical` | value | `(-> Int Int)` | `Alloc,Mut` |  | 1 when the 32-byte scalar at `s` is below L - the canonical range RFC 8032, section 5.1.7, requires of a signature's S - and 0 otherwise. |
+Curve25519Scalar - raw kernels are private; use the typed crypto interfaces.
 
 ## `Crypto.Ed25519`
 
@@ -1033,68 +965,19 @@ Crypto.Errors - the error codes every Crypto module answers.
 
 ## `Crypto.Field25519`
 
-`stdlib/Crypto/Field25519.ax` — 21 public names
+`stdlib/Crypto/Field25519.ax` — 1 public names
 
-Crypto.Field25519 - arithmetic modulo p = 2^255 - 19, the field
-under X25519 and Ed25519.
-
-    {
-      (let a (rawAlloc fe25519Bytes))
-      (let b (rawAlloc fe25519Bytes))
-      {
-        (fe25519FromBytes a (strData u))  ; 32 little-endian bytes in
-        (fe25519Sq b a)  ; b = a^2
-        (fe25519Invert b b)  ; b = a^-2
-        (fe25519ToBytes (strData out) b)  ; 32 canonical bytes out
-        (ctWipe a fe25519Bytes)
-        (ctWipe b fe25519Bytes)
-      }
-    }
+Field25519 - public algorithm sizes.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
 | `fe25519Bytes` | value | `Int` |  |  | The size of one field element in bytes: ten 64-bit limbs. |
-| `fe25519Set` | value | `(-> Int Int Int Int Int Int Int Int Int Int Int Int)` | `Mut,Unsafe` |  | Store the ten limbs of a constant at `out`. Answers 0. |
-| `fe25519Zero` | value | `(-> Int Int)` | `Mut` |  | out = 0. |
-| `fe25519One` | value | `(-> Int Int)` | `Mut` |  | out = 1. |
-| `fe25519Copy` | value | `(-> Int Int Int)` | `Mut,Unsafe` |  | out = a. |
-| `fe25519SqrtM1` | value | `(-> Int Int)` | `Mut` |  | A square root of -1 modulo p (ref10's sqrtm1.h). |
-| `fe25519Add` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  | out = a + b. |
-| `fe25519Sub` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  | out = a - b. |
-| `fe25519Neg` | value | `(-> Int Int Int)` | `Mut,Unsafe` |  | out = -a. |
-| `fe25519Mul` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  | out = a * b, reduced. |
-| `fe25519Sq` | value | `(-> Int Int Int)` | `Mut,Unsafe` |  | out = a^2, reduced. |
-| `fe25519Sq2` | value | `(-> Int Int Int)` | `Mut,Unsafe` |  | out = 2 a^2, reduced: the square with every product doubled before the carry, as ref10's fe_sq2 does for point doubling. |
-| `fe25519Mul121666` | value | `(-> Int Int Int)` | `Mut,Unsafe` |  | out = 121666 a, reduced: the constant (A + 2) / 4 of RFC 7748's ladder, where A = 486662. |
-| `fe25519Invert` | value | `(-> Int Int Int)` | `Alloc,Mut` |  | out = a^(p-2) = 1/a, or 0 when a is 0 (ref10's pow225521 chain: 254 squarings and 11 multiplications, whatever `a` is). |
-| `fe25519Pow22523` | value | `(-> Int Int Int)` | `Alloc,Mut` |  | out = a^((p-5)/8) = a^(2^252 - 3), the exponentiation behind square roots in point decoding (ref10's pow22523 chain). |
-| `fe25519CSwap` | value | `(-> Int Int Int Int)` | `Mut` |  | Swap `f` and `g` where `m` is -1; leave both where `m` is 0. `m` must be a mask (`Crypto.Ct`). The Montgomery ladder's conditional swap. |
-| `fe25519CMov` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  | f = g where `m` is -1; f unchanged where `m` is 0. `m` must be a mask. The table scan's conditional move. |
-| `fe25519FromBytes` | value | `(-> Int Int Int)` | `Mut` |  | out = the 32 little-endian bytes at `p`, with bit 255 ignored. The value may be anything below 2^255, p itself and the 19 values above it included; it is reduced as arithmetic proceeds. |
-| `fe25519ToBytes` | value | `(-> Int Int Int)` | `Mut,Unsafe` |  | Write the canonical 32-byte little-endian encoding of `a` (its value reduced below p) at `p`. `a`'s limbs must be within 1.1 * 2^26 (even) and 1.1 * 2^25 (odd). |
-| `fe25519IsNegative` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` |  | 1 when `a` is odd once reduced below p, 0 when it is even: the sign of x in an Ed25519 point encoding (RFC 8032, section 5.1.2). |
-| `fe25519IsZero` | value | `(-> Int Int)` | `Alloc,Mut,Unsafe` |  | 1 when `a` is 0 modulo p, 0 otherwise, in time that does not depend on `a`. |
 
 ## `Crypto.Ghash`
 
-`stdlib/Crypto/Ghash.ax` — 1 public names
+`stdlib/Crypto/Ghash.ax` — 0 public names
 
-Crypto.Ghash - GHASH, GCM's universal hash (SP 800-38D 6.4), as a
-constant-time carry-less multiplication. Hazardous layer.
-
-      {
-        (let y (strAlloc 16))
-        {
-          (ghashUpdate (strData y) hAddr (strData aad) (strLen aad))
-          (ghashUpdate (strData y) hAddr (strData ct) (strLen ct))
-          (ghashUpdate (strData y) hAddr (strData lengths) 16)
-        }
-      }
-    ; y now holds GHASH_H(A || pad || C || pad || len(A) || len(C))
-
-| Name | Kind | Type | Effects | Contracts | Summary |
-|---|---|---|---|---|---|
-| `ghashUpdate` | value | `(-> Int Int Int Int Int)` | `Mut` |  | Absorb `len` bytes at `data` into the running hash at `y` (16 bytes, big-endian, updated in place) under the hash key at `h` (16 bytes): for each 16-byte block X, Y <- (Y xor X) * H in GF(2^128). A final partial block is padded with zeros, so a caller absorbing A and then C gets GCM's padding for each. `len` is public; `y` and `h` are not. |
+Ghash - raw kernels are private; use the typed crypto interfaces.
 
 ## `Crypto.Hkdf`
 
@@ -1209,25 +1092,13 @@ Crypto.Obfuscate - authenticated envelopes for embedded binary assets.
 
 ## `Crypto.Poly1305`
 
-`stdlib/Crypto/Poly1305.ax` — 6 public names
+`stdlib/Crypto/Poly1305.ax` — 1 public names
 
-Crypto.Poly1305 - the Poly1305 one-time authenticator of RFC 8439,
-in constant time with 26-bit limbs. Hazardous layer.
-
-    {
-      (let tag (strAlloc 16))
-      (let st (strAlloc poly1305StateBytes))
-      (poly1305Mac (strData tag) oneTimeKeyAddr (strData msg) (strLen msg) (strData st))
-    }
+Poly1305 - public algorithm sizes.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
 | `poly1305StateBytes` | value | `Int` |  |  | The state, 16 words:   words 0-4    r, clamped, in 26-bit limbs   words 5-9    the accumulator h, in 26-bit limbs   words 10-13  s, the key's second half, as 32-bit words   words 14-15  scratch for a padded final block |
-| `poly1305Init` | value | `(-> Int Int Int)` | `Mut,Unsafe` |  | Start a state from the 32-byte one-time key at `key`: r is the first 16 bytes with the clamping of RFC 8439 2.5, s the last 16, and the accumulator zero. |
-| `poly1305Blocks` | value | `(-> Int Int Int Int Int)` | `Mut,Unsafe` |  | Absorb the `n` whole 16-byte blocks at `p`, each read as a little-endian number plus `hibit` * 2^104 in the top limb: 2^24 for the 2^128 bit every full block carries, 0 for a final block that already has its 0x01 byte. h <- (h + block) * r mod 2^130 - 5, left partly reduced: every limb below 2^26 but the second, which may be slightly above. |
-| `poly1305AbsorbPadded` | value | `(-> Int Int Int Int)` | `Mut,Unsafe` |  | Absorb `len` bytes at `p` the way the AEAD of RFC 8439 2.8 does: the whole blocks, then any remainder padded with zeros to 16 bytes and absorbed as a full block (with its 2^128 bit). That padding is `pad16` of the RFC; the standalone MAC pads differently and uses `poly1305Mac`. |
-| `poly1305Finish` | value | `(-> Int Int Int)` | `Mut,Unsafe` |  | Finish: carry the accumulator fully, reduce it below p = 2^130 - 5 with a masked choice between h and h - p, add s modulo 2^128, and write the 16-byte tag at `tag` in little-endian order. The state is wiped. |
-| `poly1305Mac` | value | `(-> Int Int Int Int Int Int)` | `Mut,Unsafe` |  | The Poly1305 tag of the `len` bytes at `msg` under the 32-byte one-time key at `key`, written to the 16 bytes at `tag` (RFC 8439 2.5): whole blocks with their 2^128 bit, then any remainder with a 0x01 byte after it, zero-padded, and no 2^128 bit. `st` is scratch, wiped before this returns. |
 
 ## `Crypto.Random`
 

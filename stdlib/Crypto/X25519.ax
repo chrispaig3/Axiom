@@ -56,7 +56,7 @@
 (import Crypto.Random)
 (import Internal.Entropy)
 (import Crypto.Secret)
-(import Crypto.Field25519)
+(import Internal.CryptoField25519)
 
 ;; An X25519 private key: a handle to 32 secret bytes and their public
 ;; key in the secret store. Prints as `<X25519SecretKey>`.

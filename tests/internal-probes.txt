@@ -36,3 +36,10 @@ tests/stdlib/404-container-reference-maps.ax
 tests/selfhost/emitter-binder-summary.py
 tests/stdlib/340-json.ax
 tests/stdlib/485-json-mutation.ax
+
+# Raw crypto implementation probes.
+tests/crypto/210-ghash.ax
+tests/crypto/240-poly1305.ax
+tests/crypto/300-field25519.ax
+tests/crypto/301-scalar25519.ax
+tests/crypto/302-curve25519-group.ax

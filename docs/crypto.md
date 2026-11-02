@@ -128,6 +128,12 @@ Use `strDup` to copy a string. Raw byte copies and constant-time address
 kernels belong to internal modules. Tested by
 `tests/diagnostics/1520-crypto-byte-addresses.ax`.
 
+Cipher, authenticator and curve memory kernels are internal too. Use
+`Crypto.AesGcm`, `Crypto.ChaCha20Poly1305`, `Crypto.X25519` or
+`Crypto.Ed25519` for typed operations. Public size and round-count
+queries remain available. Tested by
+`tests/diagnostics/1534-crypto-leaf-addresses.ax`.
+
 A `String` holds any bytes, so the suite uses it for public byte data:
 messages, ciphertexts, digests and encoded keys. `Crypto.Bytes` has
 what you need around them:

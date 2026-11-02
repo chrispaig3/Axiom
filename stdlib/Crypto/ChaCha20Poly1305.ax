@@ -61,8 +61,8 @@
 (import Crypto.Errors)
 (import Crypto.Random)
 (import Crypto.Secret)
-(import Crypto.ChaCha20)
-(import Crypto.Poly1305)
+(import Internal.CryptoChaCha20)
+(import Internal.CryptoPoly1305)
 (import Crypto.Aead)
 
 ;; A ChaCha20-Poly1305 key: 32 bytes in the secret store (kind 21).

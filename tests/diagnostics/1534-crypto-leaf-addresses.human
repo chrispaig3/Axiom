@@ -1,0 +1,64 @@
+[1;31merror[AX5002][0m[1m: `aesKeyExpand` belongs to `Internal.CryptoAes`, which is internal to the standard library[0m
+  [1;34m--> [0m1534-crypto-leaf-addresses.ax:16:4
+[1;34m   |[0m
+[1;34m16 |[0m   (aesKeyExpand address 16 address address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `chacha20Block` belongs to `Internal.CryptoChaCha20`, which is internal to the standard library[0m
+  [1;34m--> [0m1534-crypto-leaf-addresses.ax:20:4
+[1;34m   |[0m
+[1;34m20 |[0m   (chacha20Block address 0 address address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `ghashUpdate` belongs to `Internal.CryptoGhash`, which is internal to the standard library[0m
+  [1;34m--> [0m1534-crypto-leaf-addresses.ax:24:4
+[1;34m   |[0m
+[1;34m24 |[0m   (ghashUpdate address address address 16))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `poly1305Init` belongs to `Internal.CryptoPoly1305`, which is internal to the standard library[0m
+  [1;34m--> [0m1534-crypto-leaf-addresses.ax:28:4
+[1;34m   |[0m
+[1;34m28 |[0m   (poly1305Init address address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `fe25519Add` belongs to `Internal.CryptoField25519`, which is internal to the standard library[0m
+  [1;34m--> [0m1534-crypto-leaf-addresses.ax:32:4
+[1;34m   |[0m
+[1;34m32 |[0m   (fe25519Add address address address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `sc25519Reduce` belongs to `Internal.CryptoCurve25519Scalar`, which is internal to the standard library[0m
+  [1;34m--> [0m1534-crypto-leaf-addresses.ax:36:4
+[1;34m   |[0m
+[1;34m36 |[0m   (sc25519Reduce address address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `ge25519ScalarMultBase` belongs to `Internal.CryptoCurve25519`, which is internal to the standard library[0m
+  [1;34m--> [0m1534-crypto-leaf-addresses.ax:40:4
+[1;34m   |[0m
+[1;34m40 |[0m   (ge25519ScalarMultBase address address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+compilation failed due to 7 previous errors
