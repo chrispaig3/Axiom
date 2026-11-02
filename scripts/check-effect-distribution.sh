@@ -398,6 +398,9 @@ have() { # have <got> <want> <what>
 # Moving raw crypto bytes and constant-time kernels inside Internal preserves
 # every existing effect row. bytesFromAddr is no longer reached by the compiler,
 # removing one Alloc,Mut row there; the full-library view is unchanged.
+# Typed interner wrappers add eleven rows across the public and internal
+# modules. Existing implementation rows keep their effects; pruneCtxNew
+# changes from Alloc,Mut to Alloc as it constructs a typed owner record.
 echo "== compiler view: symbols --calls core/main.ax =="
 "$axc" --diagnostic-format=ai symbols --calls core/main.ax > "$work/main.axsym" 2>"$work/main.err" \
   || { fail "could not read symbols over core/main.ax"; echo "check-effect-distribution: $failed failed"; exit 1; }
@@ -495,14 +498,14 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 # typed Crypto.Random import reaches 82 more rows: its random operations and
 # byte/constant-time helpers. entropyAvailable adds one Entropy,Mut row to the
 # full library view; the public randomAvailable wrapper keeps its effects.
-have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3663 "exactly Alloc,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3668 "exactly Alloc,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 510 "Alloc,IO,Mut"
 # The explicit platform facade adds 179 rows; implementation rows keep their
 # effects (same-compiler comparison). Constants carry their syscall refinements.
 # Clock/wait/mapping extraction preserves existing rows. The shared clock
 # capability adds one Mut row; LSP's own mapping boundary adds two Alloc,IO,Unsafe.
 have "$(bucket "$work/main.axsym" 'Mut')" 300 "exactly Mut"
-have "$(bucket "$work/main.axsym" 'Alloc')" 483 "exactly Alloc"
+have "$(bucket "$work/main.axsym" 'Alloc')" 484 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 26 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 13 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 5 "IO,Mut"
@@ -536,7 +539,7 @@ have "$(bucket "$work/main.axsym" 'Alloc,Block,IO,Mut')" 18 "Alloc,Block,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Block,IO')" 2 "Alloc,Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO')" 1 "Block,IO"
 have "$(bucket "$work/main.axsym" 'Block,IO,Mut')" 1 "Block,IO,Mut"
-have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2580 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/main.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 2585 "pure (neither row nor mark)"
 have "$(grep '^F ' "$work/main.axsym" | grep -o '#effects=[^ #]*' | LC_ALL=C sort -u | wc -l | tr -d ' ')" 35 "distinct compiler effect rows"
 have "$(grep -c '#effects-incomplete' "$work/main.axsym" || true)" 54 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/main.axsym" || true)" 42 "effect-params rows"
@@ -574,7 +577,7 @@ lrows="$(grep -c '^F ' "$work/lib.axsym" || true)"
   || fail "only $lrows stdlib functions listed; the floor is 300"
 # Socket address helpers move to Internal.SocketAddress with unchanged effects.
 # The owned byte-copy accessor adds one Alloc,Mut row (same-compiler comparison).
-have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 744 "exactly Alloc,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 750 "exactly Alloc,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 321 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 181 "exactly Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc')" 195 "exactly Alloc"
@@ -615,7 +618,7 @@ have "$(bucket "$work/lib.axsym" 'Alloc,Block,IO')" 2 "Alloc,Block,IO"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Spawn')" 7 "Alloc,IO,Mut,Spawn"
 have "$(bucket "$work/lib.axsym" 'Block,IO')" 1 "Block,IO"
 have "$(bucket "$work/lib.axsym" 'Block,IO,Mut')" 1 "Block,IO,Mut"
-have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1344 "pure (neither row nor mark)"
+have "$(grep '^F ' "$work/lib.axsym" | grep -vc '#effects=\|#effects-incomplete' || true)" 1349 "pure (neither row nor mark)"
 have "$(grep '^F ' "$work/lib.axsym" | grep -o '#effects=[^ #]*' | LC_ALL=C sort -u | wc -l | tr -d ' ')" 39 "distinct stdlib effect rows"
 have "$(grep -c '#effects-incomplete' "$work/lib.axsym" || true)" 25 "incomplete rows"
 have "$(grep -c '#effect-params' "$work/lib.axsym" || true)" 64 "effect-params rows"

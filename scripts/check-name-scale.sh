@@ -254,7 +254,7 @@ old = """(pub fn (mangleIdxHas idx bares name)
   {
     (let m idx)
     (mangleIdxSync idx bares)
-    (if (let (Some _) (internFind (internWordOf m.names) name))
+    (if (let (Some _) (internFind m.names name))
       true
       false)
   })"""
@@ -477,7 +477,7 @@ scan = """(pub :: boundInScan (-> String BinderSummary Int))
   (if (== sum.unknown 1)
     1
     {
-      (let set (internWordOf sum.binders))
+      (let set sum.binders)
       (let mut i 0)
       (let mut hit 0)
 

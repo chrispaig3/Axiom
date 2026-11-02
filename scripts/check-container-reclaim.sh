@@ -50,10 +50,9 @@
 #   chain/freed  an `Intern` and a `Map` of strings built and dropped
 #                each iteration - five levels of map-walking, header
 #                to `Vec` to data block to `Str` header to bytes. The
-#                map dies at the end of its scope; the interner is an
-#                `Int` handle and is freed by hand.
+#                map and interner both die at the end of their scopes.
 #   chain/held   the SAME program with the map kept alive by one extra
-#                share and the interner's free removed.
+#                share and the interner kept alive by an extra share.
 #
 #   link/freed   a 64-element ring whose links are stored with
 #                `linkTo`, dropped each iteration (MM-VAL-10b). Storing
@@ -187,12 +186,12 @@ AX
     chain)
       # The ablation is one statement per container, and nothing
       # else. `mapHeld` takes a share nobody hands back, so the map
-      # outlives its scope; `(+ 0 0)` replaces the interner's free.
+      # outlives its scope; `internHeld` does the same for the interner.
       # Both spellings keep the same shape - a statement each, in the
       # same position - so the difference is reclamation and not the
       # optimiser seeing a smaller function.
-      local keepMap='(mapLen m)' freeIt='(internFree it)'
-      if [[ "$variant" == held ]]; then keepMap='(mapHeld m)'; freeIt='(+ 0 0)'; fi
+      local keepMap='(mapLen m)' keepIt='(internCount it)'
+      if [[ "$variant" == held ]]; then keepMap='(mapHeld m)'; keepIt='(internHeld it)'; fi
       cat > "$out" <<AX
 ; $n iterations, each building a 32-entry Map of Strings and a
 ; 40-string Intern and dropping both. Variant: $variant.
@@ -220,13 +219,17 @@ AX
       { (let r (mapLen m)) { $keepMap r }}
     }})
 
+(:: internHeld (-> InternState Int))
+;@axiom:effect(unsafe)
+(fn (internHeld it) { (__retain (as it Int)) (internCount it) })
+
 (:: buildIntern (-> Int Int))
 (fn (buildIntern n)
   { (let it internNew) (let mut i 0)
     {
       (while (< i n)
         { (internIntern it (fmtInt i)) (set i (+ i 1)) })
-      { (let r (internCount it)) { $freeIt r }}
+      { (let r (internCount it)) { $keepIt r }}
     }})
 
 (:: loop (-> Int Int Int))

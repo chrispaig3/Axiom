@@ -1,9 +1,9 @@
 ok   first id
 ok   second id
-ok   count before free
-ok   free answers zero
+ok   count before scope exit
+ok   first scope releases string
 ok   fresh first id
 ok   fresh count
-ok   free answers zero
+ok   second scope releases string
 checks 7
 failures 0

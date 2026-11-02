@@ -1924,7 +1924,7 @@
             {
               (let e (vecGet sigs i))
               {
-                (let id (internIntern (internWordOf si) (fsigName e)))
+                (let id (internIntern si (fsigName e)))
                 (if (== id (vecLen byId))
                   {
                     (vecPush byId e)
@@ -1941,7 +1941,7 @@
         (while (< j (vecLen bares))
           {
             {
-              (let id (internIntern (internWordOf bi) (vecGetStr bares j)))
+              (let id (internIntern bi (vecGetStr bares j)))
               (if (== id (vecLen first))
                 {
                   (vecPush first j)
@@ -2033,7 +2033,7 @@
 ;@axiom:effect(unsafe)
 (fn (declSlotFor dn dnull ddef dar name)
   {
-    (let id (internIntern (internWordOf dn) name))
+    (let id (internIntern dn name))
     {
       (if (== id (vecLen dnull))
         {
@@ -2106,7 +2106,7 @@
 (pub :: findFSigCg (-> CG String (Option FSig)))
 (pub fn (findFSigCg cg name)
   (if (let (Some si) (cgSigIntern cg))
-    (if (let (Some id) (internFind (internWordOf si) (declSpellingOf name)))
+    (if (let (Some id) (internFind si (declSpellingOf name)))
       (Some (vecGet (cgSigById cg) id))
       (None))
     (findFSig (cgFloatSigs cg) name)))
@@ -2135,7 +2135,7 @@
           (let module (cgModule cg))
           (let hit
             (if (let (Some nameOfModule) module)
-              (internFind (internWordOf bi) (concat nameOfModule (concat "$" name)))
+              (internFind bi (concat nameOfModule (concat "$" name)))
               (None)))
           (if (let (Some id) hit)
             (vecGetStr (cgMangleFulls cg) (vecGet index.first id))
@@ -2153,15 +2153,15 @@
 ; shadows cost what they did.
 (:: mangledForModCg (-> CG InternState DeclIndex String (Option String) String))
 (fn (mangledForModCg cg bi index name module)
-  (if (let (Some id) (internFind (internWordOf bi) name))
+  (if (let (Some id) (internFind bi name))
     {
       (let full (vecGetStr (cgMangleFulls cg) (vecGet index.first id)))
       (if (let (Some _) module)
         (if (|| (strEq full name)
-              (match (internFind (internWordOf bi) (concat "$entry$" name))
+              (match (internFind bi (concat "$entry$" name))
                 ((Some _) true)
                 ((None) false)))
-          (match (internFind (internWordOf bi) (concat "$" name))
+          (match (internFind bi (concat "$" name))
             ((Some imported) (vecGetStr (cgMangleFulls cg) (vecGet index.first imported)))
             ((None) full))
           full)
@@ -2179,7 +2179,7 @@
 (pub :: isNullaryFnCg (-> CG String Bool))
 (pub fn (isNullaryFnCg cg name)
   (if (let (Some index) (cgDeclIndex cg))
-    (if (let (Some id) (internFind (internWordOf index.names) (declSpellingOf name)))
+    (if (let (Some id) (internFind index.names (declSpellingOf name)))
       (== (vecGet index.nullary id) 1)
       false)
     (isNullaryFn (cgDecls cg) name)))
@@ -2187,7 +2187,7 @@
 (pub :: isDefinedFnCg (-> CG String Bool))
 (pub fn (isDefinedFnCg cg name)
   (if (let (Some index) (cgDeclIndex cg))
-    (if (let (Some id) (internFind (internWordOf index.names) (declSpellingOf name)))
+    (if (let (Some id) (internFind index.names (declSpellingOf name)))
       (== (vecGet index.defined id) 1)
       false)
     (isDefinedFn (cgDecls cg) name)))
@@ -2198,7 +2198,7 @@
 (pub :: fnArityOfCg (-> CG String Int))
 (pub fn (fnArityOfCg cg name)
   (if (let (Some index) (cgDeclIndex cg))
-    (if (let (Some id) (internFind (internWordOf index.names) (declSpellingOf name)))
+    (if (let (Some id) (internFind index.names (declSpellingOf name)))
       {
         (let arity (vecGet index.arity id))
         (if (< arity 0)
@@ -2408,7 +2408,7 @@
 (pub :: fsigIdCg (-> CG String Int))
 (pub fn (fsigIdCg cg name)
   (if (let (Some si) (cgSigIntern cg))
-    (if (let (Some id) (internFind (internWordOf si) (declSpellingOf name)))
+    (if (let (Some id) (internFind si (declSpellingOf name)))
       id
       (- 0 1))
     (- 0 1)))
@@ -5283,7 +5283,7 @@
     (let flags vecNew)
     (for entry in types
       {
-        (let id (internIntern (internWordOf names) (declSpellingOf entry.name)))
+        (let id (internIntern names (declSpellingOf entry.name)))
         (if (== id (vecLen flags))
           (vecPush flags (functionFloatFlags entry.ty entry.arity vecNew)))
       })
@@ -5315,7 +5315,7 @@
 (:: checkedFloatFlags (-> CG String (Option Ints)))
 (fn (checkedFloatFlags cg name)
   (if (let (Some index) (cgFunctionFloats cg))
-    (if (let (Some id) (internFind (internWordOf index.names) (declSpellingOf name)))
+    (if (let (Some id) (internFind index.names (declSpellingOf name)))
       (Some (vecGet index.flags id))
       (None))
     (None)))
@@ -16679,39 +16679,36 @@
 ; parameter instead of four: 0 = the defined symbols, interned;
 ; 1 = intern id -> index into `defStart`; 2 = index -> 0/1 live;
 ; 3 = the worklist of definitions marked live and not yet scanned.
-(pub :: pruneCtxNew (-> Int Ints Ints Ints Ints))
+(pub struct PruneCtx sealed
+  (names : InternState)
+  (idToDef : Ints)
+  (live : Ints)
+  (stack : Ints))
+
+(pub :: pruneCtxNew (-> InternState Ints Ints Ints PruneCtx))
 (pub fn (pruneCtxNew si idToDef live stack)
-  {
-    (let v vecNew)
-    {
-      (vecPush v si)
-      (vecPushVec v idToDef)
-      (vecPushVec v live)
-      (vecPushVec v stack)
-      v
-    }
-  })
+  (PruneCtx :names si :idToDef idToDef :live live :stack stack))
 
 ; Mark the define named `sym` live, and queue it. A name that defines
 ; nothing in this module - `@putchar` from an `extern` declare, or a
 ; `@`-shaped run of bytes inside a string constant - is silently no
 ; symbol of ours, which is what makes the outside-a-define root class
 ; safe to apply to every line without knowing what is on it.
-(pub :: pruneMark (-> Ints String Int))
+(pub :: pruneMark (-> PruneCtx String Int))
 (pub fn (pruneMark ctx sym)
-  (if (let (Some id) (internFind (vecGet ctx 0) sym))
+  (if (let (Some id) (internFind ctx.names sym))
     {
-      (let idToDef (vecGetVec ctx 1))
+      (let idToDef ctx.idToDef)
       (if (>= id (vecLen idToDef))
         0
         {
           (let d (vecGet idToDef id))
-          (let live (vecGetVec ctx 2))
+          (let live ctx.live)
           (if (== (vecGet live d) 1)
             0
             {
               (vecSet live d 1)
-              (vecPush (vecGetVec ctx 3) d)
+              (vecPush ctx.stack d)
               0
             })
         })
@@ -16749,7 +16746,7 @@
 ; per-byte recursion the neighbouring scanners use, because this one
 ; is handed the string-constant lines too and those are as long as the
 ; longest literal in the program.
-(pub :: pruneScanLine (-> Ints String Int))
+(pub :: pruneScanLine (-> PruneCtx String Int))
 (pub fn (pruneScanLine ctx ln)
   {
     (let n (strLen ln))
@@ -16848,7 +16845,7 @@
   (mut function : Int)
   (mut depth : Int))
 
-(:: pruneIndexLine (-> String Int PruneCursor Int Ints Ints Ints Ints Ints ()))
+(:: pruneIndexLine (-> String Int PruneCursor InternState Ints Ints Ints Ints Ints ()))
 ;@axiom:effect(unsafe)
 (fn (pruneIndexLine line i cursor si idToDef defStart defEnd live defOf)
   {
@@ -16910,7 +16907,7 @@
     ()
   })
 
-(pub :: pruneIndexDefs (-> Strings Int Ints Ints Ints Ints Ints Int))
+(pub :: pruneIndexDefs (-> Strings InternState Ints Ints Ints Ints Ints Int))
 (pub fn (pruneIndexDefs lines si idToDef defStart defEnd live defOf)
   {
     (let cursor (PruneCursor :current (- 0 1) :function 0 :depth 0))
@@ -16927,10 +16924,10 @@
 ; The transitive closure, as a worklist rather than a fixpoint sweep:
 ; `stack` only grows, and `sp` is how far it has been read, so every
 ; define's body is scanned exactly once.
-(pub :: pruneWalk (-> Ints Strings Ints Ints Int))
+(pub :: pruneWalk (-> PruneCtx Strings Ints Ints Int))
 (pub fn (pruneWalk ctx lines defStart defEnd)
   {
-    (let stack (vecGetVec ctx 3))
+    (let stack ctx.stack)
     (let mut sp 0)
     {
       (while (< sp (vecLen stack))
@@ -16988,9 +16985,8 @@
     cg
     {
       (let lines (cgLines cg))
-      ; The context borrows this handle through the last scan and rebuild.
-      (let siOwner internNewTyped)
-      (let si (internWordOf siOwner))
+      ; The context retains the interner through the last scan and rebuild.
+      (let si internNew)
       (let idToDef vecNew)
       (let defStart vecNew)
       (let defEnd vecNew)
@@ -28436,8 +28432,7 @@
 (pub :: fnDefArityCg (-> CG String Int))
 (pub fn (fnDefArityCg cg name)
   (if (let (Some index) (cgDeclIndex cg))
-    (if (let (Some id) (internFind (internWordOf index.names)
-                         (declSpellingOf (mangledForCg cg name))))
+    (if (let (Some id) (internFind index.names (declSpellingOf (mangledForCg cg name))))
       (vecGet index.arity id)
       (- 0 1))
     (- 0 1)))
@@ -31706,7 +31701,7 @@
 (pub fn (binderSummary e)
   {
     (let set internNewTyped)
-    (let unknown (binderCollect (internWordOf set) e))
+    (let unknown (binderCollect set e))
     (BinderSummary :unknown unknown :binders set :heads internNewTyped :answers vecNew)
   })
 
@@ -31746,7 +31741,7 @@
 (pub :: headIsLocal (-> CG String BinderSummary Int))
 (pub fn (headIsLocal cg n bound)
   {
-    (let memo (internWordOf bound.heads))
+    (let memo bound.heads)
     (let answers bound.answers)
     (if (let (Some id) (internFind memo n))
       (vecGet answers id)
@@ -31767,14 +31762,14 @@
 (pub fn (boundIn name sum)
   (if (== sum.unknown 1)
     1
-    (if (let (Some _) (internFind (internWordOf sum.binders) name))
+    (if (let (Some _) (internFind sum.binders name))
       1
       0)))
 
 ; Intern every binder under `e`, and answer 1 on a tag this walk
 ; does not know. An arm binds its pattern's names; a pattern whose
 ; binders can't be read answers 1 as an unknown tag does.
-(pub :: binderCollect (-> Int ASTNode Int))
+(pub :: binderCollect (-> InternState ASTNode Int))
 (pub fn (binderCollect set e)
   (if (nodeSame e nilNode)
     0
@@ -31824,7 +31819,7 @@
                           1))))))))))
     }))
 
-(pub :: binderCollectVec (-> Int (Vec ASTNode) Int Int))
+(pub :: binderCollectVec (-> InternState (Vec ASTNode) Int Int))
 (pub fn (binderCollectVec set v i)
   (if (== (as v Int) 0)
     0
@@ -31834,7 +31829,7 @@
         1
         (binderCollectVec set v (+ i 1))))))
 
-(pub :: binderCollectNames (-> Int Names Int Int))
+(pub :: binderCollectNames (-> InternState Names Int Int))
 (pub fn (binderCollectNames set v i)
   (if (== (as v Int) 0)
     0
@@ -31845,7 +31840,7 @@
         (binderCollectNames set v (+ i 1))
       })))
 
-(pub :: binderCollectArms (-> Int (Vec ASTNode) Int Int))
+(pub :: binderCollectArms (-> InternState (Vec ASTNode) Int Int))
 (pub fn (binderCollectArms set v i)
   (if (== (as v Int) 0)
     0
@@ -31865,7 +31860,7 @@
 
 ; Mirror patBindersCg's pattern cases directly into the interner. The
 ; summary needs membership, so it need not build a temporary name list.
-(:: binderCollectPattern (-> Int ASTNode Int))
+(:: binderCollectPattern (-> InternState ASTNode Int))
 (fn (binderCollectPattern set pat)
   (if (nodeSame pat nilNode)
     0
@@ -31891,7 +31886,7 @@
               1))))
     }))
 
-(:: binderCollectPatternHead (-> Int ASTNode Int))
+(:: binderCollectPatternHead (-> InternState ASTNode Int))
 (fn (binderCollectPatternHead set pat)
   (if (== (nodeTag pat) TAG_E_APP)
     (if (== (binderCollectPattern set (nodeBChild pat)) 1)
@@ -31901,7 +31896,7 @@
 
 ; The caller checked the optional raw child-list word before taking
 ; this typed view, so recursive reads need no nullable vector cast.
-(:: binderCollectPatternVec (-> Int Nodes Int Int))
+(:: binderCollectPatternVec (-> InternState Nodes Int Int))
 (fn (binderCollectPatternVec set subs i)
   (if (>= i (vecLen subs))
     0

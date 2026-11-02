@@ -16,6 +16,12 @@ its changelog too.
 
 ## Unreleased
 
+- Interner operations take counted `InternState` owners. Raw addresses
+  and explicit release stay internal; retained lookup strings survive
+  the owner. Oversized capacity requests stop before arithmetic wraps.
+  Tested by `tests/stdlib/488-intern-free.ax` and
+  `tests/diagnostics/1521-intern-addresses.ax`.
+
 - Raw byte copies, constant-time memory loads, stores, comparison, wiping
   and swapping are internal. Typed crypto APIs retain their behaviour.
   Tested by `tests/diagnostics/1520-crypto-byte-addresses.ax`.

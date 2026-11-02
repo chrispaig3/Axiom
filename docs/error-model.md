@@ -1887,9 +1887,8 @@ resolve, and the check stage didn't move. The five in
 stage they run in. Read the effect row before a port: it sorts the
 callers into those that pay and those that don't.
 
-The interner's own hot path pays nothing. `internFindFrom` keeps the
-`-1` and stays private, and `internIntern` calls it directly rather
-than through the public wrapper. `Path.ax` makes the same exception
+The interner's hot path uses `rawInternFindFrom` in `Internal.Intern`.
+It keeps `-1` inside the library; the public `internFind` answers `Option`. `Path.ax` makes the same exception
 for `pathExtIndex`. A public boundary is worth a type, and a recursion
 is not.
 

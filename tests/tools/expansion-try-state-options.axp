@@ -86,7 +86,7 @@
 (fn (retireEnvironment owner)
   {
     (let env (environment vecNew vecNew vecNew owner))
-    (internCap (internWordOf env.structNames))
+    (internCap env.structNames)
   })
 
 (:: expectParsed (-> (PResult a) a))
@@ -127,7 +127,7 @@
     (expIndexStructDecls env)
     (say 3 (== (vecLen env.structBuckets) 2))
     (say 4
-      (if (let (Some id) (internFind (internWordOf env.structNames) "Pair"))
+      (if (let (Some id) (internFind env.structNames "Pair"))
         (== id 1)
         false))
     (say 5
@@ -141,9 +141,9 @@
         ((ExpStructMissing) true)
         ((ExpStructAmbiguous) false)))
     (for i in 0..100
-      (internIntern (internWordOf env.structNames) (concat "growth" (fmtInt i))))
+      (internIntern env.structNames (concat "growth" (fmtInt i))))
     (say 7
-      (if (let (Some id) (internFind (internWordOf owner) "Pair"))
+      (if (let (Some id) (internFind owner "Pair"))
         (== id 1)
         false))
     (let child (mkEInt 7))

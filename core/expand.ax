@@ -11699,7 +11699,7 @@
     (for d in (expDeclsVec env)
       (if (== (nodeTag d) TAG_D_STRUCT)
         {
-          (let index (internIntern (internWordOf names) (nodeAName d)))
+          (let index (internIntern names (nodeAName d)))
           (if (== index (vecLen buckets))
             {
               (let bucket (:: vecNew Nodes))
@@ -11724,7 +11724,7 @@
   {
     (let name (nodeAName head))
     (let bare (bareOf name))
-    (if (let (Some index) (internFind (internWordOf env.structNames) bare))
+    (if (let (Some index) (internFind env.structNames bare))
       (expChooseStructDecl (vecGet (expStructBuckets env) index) name bare
         (if (== (nodeDefScope head) 1)
           (nodeModule head)

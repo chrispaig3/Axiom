@@ -18,7 +18,7 @@ def main():
     env = dict(os.environ, AXIOM_PATH=str(root / 'core'), AXIOM_STDLIB=str(root / 'stdlib'))
     expected = ''.join(f'{i} true\n' for i in range(1, 15))
     report = {'cases': 14, 'configurations': [], 'controls': [], 'refusals': [],
-              'limits': 'Counted interner only; raw Intern APIs borrow the held owner. QmSt and pre-existing AST reader retention remain separate. No lifetime algorithms or held M5 work.'}
+              'limits': 'Counted typed interner; integer handles are refused. QmSt and pre-existing AST reader retention remain separate. No lifetime algorithms or held M5 work.'}
     with tempfile.TemporaryDirectory(prefix='axiom-expansion-interner-owner-') as directory:
         work = Path(directory)
 
@@ -48,7 +48,7 @@ def main():
         report['controls'].append({'mutation': 'copied-owner', 'fails': 2})
         needle = '(fn (environment diagnostics units declarations owner)\n  (MEnv'
         assert fixture.count(needle) == 1
-        changed = fixture.replace(needle, '(fn (environment diagnostics units declarations owner)\n  { (let held (MEnv')
+        changed = fixture.replace(needle, ';@axiom:effect(unsafe)\n(fn (environment diagnostics units declarations owner)\n  { (let held (MEnv')
         # The leaf mark closes the whole `MEnv` literal. The last field
         # is the anchor: an earlier field leaves the new fields outside
         # the `let`, so the mutant no longer builds.
@@ -59,7 +59,7 @@ def main():
         report['controls'].append({'mutation': 'lost-owner-map', 'fails': 1})
         for label, declaration in [
                 ('erased-field', '(:: bad (-> MEnv Int)) (fn (bad env) env.structNames)'),
-                ('unborrowed-raw-api', '(:: bad (-> MEnv Int)) (fn (bad env) (internCap env.structNames))')]:
+                ('raw-address-api', '(:: bad (-> Int Int)) (fn (bad address) (internCap address))')]:
             source = work / (label + '.ax')
             source.write_text('(import expand)\n(import Intern)\n' + declaration + '\n(:: main Int) (fn (main) 0)\n')
             checked = subprocess.run([compiler, '--diagnostic-format=ai', 'check', str(source)],

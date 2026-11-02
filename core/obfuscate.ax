@@ -69,7 +69,7 @@
 ; Replace complete LLVM symbol tokens, including quoted names. Never
 ; substitute inside string constants or comments. Chunks are joined
 ; once, avoiding an accumulator proportional to module size squared.
-(:: obfRenameLine (-> String Int Strings String))
+(:: obfRenameLine (-> String InternState Strings String))
 (fn (obfRenameLine line names replacements)
   (if (|| (strStartsWith (strTrim line) ";") (isSome (strFind line " c\"" 0)))
     line
@@ -202,7 +202,6 @@
       (vecPush out
         "define private void @.axiom.obf.left() noinline optnone {\n  %x = load volatile i32, ptr @.axiom.obf.a\n  ret void\n}\ndefine private void @.axiom.obf.right() noinline optnone {\n  %x = load volatile i32, ptr @.axiom.obf.b\n  ret void\n}")
       (vecPush out (obfJoin init "\n"))
-      (internFree names)
       (obfJoin out "\n")
     }
   })

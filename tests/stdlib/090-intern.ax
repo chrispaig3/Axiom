@@ -52,7 +52,7 @@
   (concat "id" (fmtInt n)))
 
 ; Intern "id{lo}" .. "id{hi-1}".
-(pub :: itInternRange (-> Int Int Int Int))
+(pub :: itInternRange (-> InternState Int Int InternState))
 (pub fn (itInternRange it lo hi)
   (if (>= lo hi)
     it
@@ -70,7 +70,7 @@
 ; Two conditions per element, written as nested `Int`-returning `if`s:
 ; `&&` miscompiles when its operands are comparisons, and a `Bool` may not
 ; be the value of an `if`. See the note above `Map`'s probe loops.
-(pub :: itCountRoundTrip (-> Int Int Int Int))
+(pub :: itCountRoundTrip (-> InternState Int Int Int))
 (pub fn (itCountRoundTrip it lo hi)
   (if (>= lo hi)
     0

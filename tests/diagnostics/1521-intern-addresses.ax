@@ -1,0 +1,42 @@
+; Public interners own their storage; integer addresses cannot stand in for them.
+(import Intern)
+
+(:: capacityAddress (-> Int Int))
+(fn (capacityAddress address)
+  (internCap address))
+
+(:: countAddress (-> Int Int))
+(fn (countAddress address)
+  (internCount address))
+
+(:: lookupAddress (-> Int String))
+(fn (lookupAddress address)
+  (internLookup address 0))
+
+(:: findAddress (-> Int (Option Int)))
+(fn (findAddress address)
+  (internFind address "name"))
+
+(:: internAddress (-> Int Int))
+(fn (internAddress address)
+  (internIntern address "name"))
+
+(:: freeAddress (-> Int Int))
+(fn (freeAddress address)
+  (internFree address))
+
+(:: ownerAddress (-> InternState Int))
+(fn (ownerAddress owner)
+  (internWordOf owner))
+
+(:: rawCapacityAddress (-> Int Int))
+(fn (rawCapacityAddress address)
+  (rawInternCap address))
+
+(:: identityAddress (-> InternState Int))
+(fn (identityAddress owner)
+  owner.identity)
+
+(:: main ())
+(fn (main)
+  ())

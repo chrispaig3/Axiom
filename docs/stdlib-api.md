@@ -1637,24 +1637,22 @@ IO - files, standard streams, terminals, readiness and sockets.
 
 ## `Intern`
 
-`stdlib/Intern.ax` — 12 public names
+`stdlib/Intern.ax` — 10 public names
 
-Intern - a string interner, in Axiom.
+Intern - owned string interning with dense identifiers.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
-| `internSlotOf` | value | `(-> String Int Int)` |  |  | The slot `s` probes first, in [0, cap). |
-| `InternState` | struct |  |  |  | An owning interner. Its raw handle is borrowed through `internWordOf`. Keep this owner alive while that handle is used. |
-| `internNew` | value | `Int` | `Alloc,Mut` |  | An empty interner with `internDefaultCap` slots. |
-| `internNewTyped` | value | `InternState` | `Alloc,Mut` |  | An empty owning interner with `internDefaultCap` slots. Scope cleanup releases its strings and slot allocation. |
-| `internWordOf` | value | `(-> InternState Int)` |  |  | Borrow the raw handle of a live owning interner. The returned word remains valid only while `owner` is alive. It carries no ownership share; do not pass it to `internFree`. |
-| `internWithCapacity` | value | `(-> Int Int)` | `Alloc,Mut` |  | An interner sized so `want` distinct strings fit without rehashing. |
-| `internFree` | value | `(-> Int Int)` | `Unsafe` |  | Hand `it` back: the slot table, the `Vec`, and one share of every string in it. Answers 0. `it` must be a live interner owning this share. Its raw Int handle and any unretained views into it must not be used after release. |
-| `internCap` | value | `(-> Int Int)` |  |  | How many strings the table can hold before it grows. |
-| `internCount` | value | `(-> Int Int)` |  |  | How many distinct strings have been interned. Ids are exactly 0..internCount-1, with no gaps - that is what "dense" means here, and it is what lets a caller size a side table by `internCount` and index it by id. |
-| `internLookup` | value | `(-> Int Int String)` | `Alloc,Mut` |  | The string with id `id`, or an empty `Str` if `id` was never handed out. |
-| `internFind` | value | `(-> Int String (Option Int))` |  |  | The id of a string equal in content to `s`, or `None`. |
-| `internIntern` | value | `(-> Int String Int)` | `Alloc,Mut` |  | The id for `s`, interning it if its content is new. |
+| `InternState` | type | `(type InternState InternalInternState)` |  |  | An owning interner. Its storage is private to the library. |
+| `internNew` | value | `InternState` | `Alloc,Mut` |  | Create an empty interner. |
+| `internNewTyped` | value | `InternState` | `Alloc,Mut` |  | Create an empty interner. |
+| `internWithCapacity` | value | `(-> Int InternState)` | `Alloc,Mut` |  | Reserve room for at least want distinct strings. |
+| `internSlotOf` | value | `(-> String Int Int)` |  |  | The initial hash slot for s in a table with cap slots. |
+| `internCap` | value | `(-> InternState Int)` |  |  | The number of table slots. |
+| `internCount` | value | `(-> InternState Int)` |  |  | The number of distinct interned strings. |
+| `internLookup` | value | `(-> InternState Int String)` | `Alloc,Mut` |  | Look up an identifier, or return an empty string when it is out of range. |
+| `internFind` | value | `(-> InternState String (Option Int))` |  |  | Find the identifier for a string, or None when it is absent. |
+| `internIntern` | value | `(-> InternState String Int)` | `Alloc,Mut` |  | Return the string's identifier, adding it when it is new. |
 
 ## `Cereal`
 

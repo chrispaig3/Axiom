@@ -1,0 +1,78 @@
+[1;31merror[AX3004][0m[1m: type mismatch: expected Internal.Intern::InternalInternState, found Int[0m
+ [1;34m--> [0m1521-intern-addresses.ax:6:14
+[1;34m  |[0m
+[1;34m6 |[0m   (internCap address))
+[1;34m  |[0m              [1;31m^^^^^^^ this has type `Int`, expected `Internal.Intern::InternalInternState`[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Internal.Intern::InternalInternState, found Int[0m
+  [1;34m--> [0m1521-intern-addresses.ax:10:16
+[1;34m   |[0m
+[1;34m10 |[0m   (internCount address))
+[1;34m   |[0m                [1;31m^^^^^^^ this has type `Int`, expected `Internal.Intern::InternalInternState`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Internal.Intern::InternalInternState, found Int[0m
+  [1;34m--> [0m1521-intern-addresses.ax:14:17
+[1;34m   |[0m
+[1;34m14 |[0m   (internLookup address 0))
+[1;34m   |[0m                 [1;31m^^^^^^^ this has type `Int`, expected `Internal.Intern::InternalInternState`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Internal.Intern::InternalInternState, found Int[0m
+  [1;34m--> [0m1521-intern-addresses.ax:18:15
+[1;34m   |[0m
+[1;34m18 |[0m   (internFind address "name"))
+[1;34m   |[0m               [1;31m^^^^^^^ this has type `Int`, expected `Internal.Intern::InternalInternState`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: type mismatch: expected Internal.Intern::InternalInternState, found Int[0m
+  [1;34m--> [0m1521-intern-addresses.ax:22:17
+[1;34m   |[0m
+[1;34m22 |[0m   (internIntern address "name"))
+[1;34m   |[0m                 [1;31m^^^^^^^ this has type `Int`, expected `Internal.Intern::InternalInternState`[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `internFree`[0m
+  [1;34m--> [0m1521-intern-addresses.ax:26:4
+[1;34m   |[0m
+[1;34m26 |[0m   (internFree address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ no binding named `internFree` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX3001][0m[1m: undefined variable `internWordOf`[0m
+  [1;34m--> [0m1521-intern-addresses.ax:30:4
+[1;34m   |[0m
+[1;34m30 |[0m   (internWordOf owner))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^ no binding named `internWordOf` in scope[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mvariables must be defined (via `fn`, a `let` binding, or a lambda parameter) before they are used; check for typos
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3001` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `rawInternCap` belongs to `Internal.Intern`, which is internal to the standard library[0m
+  [1;34m--> [0m1521-intern-addresses.ax:34:4
+[1;34m   |[0m
+[1;34m34 |[0m   (rawInternCap address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX3086][0m[1m: only module `Internal.Intern` can read field `identity` of `InternalInternState`[0m
+  [1;34m--> [0m1521-intern-addresses.ax:38:9
+[1;34m   |[0m
+[1;34m38 |[0m   owner.identity)
+[1;34m   |[0m         [1;31m^^^^^^^^ read outside its module[0m
+[1;34m   |[0m
+  [1;34m = [0m[1mnote: [0ma sealed struct keeps ownership state private; use its module's functions (docs/reference.md Structs)
+  [1;34m = [0m[1;32mhelp: [0muse the functions module `Internal.Intern` provides: a sealed struct's field stays in its module, `pub` or not
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3086` for a full explanation
+
+compilation failed due to 9 previous errors

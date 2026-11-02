@@ -59,14 +59,13 @@ def result(body, callee, arguments=''):
 def check_owner_ir(path):
     ir = path.read_text()
     body = function(ir, 'codegen$pruneDeadDefs')
-    owner = result(body, 'Intern$internNewTyped')
-    raw = result(body, 'Intern$internWordOf', 'i64 ' + re.escape(owner) + r'\)')
-    ctx = result(body, 'codegen$pruneCtxNew', 'i64 ' + re.escape(raw) + ',')
+    owner = result(body, 'Intern$internNew')
+    ctx = result(body, 'codegen$pruneCtxNew', 'i64 ' + re.escape(owner) + ',')
     release = f'call void @axiom_release(i64 {owner})'
     if body.count(release) != 1:
         raise RuntimeError('prune interner must have exactly one ordinary owner release')
-    if f'call void @axiom_release(i64 {raw})' in body:
-        raise RuntimeError('borrowed scalar interner address must not be released')
+    if f'call void @axiom_retain(i64 {owner})' in body:
+        raise RuntimeError('prune must not retain an unmatched interner share')
     required = ('@codegen$pruneIndexDefs(', '@codegen$pruneWalk(',
                 '@codegen$pruneRebuild(', '@codegen$cgReplaceLines(i64 %cg,',
                 f'call void @axiom_release(i64 {ctx})')
@@ -83,13 +82,13 @@ def check_owner_ir(path):
     if any(body.index(line) > drop for line in uses):
         raise RuntimeError('prune context remains in use after the interner owner retires')
     context = function(ir, 'codegen$pruneCtxNew')
-    if len(re.findall(r'@Vec\$vecPush\(i64 %\S+, i64 %si, i64 0\)', context)) != 1:
-        raise RuntimeError('raw context slot0 must keep its unchanged nonowning scalar layout')
-    if '@Intern$internNew(' in body or '@Intern$internFree(' in body:
-        raise RuntimeError('prune must use ordinary typed ownership rather than a manual raw lifetime')
-    return {'owner': owner, 'borrowed_word': raw, 'context': ctx,
-            'ordinary_final_releases': 1, 'drop_after_index_walk_rebuild_publish_ctx': True,
-            'raw_context_slot0_evidence': 0}
+    if context.count('call void @axiom_retain(i64 %si)') != 1:
+        raise RuntimeError('typed prune context must retain its interner field once')
+    if 'store i64 983048,' not in context:
+        raise RuntimeError('typed prune context must describe all four owned fields')
+    return {'owner': owner, 'context': ctx, 'ordinary_final_releases': 1,
+            'drop_after_index_walk_rebuild_publish_ctx': True,
+            'typed_context_owned_fields': 4}
 
 
 def check_cursor_ir(path):
@@ -163,7 +162,7 @@ def restore_old_loop(source):
     body = '\n'.join('    ' + line for line in body.splitlines())
     outer_start = source.index('(pub fn (pruneIndexDefs ')
     outer_end = form_end(source, outer_start)
-    declaration = '(pub :: pruneIndexDefs (-> Strings Int Ints Ints Ints Ints Ints Int))'
+    declaration = '(pub :: pruneIndexDefs (-> Strings InternState Ints Ints Ints Ints Ints Int))'
     if source.count(declaration) != 1:
         raise RuntimeError('cursor ablation needs the unchanged public index signature')
     old = declaration + '''
@@ -249,12 +248,12 @@ def check(axiom, repo, source_root, work):
         try:
             row['owner_ir'] = check_owner_ir(binary.with_suffix('.ll'))
         except RuntimeError as problem:
-            if negative != 'raw-owner':
+            if negative != 'held-owner':
                 raise
             row['owner_ir_expected_failure'] = str(problem)
         else:
-            if negative == 'raw-owner':
-                raise RuntimeError(f'{label}: restoring the raw owner unexpectedly passed owner proof')
+            if negative == 'held-owner':
+                raise RuntimeError(f'{label}: retaining an unmatched owner unexpectedly passed owner proof')
         try:
             row['cursor_ir'] = check_cursor_ir(binary.with_suffix('.ll'))
         except RuntimeError as problem:
@@ -281,16 +280,19 @@ def check(axiom, repo, source_root, work):
               f'index retention {row["index_scope_retained_bytes"]}, '
               f'whole-pruner retention {row["whole_pruner_retained_bytes"]}', flush=True)
     raw = replace_once(source,
-                       '(let siOwner internNewTyped)\n      (let si (internWordOf siOwner))',
-                       '(let si internNew)', 'restore only the raw prune interner')
+                       '(let si internNew)',
+                       '(let si internNew)\n      (__retain (as si Int))', 'retain an unmatched prune interner share')
+    raw = replace_once(raw, '(pub fn (pruneDeadDefs cg)',
+                       ';@axiom:effect(unsafe)\n(pub fn (pruneDeadDefs cg)',
+                       'declare the test-only unmatched retain')
     for level in (0, 2):
-        row = build_run(f'raw-owner-O{level}', level, raw, negative='raw-owner')
+        row = build_run(f'held-owner-O{level}', level, raw, negative='held-owner')
         positive = report['positive'][level // 2]['whole_pruner_retained_bytes']
         row['extra_retained_bytes_vs_candidate'] = row['whole_pruner_retained_bytes'] - positive
         if row['extra_retained_bytes_vs_candidate'] <= 0:
-            raise RuntimeError(f'raw-owner-O{level}: raw interner did not increase retained heap')
+            raise RuntimeError(f'held-owner-O{level}: held interner did not increase retained heap')
         report['negative'].append(row)
-        print(f'ok   raw-owner ablation at O{level}: owner proof fails and retains '
+        print(f'ok   held-owner ablation at O{level}: owner proof fails and retains '
               f'{row["extra_retained_bytes_vs_candidate"]} additional bytes', flush=True)
     old_loop = restore_old_loop(source)
     for level in (0, 2):

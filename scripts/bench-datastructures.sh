@@ -148,10 +148,10 @@ cat > "$work/b_intern.ax" <<AX
 $ax_args
 (:: nm (-> Int String))
 (fn (nm i) (concat "sym" (fmtInt i)))
-(:: fill (-> Int Int Int Int))
+(:: fill (-> InternState Int Int InternState))
 (fn (fill it lo hi)
   (if (>= lo hi) it { (internIntern it (nm lo)) (fill it (+ lo 1) hi) }))
-(:: relook (-> Int Int Int Int Int))
+(:: relook (-> InternState Int Int Int Int))
 (fn (relook it lo hi acc)
   (if (>= lo hi) acc (relook it (+ lo 1) hi (+ acc (internIntern it (nm lo))))))
 (:: rounds (-> Int Int Int Int))

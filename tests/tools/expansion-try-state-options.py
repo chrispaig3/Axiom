@@ -43,8 +43,8 @@ def check(compiler, root, work):
     }
 
     def modules(label, contents):
-        folder = work / (label + '-modules')
-        folder.mkdir()
+        folder = work / (label + '-modules') / 'core'
+        folder.mkdir(parents=True)
         for path in (root / 'core').iterdir():
             dest = folder / path.name
             if path.name == 'expand.ax':

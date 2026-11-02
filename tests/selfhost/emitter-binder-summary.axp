@@ -48,7 +48,7 @@
 
 (:: findId (-> Int String Int))
 (fn (findId state text)
-  (match (internFind state text)
+  (match (rawInternFind state text)
     ((Some id) id)
     ((None) (- 0 1))))
 
@@ -57,11 +57,11 @@
 (fn (factoryChecks)
   {
     (let state internNewTyped)
-    (let raw (internWordOf state))
+    (let raw (rawInternWordOf state))
     (let strings (word raw 0))
     (let slots (word raw 2))
     (say 1 (== (countOf raw) 1))
-    (say 2 (&& (== (internCap raw) 64) (== (internCount raw) 0)))
+    (say 2 (&& (== (rawInternCap raw) 64) (== (rawInternCount raw) 0)))
     (say 3 (== (word raw 3) raw))
     (say 4 (== (shapeOf raw) 327688))
     (say 5 (== (countOf strings) 1))
@@ -71,25 +71,25 @@
     (say 9 (== (shapeOf slots) 128))
     (say 10 (== (countOf (word strings 2)) 1))
     (say 11 (&& (== (word slots 0) 0) (== (word slots 63) 0)))
-    (say 12 (== (internIntern raw "alpha") 0))
-    (say 13 (== (internIntern raw "beta") 1))
-    (say 14 (&& (== (internIntern raw "alpha") 0) (== (internCount raw) 2)))
-    (say 15 (strEq (internLookup raw 1) "beta"))
+    (say 12 (== (rawInternIntern raw "alpha") 0))
+    (say 13 (== (rawInternIntern raw "beta") 1))
+    (say 14 (&& (== (rawInternIntern raw "alpha") 0) (== (rawInternCount raw) 2)))
+    (say 15 (strEq (rawInternLookup raw 1) "beta"))
     (say 16 (&& (== (findId raw "alpha") 0) (== (findId raw "absent") (- 0 1))))
     (say 17 (== (shapeOf (word strings 2)) 4227200))
     (let before (countOf raw))
     {
       (let alias (ownedAlias state))
-      (say 18 (== (internWordOf alias) raw))
+      (say 18 (== (rawInternWordOf alias) raw))
       (say 19 (== (countOf raw) (+ before 1)))
       0
     }
     (say 20 (== (countOf raw) before))
     (for i in 0..130
-      (internIntern raw (concat "grow-" (fmtInt i))))
-    (say 21 (== (internCount raw) 132))
-    (say 22 (== (internCap raw) 512))
-    (say 23 (&& (== (internWordOf state) raw) (== (word raw 3) raw)))
+      (rawInternIntern raw (concat "grow-" (fmtInt i))))
+    (say 21 (== (rawInternCount raw) 132))
+    (say 22 (== (rawInternCap raw) 512))
+    (say 23 (&& (== (rawInternWordOf state) raw) (== (word raw 3) raw)))
     (say 24 (== (word raw 0) strings))
     (say 25 (&& (!= (word raw 2) slots) (== (countOf (word raw 2)) 1)))
     (let mut matches true)
@@ -97,23 +97,23 @@
       (if (!= (findId raw (concat "grow-" (fmtInt i))) (+ i 2))
         (set matches false)))
     (say 26 matches)
-    (say 27 (&& (strEq (internLookup raw 2) "grow-0") (strEq (internLookup raw 131) "grow-129")))
+    (say 27
+      (&& (strEq (rawInternLookup raw 2) "grow-0") (strEq (rawInternLookup raw 131) "grow-129")))
   })
 
 (:: legacyChecks ())
 ;@axiom:effect(io)
 (fn (legacyChecks)
   {
-    (let raw internNew)
-    (say 28 (&& (== (countOf raw) 1) (== (internCap raw) 64)))
+    (let raw rawInternNew)
+    (say 28 (&& (== (countOf raw) 1) (== (rawInternCap raw) 64)))
     (say 29 (== (shapeOf raw) 327688))
-    (say 30 (&& (== (internIntern raw "legacy") 0) (== (internCount raw) 1)))
-    (say 31 (&& (== (word raw 3) raw) (== (internFree raw) 0)))
+    (say 30 (&& (== (rawInternIntern raw "legacy") 0) (== (rawInternCount raw) 1)))
+    (say 31 (&& (== (word raw 3) raw) (== (rawInternFree raw) 0)))
   })
 
 (:: stringOwnerChecks ())
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (stringOwnerChecks)
   {
     (let value (strDup "externally-held-name"))
@@ -123,15 +123,15 @@
     (let before (countOf address))
     {
       (let state internNewTyped)
-      (internIntern (internWordOf state) value)
+      (rawInternIntern (rawInternWordOf state) value)
       (say 32 (== (countOf address) (+ before 1)))
       0
     }
     (say 33 (== (countOf address) before))
-    (let legacy internNew)
-    (internIntern legacy value)
+    (let legacy rawInternNew)
+    (rawInternIntern legacy value)
     (say 34 (== (countOf address) (+ before 1)))
-    (say 35 (== (internFree legacy) 0))
+    (say 35 (== (rawInternFree legacy) 0))
     (say 36 (== (countOf address) before))
   })
 
@@ -139,20 +139,20 @@
 (fn (typedRoundtrip)
   {
     (let state internNewTyped)
-    (let raw (internWordOf state))
-    (internIntern raw "soak-a")
-    (internIntern raw "soak-b")
-    (internCount raw)
+    (let raw (rawInternWordOf state))
+    (rawInternIntern raw "soak-a")
+    (rawInternIntern raw "soak-b")
+    (rawInternCount raw)
   })
 
 (:: legacyRoundtrip Int)
 (fn (legacyRoundtrip)
   {
-    (let raw internNew)
-    (internIntern raw "soak-a")
-    (internIntern raw "soak-b")
-    (let size (internCount raw))
-    (internFree raw)
+    (let raw rawInternNew)
+    (rawInternIntern raw "soak-a")
+    (rawInternIntern raw "soak-b")
+    (let size (rawInternCount raw))
+    (rawInternFree raw)
     size
   })
 
@@ -220,7 +220,6 @@
 
 (:: summaryChecks ())
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (summaryChecks)
   {
     (let cg newCG)
@@ -243,8 +242,8 @@
             (&& (== (boundIn "arm" nestedSummary) 1) (== (boundIn "nested" nestedSummary) 1))))))
     (let unknown (binderSummary (mkDFnAt "not-an-expression" vecNew (mkEInt 0) 0)))
     (say 43 (&& (== (probeSummaryUnknown unknown) 1) (== (boundIn "any-name" unknown) 1)))
-    (let binders (internWordOf (probeSummaryBinders summary)))
-    (let heads (internWordOf (probeSummaryHeads summary)))
+    (let binders (rawInternWordOf (probeSummaryBinders summary)))
+    (let heads (rawInternWordOf (probeSummaryHeads summary)))
     (say 44 (== (countOf binders) 1))
     (say 45 (== (countOf heads) 1))
     (say 46
@@ -252,10 +251,10 @@
         (! (vecOwnsRefs (probeSummaryAnswers summary)))))
     (say 47
       (&& (== (headIsLocal cg "global" summary) 0)
-        (&& (== (internCount heads) 1) (== (vecLen (probeSummaryAnswers summary)) 1))))
+        (&& (== (rawInternCount heads) 1) (== (vecLen (probeSummaryAnswers summary)) 1))))
     (say 48
       (&& (== (headIsLocal cg "global" summary) 0)
-        (&& (== (internCount heads) 1) (== (vecLen (probeSummaryAnswers summary)) 1))))
+        (&& (== (rawInternCount heads) 1) (== (vecLen (probeSummaryAnswers summary)) 1))))
     (say 49
       (&& (== (headIsLocal cg "x" summary) 1)
         (&& (== (headIsLocal cg "x" summary) 1)
@@ -263,16 +262,16 @@
             (== (vecGet (probeSummaryAnswers summary) 1) 1)))))
     (say 50
       (&& (== (headIsLocal cg "another-global" summary) 0)
-        (&& (== (internCount heads) 3) (== (vecLen (probeSummaryAnswers summary)) 3))))
+        (&& (== (rawInternCount heads) 3) (== (vecLen (probeSummaryAnswers summary)) 3))))
     (let kept (keptSummary tree))
     (say 51 (&& (== (boundIn "x" kept) 1) (== (headIsLocal cg "x" kept) 1)))
     (let retainedBinders (keptBinders tree))
-    (let retainedWord (internWordOf retainedBinders))
+    (let retainedWord (rawInternWordOf retainedBinders))
     (say 52 (&& (== (countOf retainedWord) 1) (== (findId retainedWord "x") 0)))
     (let retainedHeads (keptHeads cg tree))
     (say 53
-      (&& (== (countOf (internWordOf retainedHeads)) 1)
-        (== (findId (internWordOf retainedHeads) "x") 0)))
+      (&& (== (countOf (rawInternWordOf retainedHeads)) 1)
+        (== (findId (rawInternWordOf retainedHeads) "x") 0)))
     (let retainedAnswers (keptAnswers cg tree))
     (say 54 (&& (== (vecLen retainedAnswers) 1) (== (vecGet retainedAnswers 0) 1)))
     (let name (strDup "held-binder"))
@@ -452,14 +451,14 @@
   {
     (let state internNewTyped)
     (let actual (probePatternCollect state pat))
-    (let raw (internWordOf state))
+    (let raw (rawInternWordOf state))
     (let mut same (&& (== actual unknown) (probePatternAgreement pat)))
     (if (== unknown 0)
       {
-        (if (!= (internCount raw) (vecLen names))
+        (if (!= (rawInternCount raw) (vecLen names))
           (set same false))
         (for i in 0..(vecLen names)
-          (match (internFind raw (vecGet names i))
+          (match (rawInternFind raw (vecGet names i))
             ((Some _) 0)
             ((None)
               (set same false)

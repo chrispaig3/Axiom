@@ -129,7 +129,7 @@
   {
     (let vr vecNew)
     (let vp vecNew)
-    (let it internNew)
+    (let it rawInternNew)
     (let mr mapNew)
     (let mp mapNew)
     (let mut acc 0)
@@ -137,7 +137,7 @@
       (vecPush vr "first")
       (vecPush vp 1)
       (set acc (+ acc (* 128 (b2i (&& (== (dataShape vr) 557072) (== (dataShape vp) 16))))))
-      (internIntern it "id")
+      (rawInternIntern it "id")
       (set acc (+ acc (* 64 (b2i (== (shapeOf (wordAt (wordAt it 0) 2)) 4227200)))))
       (set acc (+ acc
                  (* 32

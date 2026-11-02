@@ -611,7 +611,6 @@ with `internFind`, and recover bytes with `internLookup`.
     {
       (println id)
       (println (internLookup names id))
-      (internFree names)
     }
   })
 ```
@@ -621,15 +620,16 @@ with `internFind`, and recover bytes with `internLookup`.
 compile
 ```
 
-The table retains string handles without copying their bytes. Keep
-the bytes alive and unchanged; intern `(strDup s)` when the source
-buffer may change. IDs are stable within one interner; entries cannot
-be removed. `internWithCapacity` reserves room for a known string count.
+The owning `InternState` retains strings and their backing storage without
+copying bytes. Its last release reclaims the table. IDs are stable within
+one interner; entries cannot be removed. `internWithCapacity` reserves
+room for a known string count.
 
 An invalid `internLookup` ID gives an empty string, which can also be
 a valid value. Check against `internCount` when validity matters.
-`internFree` requires an Unsafe boundary: release only a share you own,
-and stop using the raw handle or unretained views after its last release.
+Raw handles and explicit release belong to the internal implementation.
+Public operations take an `InternState`; a lookup string holds its own
+share when it leaves the owner's scope.
 
 API: [Intern](stdlib-api.md#intern). Tested by `tests/stdlib/090-intern.ax`.
 

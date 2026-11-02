@@ -5248,8 +5248,11 @@ These leak, which is the safe direction:
 - a container whose first element arrives through a call that can't
   see its type, such as a `as` or a function value's thunk, which
   stays plain;
-- a container that holds itself (`MM-LIFE-3`);
-- an `Intern`, whose handle is an `Int`, until `internFree`.
+- a container that holds itself (`MM-LIFE-3`).
+
+An `InternState` owns its string vector and slot table. Its last reference
+releases both, while retained lookup strings remain live. Tested by
+`tests/stdlib/488-intern-free.ax`.
 
 No public function ends a container early: a container is released
 when its last reference goes, and using a handle after that release

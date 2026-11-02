@@ -228,7 +228,7 @@ Tested by `tests/stdlib/707-library-pre.ax` and
 
 | Broader claim | Existing counterexample or limit | What you may conclude |
 |---|---|---|
-| Every untagged call is memory-safe for every well-typed argument | `Intern.internCap` and `Crypto.Secret.secretFromAddr` still accept unchecked addresses; foreign ownership helpers carry pointer obligations | Typed process calls reject raw addresses (`tests/diagnostics/1519-process-addresses.ax`); this does not prove every trusted or foreign implementation safe |
+| Every untagged call is memory-safe for every well-typed argument | `Cereal.jsonInt` and `Crypto.Secret.secretFromAddr` still accept unchecked addresses; foreign ownership helpers carry pointer obligations | Typed process calls reject raw addresses (`tests/diagnostics/1519-process-addresses.ax`); this does not prove every trusted or foreign implementation safe |
 | An effect restriction accounts for every cleanup effect | `tests/stdlib/712-drop-effects-at-creation.ax` accepts replacement that closes a file inside `no-io` | Drop effects are attributed at creation; an effect row does not establish absence of cleanup IO |
 | Every reclaimed allocation has run its destructor | `MM-RGN-6` does not promise a destructor for every reclaimed object; `MM-EXEC-20` sweeps registered owners | Reclamation and external-resource cleanup require separate arguments |
 | Every unreachable graph is reclaimed | `MM-LIFE-3` permits cycles | ARC provides no general leak-freedom guarantee |

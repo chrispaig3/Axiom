@@ -8,6 +8,7 @@ import re
 import runpy
 import shlex
 import subprocess
+import sys
 import tempfile
 
 SUPPORT = runpy.run_path(str(Path(__file__).with_name('emitter-line-buffer.py')))
@@ -41,12 +42,12 @@ BRIDGES = r'''
   (slotAliasUnknown cg aliases body))
 (pub :: probePatternCollect (-> InternState ASTNode Int))
 (pub fn (probePatternCollect state pat)
-  (binderCollectPattern (internWordOf state) pat))
+  (binderCollectPattern state pat))
 (pub :: probePatternAgreement (-> ASTNode Bool))
 (pub fn (probePatternAgreement pat)
   {
     (let state internNewTyped)
-    (let unknown (binderCollectPattern (internWordOf state) pat))
+    (let unknown (binderCollectPattern state pat))
     (let old (patBindersCg pat vecNew))
     (if (== (as old Int) 0)
       (== unknown 1)
@@ -56,12 +57,12 @@ BRIDGES = r'''
         (for i in 0..(vecLen old)
           {
             (let name (vecGet old i))
-            (internIntern (internWordOf oldSet) name)
-            (match (internFind (internWordOf state) name)
+            (internIntern oldSet name)
+            (match (internFind state name)
               ((Some _) 0)
               ((None) (set same false)))
           })
-        (&& same (== (internCount (internWordOf state)) (internCount (internWordOf oldSet))))
+        (&& same (== (internCount state) (internCount oldSet)))
       })
   })
 '''
@@ -89,14 +90,14 @@ def cleanup(body, value):
 
 def check_factory_ir(path):
     ir = path.read_text()
-    words = function(ir, 'Intern$internWordsNew')
+    words = function(ir, 'Internal.Intern$rawInternWordsNew')
     leaf = call_result(words, 'Internal.Raw$rawAlloc')
     if words.count(f'call void @axiom_retain(i64 {leaf})') != 1 or cleanup(words, leaf):
         raise RuntimeError('typed leaf must acquire exactly one ordinary result share')
-    factory = function(ir, 'Intern$internAllocTableTyped')
+    factory = function(ir, 'Internal.Intern$rawInternAllocTableTyped')
     header = call_result(factory, 'Internal.Raw$rawAllocMapped', r'i64 32, i64 5\)')
     strings = call_result(factory, 'Vec$vecWithCapacity')
-    slots = call_result(factory, 'Intern$internWordsNew')
+    slots = call_result(factory, 'Internal.Intern$rawInternWordsNew')
     for index, value in ((0, strings), (2, slots)):
         if not re.search(r'@Internal\.Raw\$rawSetWord\(i64 ' + re.escape(header) +
                          ', i64 ' + str(index) + ', i64 ' + re.escape(value) +
@@ -109,22 +110,22 @@ def check_factory_ir(path):
         raise RuntimeError('factory self address must remain a scalar nonowning field')
     if factory.count(f'call void @axiom_retain(i64 {header})') != 1 or cleanup(factory, header):
         raise RuntimeError('typed factory must return exactly one acquired header share')
-    legacy = function(ir, 'Intern$internAllocTable')
-    if legacy.count('@Intern$internAllocTableTyped(') != 1 or '@axiom_retain(' in legacy or '@axiom_release(' in legacy:
+    legacy = function(ir, 'Internal.Intern$rawInternAllocTable')
+    if legacy.count('@Internal.Intern$rawInternAllocTableTyped(') != 1 or '@axiom_retain(' in legacy or '@axiom_release(' in legacy:
         raise RuntimeError('legacy raw factory must transfer its one owned result unchanged')
-    scalar = function(ir, 'Intern$internWordOf')
+    scalar = function(ir, 'Internal.Intern$rawInternWordOf')
     if not re.search(r'getelementptr i64, ptr %\S+, i64 3', scalar):
         raise RuntimeError('raw accessor must load the explicit self-address scalar')
     if any(op in scalar for op in ('@axiom_retain(', '@axiom_release(', '@axiom_alloc(')):
         raise RuntimeError('raw accessor changed ownership or allocated')
     births = 0
     for name in ('factoryChecks', 'stringOwnerChecks', 'typedRoundtrip'):
-        body = function(ir, name)
+        body = function(ir, 'InternalProbeFixture$' + name)
         found = re.findall(r'(%\S+) = call i64 @Intern\$internNewTyped\(', body)
         if len(found) != 1 or cleanup(body, found[0]) != 1:
             raise RuntimeError(f'{name}: typed owner birth lacks exactly one ordinary release')
         births += len(found)
-    alias = function(ir, 'ownedAlias')
+    alias = function(ir, 'InternalProbeFixture$ownedAlias')
     if alias.count('call void @axiom_retain(i64 %state)') != 1:
         raise RuntimeError('owned alias return must acquire exactly one result share')
     return {'typed_factory_children': 2, 'ordinary_fixture_birth_cleanups': births,
@@ -136,8 +137,14 @@ def private_stdlib(directory, source_root, intern_source):
     directory.mkdir(parents=True, exist_ok=True)
     for item in (source_root / 'stdlib').iterdir():
         target = directory / item.name
-        if item.name == 'Intern.ax':
-            target.write_text(intern_source)
+        if item.name == 'Internal':
+            target.mkdir(exist_ok=True)
+            for helper in item.iterdir():
+                destination = target / helper.name
+                if helper.name == 'Intern.ax':
+                    destination.write_text(intern_source)
+                elif not destination.exists():
+                    destination.symlink_to(helper, target_is_directory=helper.is_dir())
         elif not target.exists():
             target.symlink_to(item, target_is_directory=item.is_dir())
     return directory
@@ -241,7 +248,7 @@ def check_summary_ir(path):
             'complete': True}
 
 
-def public_raw_effects(axiom, repo, source_root, work, env, current):
+def internal_raw_effects(axiom, repo, source_root, work, env, current):
     # Independently recorded from the pre-migration API. CI checkouts may
     # contain one commit, so the reference must travel with the test.
     expected = json.loads((repo / 'tests/selfhost/emitter-binder-raw-api.json').read_text())
@@ -253,28 +260,33 @@ def public_raw_effects(axiom, repo, source_root, work, env, current):
     stdlib = private_stdlib(work / 'raw-api-current-stdlib', source_root, current)
     local = dict(env, AXIOM_STDLIB=str(stdlib), AXIOM_STDLIB_PATH=str(stdlib))
     output = work / 'raw-api-current.axsym'
-    run_checked([str(axiom), '--diagnostic-format=ai', 'symbols', str(fixture)],
+    run_checked([sys.executable, str(repo / 'scripts/lib/internal-probe.py'),
+                 '--fixture', 'tests/selfhost/emitter-binder-summary.py', str(axiom),
+                 '--diagnostic-format=ai', 'symbols', str(fixture)],
                 env=local, stdout=output, stderr=work / 'raw-api-current.stderr')
     rows = {}
     for line in output.read_text().splitlines():
         if not line.startswith('F '):
             continue
         parts = shlex.split(line)
-        if parts[1] not in public or '/Intern.ax:' not in parts[2]:
+        if not parts[1].startswith('rawIntern') or '/Internal/Intern.ax:' not in parts[2]:
+            continue
+        parts[1] = 'intern' + parts[1][9:]
+        if parts[1] not in public:
             continue
         if parts[1] in rows:
-            raise RuntimeError('duplicate public raw API row: ' + parts[1])
+            raise RuntimeError('duplicate internal raw API row: ' + parts[1])
         rows[parts[1]] = {'type': parts[3],
                           'effects': [x for x in parts[4:]
                                       if x.startswith(('#effects=', '#unsafe='))]}
     if set(rows) != public:
-        raise RuntimeError(f'incomplete public raw API census {sorted(public-set(rows))}')
+        raise RuntimeError(f'incomplete internal raw API census {sorted(public-set(rows))}')
     deltas = {name: {'old': expected[name], 'current': rows[name]}
               for name in public
               if expected[name] != rows[name]}
     if deltas:
-        raise RuntimeError('legacy public raw API type/effect changed: ' + json.dumps(deltas, sort_keys=True))
-    return {'unchanged_public_raw_api': len(public), 'deltas': deltas}
+        raise RuntimeError('legacy internal raw API type/effect changed: ' + json.dumps(deltas, sort_keys=True))
+    return {'unchanged_internal_raw_api': len(public), 'deltas': deltas}
 
 
 def check(axiom, repo, source_root, work):
@@ -284,7 +296,7 @@ def check(axiom, repo, source_root, work):
     expected = template.with_suffix('.out').read_text().splitlines()
     if expected != [f'{i} true' for i in range(1, 105)]:
         raise RuntimeError('update the explicit 104-case assertion count')
-    current = (source_root / 'stdlib/Intern.ax').read_text()
+    current = (source_root / 'stdlib/Internal/Intern.ax').read_text()
     codegen = (source_root / 'core/codegen.ax').read_text()
     env = dict(os.environ, AXIOM_PATH=str(source_root / 'core'))
     env['PATH'] = '/opt/homebrew/opt/llvm/bin:' + env.get('PATH', '')
@@ -297,7 +309,9 @@ def check(axiom, repo, source_root, work):
         modules = private_modules(work / (label + '-modules/core'), source_root, emitter)
         local = dict(env, AXIOM_PATH=str(modules), AXIOM_STDLIB=str(stdlib), AXIOM_STDLIB_PATH=str(stdlib))
         binary = work / label
-        run_checked([str(axiom), '--diagnostic-format=ai', 'build', str(fixture),
+        run_checked([sys.executable, str(repo / 'scripts/lib/internal-probe.py'),
+                     '--fixture', 'tests/selfhost/emitter-binder-summary.py', str(axiom),
+                     '--diagnostic-format=ai', 'build', str(fixture),
                      '--opt', str(level), '--alloc-poison', '--emit-llvm', '-o', str(binary)],
                     env=local, stdout=work / (label + '.build.stdout'),
                     stderr=work / (label + '.build.stderr'))
@@ -326,8 +340,8 @@ def check(axiom, repo, source_root, work):
         print(f'ok   typed interner and binder summary: 104 cases at -O{level} with allocation poisoning; all 8 soaks0', flush=True)
     no_map = replace_once(current, '(let it (rawAllocMapped 32 5))',
                           '(let it (rawAllocMapped 32 0))', 'missing owning-child map')
-    duplicate_owner = replace_once(current, '      (rawSetWord it 3 it)\n      (as it InternState)',
-                                   '      (rawSetWord it 3 it)\n      (__retain it)\n      (as it InternState)',
+    duplicate_owner = replace_once(current, '      (rawSetWord it 3 it)\n      (as it InternalInternState)',
+                                   '      (rawSetWord it 3 it)\n      (__retain it)\n      (as it InternalInternState)',
                                    'duplicate initial header share')
     wrong_cap = replace_once(current, '      (rawSetWord it 1 cap)\n',
                              '      (rawSetWord it 1 (/ cap 2))\n',
@@ -360,9 +374,9 @@ def check(axiom, repo, source_root, work):
         row = build_run(label, 0, current, source, failures)
         report['negative'].append(row)
         print('ok   negative probe ' + label + ': cases ' + ','.join(map(str, row['failed_cases'])) + ' fail', flush=True)
-    report['public_raw_api'] = public_raw_effects(axiom, repo, source_root, work, env, current)
+    report['internal_raw_api'] = internal_raw_effects(axiom, repo, source_root, work, env, current)
     (work / 'summary.json').write_text(json.dumps(report, indent=2) + '\n')
-    print('ok   legacy public raw API types/effects unchanged', flush=True)
+    print('ok   legacy internal raw API types/effects unchanged', flush=True)
 
 
 def main():

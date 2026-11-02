@@ -155,7 +155,7 @@
 (pub fn (scName i)
   (concat "sym" (fmtInt i)))
 
-(pub :: scIntern (-> Int Int Int Int))
+(pub :: scIntern (-> InternState Int Int InternState))
 (pub fn (scIntern it lo hi)
   (if (>= lo hi)
     it
@@ -168,7 +168,7 @@
 ; every id: re-interning equal text returns the id it returned the
 ; first time, and looking that id up returns equal text. An interner
 ; that grows correctly but renumbers on rehash passes neither.
-(pub :: scInternStable (-> Int Int Int Int Int))
+(pub :: scInternStable (-> InternState Int Int Int Int))
 (pub fn (scInternStable it lo hi acc)
   (if (>= lo hi)
     acc

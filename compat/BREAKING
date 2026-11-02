@@ -2046,3 +2046,16 @@
 0.8.1  F  ctWipe  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
 0.8.1  F  ctCopy  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
 0.8.1  F  ctSwapWords  internal; use typed Crypto byte and algorithm interfaces; custom address access requires an explicit unsafe boundary
+
+# Interner ownership and internal representation.
+0.8.1  F  internNew  uses counted InternState owners; raw storage is internal
+0.8.1  F  internNewTyped  uses counted InternState owners; raw storage is internal
+0.8.1  F  internWithCapacity  uses counted InternState owners; raw storage is internal
+0.8.1  F  internCap  uses counted InternState owners; raw storage is internal
+0.8.1  F  internCount  uses counted InternState owners; raw storage is internal
+0.8.1  F  internLookup  uses counted InternState owners; raw storage is internal
+0.8.1  F  internFind  uses counted InternState owners; raw storage is internal
+0.8.1  F  internIntern  uses counted InternState owners; raw storage is internal
+0.8.1  F  internWordOf  internal; keep an InternState owner and let its last reference release storage
+0.8.1  F  internFree  internal; keep an InternState owner and let its last reference release storage
+0.8.1  S  InternState  sealed storage moves behind an alias to the internal owner

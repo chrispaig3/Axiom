@@ -68,7 +68,7 @@
 (fn (retireEnvironment owner)
   {
     (let env (environment vecNew vecNew vecNew owner))
-    (internCap (internWordOf env.structNames))
+    (internCap env.structNames)
   })
 
 (:: declared (-> String Nodes))
@@ -91,14 +91,14 @@
     (expIndexStructDecls env)
     (say 3 (== (vecLen env.structBuckets) 2))
     (say 4
-      (match (internFind (internWordOf owner) "Empty")
+      (match (internFind owner "Empty")
         ((None) false)
         ((Some id) (== id 0))))
     (say 5
-      (match (internFind (internWordOf owner) "Pair")
+      (match (internFind owner "Pair")
         ((None) false)
         ((Some id) (== id 1))))
-    (say 6 (isNone (internFind (internWordOf owner) "absent")))
+    (say 6 (isNone (internFind owner "absent")))
     (say 7
       (match (expNamedStructDecl env (mkEVar "Pair"))
         ((ExpStructFound node) (strEq (nodeAName node) "Pair"))
@@ -109,21 +109,21 @@
         ((ExpStructFound node) false)
         ((ExpStructMissing) true)
         ((ExpStructAmbiguous) false)))
-    (let cap (internCap (internWordOf owner)))
+    (let cap (internCap owner))
     (for i in 0..100
-      (internIntern (internWordOf env.structNames) (concat "growth" (fmtInt i))))
-    (say 9 (> (internCap (internWordOf owner)) cap))
+      (internIntern env.structNames (concat "growth" (fmtInt i))))
+    (say 9 (> (internCap owner) cap))
     (say 10
-      (match (internFind (internWordOf owner) "Pair")
+      (match (internFind owner "Pair")
         ((None) false)
         ((Some id) (== id 1))))
     (say 11
-      (match (internFind (internWordOf env.structNames) "growth99")
+      (match (internFind env.structNames "growth99")
         ((None) false)
         ((Some id) (== id 101))))
-    (say 12 (== (internCap (internWordOf env.structNames)) (internCap (internWordOf owner))))
+    (say 12 (== (internCap env.structNames) (internCap owner)))
     (let kept env.structNames)
     (say 13 (== (countOf owner) (+ before 2)))
-    (say 14 (== (internCap (internWordOf kept)) (internCap (internWordOf owner))))
+    (say 14 (== (internCap kept) (internCap owner)))
     0
   })
