@@ -7,9 +7,8 @@
 ;
 ; IN: a `&[&[i64]]` parameter is a `Vec` whose elements are `Vec`
 ; handles; the shim reads the outer `Vec` and borrows each row in
-; place for the call. A row that is not a `Vec` (a 0 word) aborts -
-; and `(cast Int row2)` below is how that word is asked for now that
-; the outer vector is a `(Vec (Vec Int))`.
+; place for the call. A row that is not a `Vec` (a 0 word) aborts.
+; Check the returned row through its vector type, without erasing it.
 (import IO)
 (import Fmt)
 (import Vec)
@@ -46,7 +45,7 @@
                   (&& (== first 0)
                     (&& (== total 36)
                       (&& (== emptyLen 0)
-                        (&& (== ours 35) (&& (!= (as row2 Int) 0) (== none 0)))))))))
+                        (&& (== ours 35) (&& (== (vecLen row2) 3) (== none 0)))))))))
           {
             (println "nested vec: agree")
             0
