@@ -23,14 +23,14 @@
 (:: mono Int)
 ;@axiom:effect(io)
 (fn (mono)
-  (match (sysNowMonotonicNanos (memAlloc 16))
+  (match sysNowMonotonicNanos
     ((Ok t) t)
     ((Err e) -1)))
 
 (:: wall Int)
 ;@axiom:effect(io)
 (fn (wall)
-  (match (sysNowRealtimeNanos (memAlloc 16))
+  (match sysNowRealtimeNanos
     ((Ok t) t)
     ((Err e) -1)))
 
@@ -72,12 +72,11 @@
 ;@axiom:effect(io)
 (fn (readsMode n)
   {
-    (let buf (memAlloc 16))
     (let mut last 0)
     (let mut back 0)
     {
       (for i in 0..n
-        (match (sysNowMonotonicNanos buf)
+        (match sysNowMonotonicNanos
           ((Ok t)
             {
               (if (< t last)

@@ -753,6 +753,12 @@ at. State a condition the arguments can show as a `;@axiom:pre(...)`
 contract, which is checked on every call and traps 80, and describe
 the rest in a comment.
 
+Public clock reads take no address. `sysNowMicros`, `sysNowMonotonic`,
+`sysNowMonotonicNanos`, `sysNowRealtimeNanos` and `sysTimeoutMicros` own
+and release their scratch storage. Their address-taking helpers are private.
+Tested by `tests/diagnostics/1511-clock-addresses.ax` and
+`tests/stdlib/1005-clock-owned-scratch.ax`.
+
 The functions that read raw memory at any address, or read a word
 back as a reference, are not public at all (`MM-EXEC-9g`).
 

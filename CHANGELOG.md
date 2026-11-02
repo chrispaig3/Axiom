@@ -16,6 +16,15 @@ its changelog too.
 
 ## Unreleased
 
+- Public clock reads take no buffer address. `sysNowMicros`,
+  `sysNowMonotonic`, `sysNowMonotonicNanos`, `sysNowRealtimeNanos` and
+  `sysTimeoutMicros` own and release their scratch storage.
+  Tested by `tests/diagnostics/1511-clock-addresses.ax` and
+  `tests/stdlib/1005-clock-owned-scratch.ax`.
+
+- Compatibility checks keep type and callback changes breaking when
+  their effect rows narrow. Tested by `scripts/check-compat.sh`.
+
 - The test runner keeps test records and file names in typed owners.
   Bootstrap can check the compiler entry point outside `core` without
   erasing those references.

@@ -429,7 +429,7 @@
 (:: phaseNow Int)
 ;@axiom:effect(io)
 (fn (phaseNow)
-  (match (sysNowMonotonic (memAlloc 16))
+  (match sysNowMonotonic
     ((Ok us) us)
     ((Err e) 0)))
 

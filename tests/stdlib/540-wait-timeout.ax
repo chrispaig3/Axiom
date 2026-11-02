@@ -34,10 +34,10 @@
     ((Err e) (errCode e))))
 
 ; 1 when at least `ms` milliseconds passed since `t0`.
-(:: waited (-> Int Int Int Int))
+(:: waited (-> Int Int Int))
 ;@axiom:effect(io)
-(fn (waited buf t0 ms)
-  (bit (>= (- (sysTimeoutMicros buf) t0) (* ms 1000))))
+(fn (waited t0 ms)
+  (bit (>= (- sysTimeoutMicros t0) (* ms 1000))))
 
 ; Poll until the child behind handle `h` is seen to have ended; answer
 ; how the first look went (0 running, 1 ended, 2 the look failed).
@@ -99,7 +99,6 @@
   (match (sysMapShared 4096)
     ((Ok w)
       {
-        (let buf (memAlloc 16))
         (let pbuf (memAlloc sysChildPollBytes))
         (let cell (memAlloc 8))
         {
@@ -109,10 +108,10 @@
           (println (sysWaitWordTimeout w 7 0))  ; 1
           (println (sysWaitWordTimeout w 7 (- 0 5)))  ; 1
           {
-            (let t0 (sysTimeoutMicros buf))
+            (let t0 sysTimeoutMicros)
             {
               (println (sysWaitWordTimeout w 7 50000000))  ; 1
-              (println (waited buf t0 50))  ; 1
+              (println (waited t0 50))  ; 1
             }
           }
           (println sysTimedOut)  ; 1001
@@ -136,19 +135,19 @@
             ((Ok ch)
               {
                 {
-                  (let t0 (sysTimeoutMicros buf))
+                  (let t0 sysTimeoutMicros)
                   {
                     (println (recvCode (chanRecvTimeout ch 40000000)))  ; 1001
-                    (println (waited buf t0 40))  ; 1
+                    (println (waited t0 40))  ; 1
                   }
                 }
                 (println (recvCode (chanRecvTimeout ch 0)))  ; 1001
                 (println (sendCode (chanSendTimeout ch 9 40000000)))  ; 1
                 {
-                  (let t0 (sysTimeoutMicros buf))
+                  (let t0 sysTimeoutMicros)
                   {
                     (println (sendCode (chanSendTimeout ch 10 40000000)))  ; 1001
-                    (println (waited buf t0 40))  ; 1
+                    (println (waited t0 40))  ; 1
                   }
                 }
                 (println (chanLen ch))  ; 1

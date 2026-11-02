@@ -51,7 +51,7 @@
 (:: now (-> Int Int))
 ;@axiom:effect(io)
 (fn (now buf)
-  (sysTimeoutMicros buf))
+  sysTimeoutMicros)
 
 ; Sleep `us` microseconds on a word nobody changes.
 (:: nap (-> Int Int Int))

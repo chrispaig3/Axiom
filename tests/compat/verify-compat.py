@@ -231,7 +231,13 @@ def compare(base, cur):
         elif contract(b[k]) != contract(c[k]):
             bt, ct = contract(b[k]), contract(c[k])
             be, ce = effects(bt), effects(ct)
-            if ce > be:
+            # A narrower effect row cannot excuse a changed type or
+            # callback contract. Compare those before classifying effects.
+            bc = re.sub(r'\s*#effects=\S+', '', bt).strip()
+            cc = re.sub(r'\s*#effects=\S+', '', ct).strip()
+            if bc != cc:
+                kind = "CHANGED"
+            elif ce > be:
                 kind = "WIDENED"
             elif be > ce:
                 kind = "NARROWED"

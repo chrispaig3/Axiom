@@ -162,7 +162,7 @@
 (:: now (-> Int Int))
 ;@axiom:effect(io)
 (fn (now buf)
-  (match (sysNowMicros buf)
+  (match sysNowMicros
     ((Ok t) t)
     ((Err e) 0)))
 

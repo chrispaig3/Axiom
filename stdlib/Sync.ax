@@ -199,8 +199,8 @@
     }
   })
 
-; A 32-byte scratch block for a timed wait: words 0-1 the clock's own
-; buffer, 2 the nanoseconds left, 3 the last clock reading (`Chan.ax`'s
+; A 32-byte scratch block for a timed wait: words 0-1 are reserved,
+; 2 holds nanoseconds left, 3 the last clock reading (`Chan.ax`'s
 ; accounting, MM-PAR-12).
 (:: syncScratch (-> Int Int))
 ;@axiom:effect(io)
@@ -211,7 +211,7 @@
     {
       (__retain b)
       (__store64 b 2 nanos)
-      (__store64 b 3 (sysTimeoutMicros b))
+      (__store64 b 3 sysTimeoutMicros)
       b
     }
   })
@@ -252,7 +252,7 @@
 (fn (syncTimeSpent b code slice)
   {
     (let left (__load64 b 2))
-    (let now (sysTimeoutMicros b))
+    (let now sysTimeoutMicros)
     {
       (let step (syncStep code slice (* (- now (__load64 b 3)) 1000)))
       {

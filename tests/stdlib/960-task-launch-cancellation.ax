@@ -84,8 +84,7 @@
         ((Ok page)
           {
             (let count 64)
-            (let clock (memAlloc 16))
-            (let start (sysTimeoutMicros clock))
+            (let start sysTimeoutMicros)
             {
               (if before
                 (taskCancel token))
@@ -101,7 +100,7 @@
                   (checkGone page count)
                   {
                     (let started (memGetWord page 0))
-                    (let elapsed (- (sysTimeoutMicros clock) start))
+                    (let elapsed (- sysTimeoutMicros start))
                     {
                       (if (if before
                         (!= started 0)

@@ -90,12 +90,12 @@
 ;@axiom:effect(block)
 (fn (spawnRun buf n)
   {
-    (let t0 (sysTimeoutMicros buf))
+    (let t0 sysTimeoutMicros)
     (let mut sum 0)
     {
       (for i in 0..n
         (set sum (+ sum (pair i))))
-      (report "spawn" sum (+ (* n 3) (* n (- n 1))) (- (sysTimeoutMicros buf) t0))
+      (report "spawn" sum (+ (* n 3) (* n (- n 1))) (- sysTimeoutMicros t0))
     }
   })
 
@@ -116,14 +116,14 @@
 ;@axiom:effect(block)
 (fn (tasksRun buf n w bytes)
   {
-    (let t0 (sysTimeoutMicros buf))
+    (let t0 sysTimeoutMicros)
     {
       (let rs (taskMap (lambda (i) (answerOf bytes i)) n w (+ bytes 16)))
       (let mut total 0)
       {
         (for i in 0..n
           (set total (+ total (lenOf (vecGet rs i)))))
-        (report "tasks" total (* n bytes) (- (sysTimeoutMicros buf) t0))
+        (report "tasks" total (* n bytes) (- sysTimeoutMicros t0))
       }
     }
   })
@@ -166,11 +166,11 @@
       (match (sysMapShared 4096)
         ((Ok cell)
           {
-            (let t0 (sysTimeoutMicros buf))
+            (let t0 sysTimeoutMicros)
             {
               (bumpK m cell n k)
               {
-                (let us (- (sysTimeoutMicros buf) t0))
+                (let us (- sysTimeoutMicros t0))
                 (report "mutex" (memGetWord cell 0)
                   (* n
                     (if (== k 1)
@@ -228,7 +228,7 @@
       (match (sysMapShared 4096)
         ((Ok cell)
           {
-            (let t0 (sysTimeoutMicros buf))
+            (let t0 sysTimeoutMicros)
             {
               (parallel p (
                 (a (produce ch n))
@@ -236,7 +236,7 @@
               )
                 (+ a b))
               {
-                (let us (- (sysTimeoutMicros buf) t0))
+                (let us (- sysTimeoutMicros t0))
                 (report "chan" (memGetWord cell 0) (/ (* n (+ n 1)) 2) us)
               }
             }
@@ -257,7 +257,7 @@
   (match (chanNew 64)
     ((Ok ch)
       {
-        (let t0 (sysTimeoutMicros buf))
+        (let t0 sysTimeoutMicros)
         (let mut sum 0)
         {
           (for i in 1..(+ n 1)
@@ -270,7 +270,7 @@
                 ((None) ()))
             })
           {
-            (let us (- (sysTimeoutMicros buf) t0))
+            (let us (- sysTimeoutMicros t0))
             (report "chan1" sum (/ (* n (+ n 1)) 2) us)
           }
         }
@@ -285,10 +285,10 @@
 ;@axiom:effect(block)
 (fn (one buf)
   {
-    (let t0 (sysTimeoutMicros buf))
+    (let t0 sysTimeoutMicros)
     {
       (taskMap (lambda (i) "ok") 1 1 16)
-      (- (sysTimeoutMicros buf) t0)
+      (- sysTimeoutMicros t0)
     }
   })
 
@@ -443,7 +443,7 @@
 ;@axiom:effect(io)
 (fn (timed mode buf t0 answer)
   {
-    (let us (- (sysTimeoutMicros buf) t0))
+    (let us (- sysTimeoutMicros t0))
     {
       (println "{mode} {answer} {us}")
       0
@@ -501,11 +501,11 @@
   (match (sysMapShared 4096)
     ((Ok page)
       {
-        (let t0 (sysTimeoutMicros buf))
+        (let t0 sysTimeoutMicros)
         {
           (hammerK parts page stride n)
           {
-            (let us (- (sysTimeoutMicros buf) t0))
+            (let us (- sysTimeoutMicros t0))
             (let mut total 0)
             {
               (for k in 0..parts
@@ -531,13 +531,13 @@
     {
       (for i in 0..n
         {
-          (let t0 (sysTimeoutMicros buf))
+          (let t0 sysTimeoutMicros)
           {
             (chanSend c1 i)
             (match (chanRecv c2)
               ((Some v) ())
               ((None) ()))
-            (memSetWord log i (- (sysTimeoutMicros buf) t0))
+            (memSetWord log i (- sysTimeoutMicros t0))
           }
         })
       0
@@ -617,34 +617,34 @@
 (fn (moreModes buf mode)
   (if (strEq mode "ranges")
     {
-      (let t0 (sysTimeoutMicros buf))
+      (let t0 sysTimeoutMicros)
       (timed "ranges" buf t0 (rangeWork (argInt 2) (argInt 3) (argInt 4) (argInt 5)))
     }
     (if (strEq mode "nop")
       0
       (if (strEq mode "work")
         {
-          (let t0 (sysTimeoutMicros buf))
+          (let t0 sysTimeoutMicros)
           (timed "work" buf t0 (workRange 0 (argInt 2)))
         }
         (if (strEq mode "bind")
           {
-            (let t0 (sysTimeoutMicros buf))
+            (let t0 sysTimeoutMicros)
             (timed "bind" buf t0 (bindWork (argInt 2) 0 (argInt 3)))
           }
           (if (strEq mode "pool")
             {
-              (let t0 (sysTimeoutMicros buf))
+              (let t0 sysTimeoutMicros)
               (timed "pool" buf t0 (poolWork (argInt 2) (argInt 3)))
             }
             (if (strEq mode "grain")
               {
-                (let t0 (sysTimeoutMicros buf))
+                (let t0 sysTimeoutMicros)
                 (timed "grain" buf t0 (grainPar (argInt 2) (argInt 3) (argInt 4)))
               }
               (if (strEq mode "grainseq")
                 {
-                  (let t0 (sysTimeoutMicros buf))
+                  (let t0 sysTimeoutMicros)
                   (timed "grainseq" buf t0 (grainSeq (argInt 2) (argInt 3) (argInt 4)))
                 }
                 (if (strEq mode "fshare")

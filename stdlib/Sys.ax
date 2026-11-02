@@ -729,34 +729,72 @@
     (__syscall3 sysGetPidNum 0 0 0)
     platformPid))
 
-;; Microseconds now, from the platform's cheapest correct clock: Darwin
-;; answers gettimeofday's timeval (realtime; Darwin's syscall table has
-;; no clock_gettime), Linux and FreeBSD answer CLOCK_MONOTONIC via
-;; clock_gettime - under the id `clockMonotonicId` names, because the
-;; id is not portable: 1 on Linux, and on FreeBSD 4, where 1 is
-;; CLOCK_VIRTUAL, the process's CPU time. Windows answers
-;; its wall clock through the platform module. A target with no clock
-;; call (bare metal) answers `Err` 78, as `sysNowRealtimeNanos` and
-;; `sysNowMonotonic` do.
-;
-; SO ITS CLOCK CLASS DIFFERS BY PLATFORM, and that is a hazard rather
-; than a detail. A duration computed from two of these is monotonic on
-; Linux and steppable by `ntpd` on Darwin, so a timeout written against
-; it is correct on one target and can go negative on the other, with
-; nothing in the type or the name to say which you got. This function
-; stays as it is - the REPL's `:time` is its only caller and reads it
-; as elapsed wall time, which is what it wants - but a caller that
-; needs a DURATION should ask `sysNowMonotonic` below and handle its
-; refusal, rather than take whichever clock the target happened to have.
-; The 16-byte buffer is caller-supplied so a timing loop allocates
-; nothing on the path that answers a time: the `Ok` is two registers
-; when the caller matches the call, and only the syscall's own failure
-; builds the `Error` it carries. tv_usec is 32-bit on Darwin with
-; struct padding above it - masked, not trusted.
-(pub :: sysNowMicros (-> Int (Result Int Error)))
+;; Microseconds from the platform clock. Darwin and Windows read realtime;
+;; Linux and FreeBSD read monotonic time. Use `sysNowMonotonic` for durations.
+;; The call owns and releases its scratch buffer. No caller address is used.
+(pub :: sysNowMicros (Result Int Error))
+;@axiom:effect(io)
+(pub fn (sysNowMicros)
+  {
+    (let buf (sysScratch 16))
+    (let result (sysNowMicrosRaw buf))
+    (sysScratchDone buf)
+    result
+  })
+
+;; Monotonic nanoseconds, or `Err` 78 when the target has no monotonic clock.
+;; The call owns and releases its scratch buffer.
+(pub :: sysNowMonotonicNanos (Result Int Error))
+;@axiom:effect(io)
+(pub fn (sysNowMonotonicNanos)
+  {
+    (let buf (sysScratch 16))
+    (let result (sysNowMonotonicNanosRaw buf))
+    (sysScratchDone buf)
+    result
+  })
+
+;; Monotonic microseconds, or `Err` 78 when the target has no monotonic clock.
+;; No caller-supplied buffer is needed.
+(pub :: sysNowMonotonic (Result Int Error))
+;@axiom:effect(io)
+(pub fn (sysNowMonotonic)
+  (match sysNowMonotonicNanos
+    ((Ok ns) (Ok (/ ns 1000)))
+    ((Err e) (Err (mkError (errCode e) "sysNowMonotonic")))))
+
+;; Realtime nanoseconds since 1970-01-01T00:00:00Z, or a clock error.
+;; The clock can step. Values beyond 2262-04-11 answer `errOverflow`.
+;; The call owns and releases its scratch buffer.
+(pub :: sysNowRealtimeNanos (Result Int Error))
+;@axiom:effect(io)
+(pub fn (sysNowRealtimeNanos)
+  {
+    (let buf (sysScratch 16))
+    (let result (sysNowRealtimeNanosRaw buf))
+    (sysScratchDone buf)
+    result
+  })
+
+;; Microseconds for timeout accounting: monotonic where available, otherwise
+;; realtime. A failed read answers 0, so timed waits use their kernel timeout.
+;; The call owns and releases its scratch buffer.
+(pub :: sysTimeoutMicros Int)
+;@axiom:effect(io)
+(pub fn (sysTimeoutMicros)
+  {
+    (let buf (sysScratch 16))
+    (let result (sysTimeoutMicrosRaw buf))
+    (sysScratchDone buf)
+    result
+  })
+
+; The private syscall boundary uses 16 bytes of live scratch. Darwin's
+; timeval microseconds occupy 32 bits with padding, so mask that word.
+(:: sysNowMicrosRaw (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (sysNowMicros buf)
+(fn (sysNowMicrosRaw buf)
   (if (== usesSyscallAbi 0)
     (match platformRealtimeNanos
       ((Ok ns) (Ok (/ ns 1000)))
@@ -830,13 +868,12 @@
 ;; Nanoseconds from a clock that never steps backwards, counted from an
 ;; unspecified start, or `Err` 78 when this target has none
 ;; (`sysHasMonotonic`). Linux and FreeBSD read `clock_gettime`'s
-;; monotonic clock and darwin-aarch64 the arm64 counter. The 16-byte
-;; buffer is the caller's, as above, so a timing loop allocates nothing
-;; on the path that answers.
-(pub :: sysNowMonotonicNanos (-> Int (Result Int Error)))
+; monotonic clock and darwin-aarch64 the arm64 counter. Private callers
+; provide 16 bytes of live scratch.
+(:: sysNowMonotonicNanosRaw (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (sysNowMonotonicNanos buf)
+(fn (sysNowMonotonicNanosRaw buf)
   {
     (let k sysMonotonicKind)
     (if (== k 3)
@@ -854,8 +891,7 @@
   })
 
 ;; Microseconds from a clock that NEVER steps backwards, or `Err` when
-;; this platform has none. The 16-byte buffer is the caller's, as
-;; above, so a timing loop allocates nothing on the path that answers.
+; this platform has none. Private callers provide 16 bytes of scratch.
 ;
 ; This is the clock a timeout, a rate limiter, a retry backoff or a
 ; latency histogram wants. `sysNowMicros` is not: on Darwin it is the
@@ -868,10 +904,10 @@
 ; program decide: refuse to start, fall back to `sysNowMicros` with the
 ; hazard accepted deliberately, or run the affected work only where the
 ; clock exists. What it must not do is take the fallback silently.
-(pub :: sysNowMonotonic (-> Int (Result Int Error)))
+(:: sysNowMonotonicRaw (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-(pub fn (sysNowMonotonic buf)
-  (match (sysNowMonotonicNanos buf)
+(fn (sysNowMonotonicRaw buf)
+  (match (sysNowMonotonicNanosRaw buf)
     ((Ok ns) (Ok (/ ns 1000)))
     ((Err e) (Err (mkError (errCode e) "sysNowMonotonic")))))
 
@@ -883,11 +919,11 @@
 ;; `GetSystemTimePreciseAsFileTime`. A target with no clock call (bare
 ;; metal) answers `Err` 78, as `sysNowMonotonic` does. An Int of nanoseconds reaches 2262-04-11, and
 ;; a reading beyond that answers `Err` `errOverflow` rather than wrap.
-;; The 16-byte buffer is the caller's, as above.
-(pub :: sysNowRealtimeNanos (-> Int (Result Int Error)))
+; Private callers provide 16 bytes of live scratch.
+(:: sysNowRealtimeNanosRaw (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (sysNowRealtimeNanos buf)
+(fn (sysNowRealtimeNanosRaw buf)
   (if (== usesSyscallAbi 0)
     platformRealtimeNanos
     (if (== sysClockNum 0)
@@ -1772,12 +1808,12 @@
     (let buf (sysScratch 16))
     (let mut state 0)
     {
-      (let start (sysTimeoutMicros buf))
+      (let start (sysTimeoutMicrosRaw buf))
       {
         (while (== state 0)
           (if (!= (rawGetWord addr 0) expected)
             (set state 2)
-            (if (>= (* (- (sysTimeoutMicros buf) start) 1000) nanos)
+            (if (>= (* (- (sysTimeoutMicrosRaw buf) start) 1000) nanos)
               (set state 1))))
         (sysScratchDone buf)
         state
@@ -1790,18 +1826,18 @@
 ;; clock where it doesn't (darwin-x86_64). The timed loops above this
 ;; file add only non-negative steps of this clock, each clamped to the
 ;; slice the kernel was asked to wait, so a step of a realtime clock
-;; moves a wait by at most one slice; MM-PAR-12 states the bound. `buf`
-;; is 16 bytes of caller scratch. A clock that cannot be read answers 0,
+; moves a wait by at most one slice; MM-PAR-12 states the bound. `buf`
+; is 16 bytes of private caller scratch. A clock that cannot be read answers 0,
 ;; which a caller reads as no time having passed: its wait then ends on
 ;; the kernel's own timeout rather than early.
-(pub :: sysTimeoutMicros (-> Int Int))
+(:: sysTimeoutMicrosRaw (-> Int Int))
 ;@axiom:effect(io)
-(pub fn (sysTimeoutMicros buf)
+(fn (sysTimeoutMicrosRaw buf)
   (if sysHasMonotonic
-    (match (sysNowMonotonic buf)
+    (match (sysNowMonotonicRaw buf)
       ((Ok t) t)
       ((Err e) 0))
-    (match (sysNowMicros buf)
+    (match (sysNowMicrosRaw buf)
       ((Ok t) t)
       ((Err e) 0))))
 
@@ -1833,7 +1869,7 @@
     {
       (rawSetWord buf 2 0)
       (while (== state 0)
-        (match (sysNowMonotonicNanos buf)
+        (match (sysNowMonotonicNanosRaw buf)
           ((Ok now)
             (if (>= now deadline)
               (set state 1)
@@ -1889,7 +1925,7 @@
     {
       (let buf (sysScratch 16))
       {
-        (let now (sysNowMonotonicNanos buf))
+        (let now (sysNowMonotonicNanosRaw buf))
         {
           (sysScratchDone buf)
           (match now

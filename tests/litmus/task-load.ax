@@ -186,7 +186,7 @@
 (:: elapsedMs (-> Int Int Int))
 ;@axiom:effect(io)
 (fn (elapsedMs buf t0)
-  (/ (- (sysTimeoutMicros buf) t0) 1000))
+  (/ (- sysTimeoutMicros t0) 1000))
 
 ; ---- results ---------------------------------------------------------------
 (:: answer (-> Int String))
@@ -420,7 +420,7 @@
         (match (sysMapShared 4096)
           ((Ok page)
             {
-              (let t0 (sysTimeoutMicros buf))
+              (let t0 sysTimeoutMicros)
               (if (strEq mode "results")
                 (results (argInt 2) (argInt 3))
                 (if (strEq mode "mixed")

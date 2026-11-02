@@ -48,7 +48,7 @@
 (:: now Int)
 ;@axiom:effect(io)
 (fn (now)
-  (unwrapOr (sysNowMicros (memAlloc 16)) 0))
+  (unwrapOr sysNowMicros 0))
 
 ; Wait, polling, until `path` exists; false after 30 seconds.
 (:: waitFor (-> String Bool))

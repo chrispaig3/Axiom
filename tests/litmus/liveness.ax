@@ -88,10 +88,10 @@
     {
       (arrive (+ res 120) 4)
       {
-        (let end (+ (sysTimeoutMicros buf) (* ms 1000)))
+        (let end (+ sysTimeoutMicros (* ms 1000)))
         (while (== going 1)
           {
-            (let t0 (sysTimeoutMicros buf))
+            (let t0 sysTimeoutMicros)
             {
               (let waited
                 (match (mutexLock m)
@@ -99,7 +99,7 @@
                   ; go as the arm ends, before the bookkeeping.
                   ((Ok g)
                     {
-                      (let w (- (sysTimeoutMicros buf) t0))
+                      (let w (- sysTimeoutMicros t0))
                       {
                         (memSetWord res 0 (+ (memGetWord res 0) 1))
                         w
@@ -114,7 +114,7 @@
                   (if (> waited worst)
                     (set worst waited))
                   (tallyWait res k waited)
-                  (if (>= (sysTimeoutMicros buf) end)
+                  (if (>= sysTimeoutMicros end)
                     (set going 0))
                 })
             }
@@ -235,13 +235,13 @@
           (println "side {k} holds")
           (arrive bar 2)
           {
-            (let t0 (sysTimeoutMicros buf))
+            (let t0 sysTimeoutMicros)
             {
               (let r (lockWithin second ms))
               {
                 {
                   (let code (codeOf r))
-                  (let us (- (sysTimeoutMicros buf) t0))
+                  (let us (- sysTimeoutMicros t0))
                   (println "side {k} {code} {us}")
                 }
                 (arrive (+ bar 8) 2)
@@ -311,12 +311,12 @@
     (let buf (memAlloc 16))
     (if (> ms 0)
       {
-        (let t0 (sysTimeoutMicros buf))
+        (let t0 sysTimeoutMicros)
         {
           (let r (chanRecvTimeout mine (* ms 1000000)))
           {
             (let code (recvCode r))
-            (let us (- (sysTimeoutMicros buf) t0))
+            (let us (- sysTimeoutMicros t0))
             {
               (println "side {k} {code} {us}")
               0

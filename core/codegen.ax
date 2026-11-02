@@ -19194,7 +19194,7 @@
 (:: emitPhaseNow Int)
 ;@axiom:effect(io)
 (fn (emitPhaseNow)
-  (match (sysNowMonotonic (memAlloc 16))
+  (match sysNowMonotonic
     ((Ok us) us)
     ((Err e) 0)))
 

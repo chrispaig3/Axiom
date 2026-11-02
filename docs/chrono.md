@@ -334,8 +334,8 @@ Linux and FreeBSD read `clock_gettime`'s monotonic clock, and
 darwin-aarch64 reads the processor's counter, the one
 `mach_absolute_time` reads. A target without a monotonic clock
 answers `chronoClockUnavailable`. `Sys` has the same clock in
-nanoseconds, `sysNowMonotonicNanos`, and the raw sleep,
-`sysSleepNanos`.
+nanoseconds, `sysNowMonotonicNanos`, and the sleep call `sysSleepNanos`.
+The clock read takes no arguments and releases its own scratch storage.
 
 Tested by `tests/stdlib/851-instant-sleep.ax` and
 `scripts/check-task.sh`.

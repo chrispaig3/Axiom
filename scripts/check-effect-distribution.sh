@@ -472,11 +472,16 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 # and two more pure rows than these pins. The typed test runner then
 # moves only testMkRec from Alloc,Mut to Alloc under the same compiler;
 # every required effect and every other existing row is unchanged.
+# Address-free clock wrappers add five IO rows and retire Chrono's duplicate
+# scratch helper. The same-compiler comparison preserves every existing IO,
+# Block, Spawn and Entropy requirement. Sys's three raw clock operations move
+# to private helpers; their public wrappers lose Unsafe. uuidNowMs also loses
+# Unsafe because it no longer allocates raw clock scratch.
 have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3649 "exactly Alloc,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 505 "Alloc,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 508 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 285 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 475 "exactly Alloc"
-have "$(bucket "$work/main.axsym" 'Alloc,IO')" 24 "Alloc,IO"
+have "$(bucket "$work/main.axsym" 'Alloc,IO')" 26 "Alloc,IO"
 have "$(bucket "$work/main.axsym" 'IO')" 13 "exactly IO"
 have "$(bucket "$work/main.axsym" 'IO,Mut')" 5 "IO,Mut"
 have "$(bucket "$work/main.axsym" 'Alloc,Mut,Unsafe')" 74 "Alloc,Mut,Unsafe"
@@ -544,16 +549,16 @@ lrows="$(grep -c '^F ' "$work/lib.axsym" || true)"
 (( lrows >= 300 )) && ok "$lrows stdlib functions listed (floor 300)" \
   || fail "only $lrows stdlib functions listed; the floor is 300"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 742 "exactly Alloc,Mut"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 315 "Alloc,IO,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 319 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 180 "exactly Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc')" 189 "exactly Alloc"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 27 "Alloc,IO"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 29 "Alloc,IO"
 have "$(bucket "$work/lib.axsym" 'IO')" 17 "exactly IO"
 have "$(bucket "$work/lib.axsym" 'Alloc,Assert,IO,Mut')" 7 "Alloc,Assert,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'IO,Mut')" 7 "IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut,Unsafe')" 76 "Alloc,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Unsafe')" 82 "exactly Unsafe"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 74 "Alloc,IO,Mut,Unsafe"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut,Unsafe')" 72 "Alloc,IO,Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Mut,Unsafe')" 139 "Mut,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,Unsafe')" 8 "Alloc,Unsafe"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO,Unsafe')" 28 "Alloc,IO,Unsafe"

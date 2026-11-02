@@ -1,0 +1,49 @@
+; Public clocks return timestamps; an integer cannot choose their scratch address.
+(import Sys)
+(import Err)
+
+(:: micros (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (micros address)
+  (sysNowMicros address))
+
+(:: monotonic (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (monotonic address)
+  (sysNowMonotonic address))
+
+(:: nanos (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (nanos address)
+  (sysNowMonotonicNanos address))
+
+(:: realtime (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (realtime address)
+  (sysNowRealtimeNanos address))
+
+(:: timeout (-> Int Int))
+;@axiom:effect(io)
+(fn (timeout address)
+  (sysTimeoutMicros address))
+
+; The syscall scratch entry points are private, including the timeout fallback.
+(:: privateMicros (-> Int (Result Int Error)))
+(fn (privateMicros address)
+  (Sys::sysNowMicrosRaw address))
+
+(:: privateMonotonic (-> Int (Result Int Error)))
+(fn (privateMonotonic address)
+  (Sys::sysNowMonotonicRaw address))
+
+(:: privateNanos (-> Int (Result Int Error)))
+(fn (privateNanos address)
+  (Sys::sysNowMonotonicNanosRaw address))
+
+(:: privateRealtime (-> Int (Result Int Error)))
+(fn (privateRealtime address)
+  (Sys::sysNowRealtimeNanosRaw address))
+
+(:: privateTimeout (-> Int Int))
+(fn (privateTimeout address)
+  (Sys::sysTimeoutMicrosRaw address))

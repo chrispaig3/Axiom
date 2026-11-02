@@ -881,10 +881,10 @@
 ; every later one replaces the handle joined before it. Answers 0, or
 ; the status of a refused spawn, which the slot then holds as joined
 ; with `why` 4: nothing ran, and `hs` is not touched.
-(:: taskStart (-> (Vec Int) (Vec Spawn) (-> Int Int) Int Int Int Int Int Int Int Int))
+(:: taskStart (-> (Vec Int) (Vec Spawn) (-> Int Int) Int Int Int Int Int Int Int))
 ;@axiom:effect(io)
 ;@axiom:effect(spawn)
-(fn (taskStart st hs wrapper mark t w slab slotBytes clk deadlineUs)
+(fn (taskStart st hs wrapper mark t w slab slotBytes deadlineUs)
   {
     (let s (% t w))
     (let slot (+ slab (* (% t w) slotBytes)))
@@ -906,7 +906,7 @@
             }
             (taskSetSt st s 0
               (if (> deadlineUs 0)
-                (+ (sysTimeoutMicros clk) deadlineUs)
+                (+ sysTimeoutMicros deadlineUs)
                 0))
             (taskSetSt st s 1 0)
             (taskSetSt st s 2 0)
@@ -954,7 +954,6 @@
     (let st (vecWithCapacity (* 3 w)))
     (let hs (vecWithCapacity w))
     (let cell (taskScratch 8))
-    (let clk (taskScratch 16))
     (let pbuf (taskScratch sysChildPollBytes))
     (let memory opts.memory)
     (let stack
@@ -986,7 +985,7 @@
       (while (< head n)
         {
           (let seen (taskEvent tok))
-          (let now (sysTimeoutMicros clk))
+          (let now sysTimeoutMicros)
           {
             (set progress 0)
             ; A cancellation seen for the first time.
@@ -1001,10 +1000,10 @@
             (while (&& (== cancelling 0)
                      (&& (! (taskCancelledAt tok)) (&& (< next n) (< (- next head) w))))
               {
-                (if (!= (taskStart st hs wrapper spawnMark next w slab slotBytes clk deadlineUs) 0)
+                (if (!= (taskStart st hs wrapper spawnMark next w slab slotBytes deadlineUs) 0)
                   {
                     (set cancelling 1)
-                    (set graceEnd (+ (sysTimeoutMicros clk) graceUs))
+                    (set graceEnd (+ sysTimeoutMicros graceUs))
                   })
                 (set next (+ next 1))
                 (set progress 1)
@@ -1014,7 +1013,7 @@
             (if (&& (== cancelling 0) (taskCancelledAt tok))
               {
                 (set cancelling 1)
-                (set graceEnd (+ (sysTimeoutMicros clk) graceUs))
+                (set graceEnd (+ sysTimeoutMicros graceUs))
                 (set progress 1)
               })
             ; Join what has ended; kill and join what ran out of time.
@@ -1046,7 +1045,7 @@
                     (if (&& (< k 0) (&& (>= kept 0) (== cancelling 0)))
                       {
                         (set cancelling 1)
-                        (set graceEnd (+ (sysTimeoutMicros clk) graceUs))
+                        (set graceEnd (+ sysTimeoutMicros graceUs))
                       })
                     (set kept k)
                   }
@@ -1086,7 +1085,6 @@
           }
         })
       (taskScratchDone cell)
-      (taskScratchDone clk)
       (taskScratchDone pbuf)
       (if (!= spawnMark 0)
         (taskScratchDone spawnMark))

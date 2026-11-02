@@ -424,7 +424,6 @@
     (let count (vecLen inputs))
     (let width (vecLen slots))
     (let total (workerProtocolBytes opts.inputLimit opts.resultLimit))
-    (let clock (commandScratchBuffer scratch 1 16))
     (let pollScratch (commandScratchBuffer scratch 2 sysChildPollBytes))
     (let out (vecWithCapacity count))
     (let path (sysEnv "PATH"))
@@ -450,7 +449,7 @@
             (if (> started 0)
               (set slot.deadline (if (== opts.deadline 0)
                 0
-                (workerAfter (sysTimeoutMicros clock) (workerMicros opts.deadline)))))
+                (workerAfter sysTimeoutMicros (workerMicros opts.deadline)))))
             (if (<= started 0)
               {
                 (set slot.status (if (== started 0)
@@ -494,7 +493,7 @@
                       })
                   }
                   {
-                    (let now (sysTimeoutMicros clock))
+                    (let now sysTimeoutMicros)
                     (if (&& (== slot.reason 0)
                           (|| cancelling (&& (!= slot.deadline 0) (>= now slot.deadline))))
                       {

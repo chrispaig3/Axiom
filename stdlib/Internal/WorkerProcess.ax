@@ -143,10 +143,7 @@
   (if (|| (== usesSyscallAbi 0) (< size 96))
     (Err (mkError 78 "worker mappings are unavailable on this target"))
     {
-      (let clock (rawAlloc 16))
-      (__retain clock)
-      (let stamp (sysTimeoutMicros clock))
-      (__release clock)
+      (let stamp sysTimeoutMicros)
       (let nonce (concat (fmtInt sysPid) (concat "-" (fmtInt stamp))))
       (let temp (sysEnv "TMPDIR"))
       (let root

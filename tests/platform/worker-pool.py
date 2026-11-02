@@ -201,12 +201,12 @@ def controlled_lifetimes(axiom, work):
             for ablated in (False, True):
                 variant = worker
                 if ablated and scenario == "launch-grace":
-                    anchor = "(let now (sysTimeoutMicros clock))"
+                    anchor = "(let now sysTimeoutMicros)"
                     assert variant.count(anchor) == 1
                     variant = variant.replace(anchor, "")
                     anchor = "(while (< head count)\n      {"
                     assert variant.count(anchor) == 1
-                    variant = variant.replace(anchor, anchor + "\n        (let now (sysTimeoutMicros clock))")
+                    variant = variant.replace(anchor, anchor + "\n        (let now sysTimeoutMicros)")
                 if ablated and scenario == "join-fault":
                     pattern = r"\n\s+\(if \(< slot\.status 0\)\n\s+\{\n\s+\(let failure \(- 0 slot\.status\)\)\n\s+\(let _ \(workerProcessesClose processes\)\)\n\s+\(workerPoisonSlots slots head next failure\)\n\s+\(set cancelling true\)\n\s+\}\)"
                     variant, count = re.subn(pattern, "", variant)

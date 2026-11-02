@@ -2313,23 +2313,20 @@
         declsSrc
       }
       {
-        (let tbuf (memAlloc 16))
+        (let t0
+          (match sysNowMicros
+            ((Ok t) t)
+            ((Err e) 0)))
         {
-          (let t0
-            (match (sysNowMicros tbuf)
-              ((Ok t) t)
-              ((Err e) 0)))
-          {
-            (replExpr declsSrc rest)
-            (replStyled REPL_AMBER
-              (fmtMicrosMs
-                (-
-                  (match (sysNowMicros tbuf)
-                    ((Ok t) t)
-                    ((Err e) 0))
-                  t0)))
-            declsSrc
-          }
+          (replExpr declsSrc rest)
+          (replStyled REPL_AMBER
+            (fmtMicrosMs
+              (-
+                (match sysNowMicros
+                  ((Ok t) t)
+                  ((Err e) 0))
+                t0)))
+          declsSrc
         }
       })))
 
@@ -2399,22 +2396,19 @@
                           ; internals, and the gate's marker pins
                           ; only the `Time: ` prefix.
                           {
-                            (let tbuf (memAlloc 16))
+                            (let t0
+                              (match sysNowMicros
+                                ((Ok t) t)
+                                ((Err e) 0)))
                             {
-                              (let t0
-                                (match (sysNowMicros tbuf)
-                                  ((Ok t) t)
-                                  ((Err e) 0)))
-                              {
-                                (replExpr src rest)
-                                (replStyled REPL_AMBER
-                                  (fmtMicrosMs
-                                    (-
-                                      (match (sysNowMicros tbuf)
-                                        ((Ok t) t)
-                                        ((Err e) 0))
-                                      t0)))
-                              }
+                              (replExpr src rest)
+                              (replStyled REPL_AMBER
+                                (fmtMicrosMs
+                                  (-
+                                    (match sysNowMicros
+                                      ((Ok t) t)
+                                      ((Err e) 0))
+                                    t0)))
                             }
                           }
                           (replStyled REPL_ERROR

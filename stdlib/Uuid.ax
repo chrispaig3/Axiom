@@ -374,30 +374,16 @@
 ; `Err` recoded as `uuidClockUnavailable`.
 (:: uuidNowMs (Result Int Error))
 ;@axiom:effect(io)
-;@axiom:effect(unsafe)
 (fn (uuidNowMs)
-  {
-    (let buf (rawAlloc 16))
-    {
-      (__retain buf)
-      {
-        (let r
-          (match (sysNowRealtimeNanos buf)
-            ((Ok ns) (Ok (/ ns 1000000)))
-            ((Err e)
-              (uuidErr uuidClockUnavailable
-                (if (== (errCode e) 78)
-                  "this target has no realtime clock"
-                  (concat "the realtime clock failed with errno " (fmtInt (errCode e))))
-                "uuidV7")
-            )))
-        {
-          (__release buf)
-          r
-        }
-      }
-    }
-  })
+  (match sysNowRealtimeNanos
+    ((Ok ns) (Ok (/ ns 1000000)))
+    ((Err e)
+      (uuidErr uuidClockUnavailable
+        (if (== (errCode e) 78)
+          "this target has no realtime clock"
+          (concat "the realtime clock failed with errno " (fmtInt (errCode e))))
+        "uuidV7")
+    )))
 
 ;; A random version 4 uuid, from the kernel's entropy source.
 (pub :: uuidV4 (Result Uuid Error))

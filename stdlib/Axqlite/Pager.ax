@@ -1619,7 +1619,7 @@
   {
     (let b (miscBuf m))
     (let t
-      (match (sysNowMicros (miscBuf m))
+      (match sysNowMicros
         ((Ok us) us)
         ((Err e) 0)))
     {

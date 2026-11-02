@@ -69,7 +69,7 @@ integrator would still need.
 | Stack overflow reports a named runtime trap | Native POSIX entry, worker and task stacks; Windows threads; bare-metal guard | `tests/stdlib/977-native-stack-overflow.ax`; host-owned archive stacks remain |
 | No cast, `Int` container or raw store lets a heap value become an untracked word in safe code | In progress | `MM-VAL-24`, `tests/diagnostics/1510-erasing-cast.ax`. The compiler and the library still erase; the `core` directory-name exemption also applies to user files |
 | The raw memory layer and the word-to-reference accessors are internal to the library, so safe code can't read memory at an address or forge a reference from a word | Done | `MM-EXEC-9g`, `tests/diagnostics/1470-internal-import.ax` |
-| Public functions that take a raw address, such as `sysRandomBytes`, `sysWaitWord` and the clock reads that fill a caller's buffer, take typed values instead | Not started | `MM-EXEC-9d` |
+| Public functions that take a raw address use typed interfaces | In progress | `MM-EXEC-9d`. Clock reads own their scratch (`tests/diagnostics/1511-clock-addresses.ax`). Entropy, waits and mapping interfaces still accept raw addresses |
 | `fileFd` and the raw descriptor calls can't close a descriptor a `File` owns | Done | `MM-EXEC-17a`, `tests/diagnostics/1225-descriptor-hole.ax` |
 | Standard input, output and error are `File` values, with one owned poller and one terminal raw-mode guard | Done | `MM-EXEC-17b`, `tests/stdlib/785-stdio-file.ax`, `tests/stdlib/786-poller-owned.ax` |
 | Secrets and keys wipe themselves when dropped, and a child process is an owner | Not started | |

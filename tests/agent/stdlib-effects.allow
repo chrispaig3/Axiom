@@ -370,7 +370,6 @@ checkUnique AxqlExec.ax Alloc,IO,Mut
 checkWritten AxqlExec.ax Alloc,IO,Mut
 childrenOf Btree.ax Alloc,Mut
 chronoErr Chrono.ax Alloc
-chronoMonotonicNanos Chrono.ax Alloc,IO,Mut,Unsafe
 cjDecode Cereal.ax Alloc,Mut
 cjFail Cereal.ax Mut
 cjLiteral Cereal.ax Mut
@@ -1689,10 +1688,14 @@ sysMapShared Sys.ax Alloc,IO,Unsafe
 sysMlock Sys.ax Alloc,IO,Unsafe
 sysMonotonicKind Sys.ax Mut
 sysMunlock Sys.ax Alloc,IO,Unsafe
-sysNowMicros Sys.ax Alloc,IO,Unsafe
+sysNowMicros Sys.ax Alloc,IO
+sysNowMicrosRaw Sys.ax Alloc,IO,Unsafe
 sysNowMonotonic Sys.ax Alloc,IO,Mut
-sysNowMonotonicNanos Sys.ax Alloc,IO,Mut,Unsafe
-sysNowRealtimeNanos Sys.ax Alloc,IO,Unsafe
+sysNowMonotonicNanos Sys.ax Alloc,IO,Mut
+sysNowMonotonicNanosRaw Sys.ax Alloc,IO,Mut,Unsafe
+sysNowMonotonicRaw Sys.ax Alloc,IO,Mut
+sysNowRealtimeNanos Sys.ax Alloc,IO
+sysNowRealtimeNanosRaw Sys.ax Alloc,IO,Unsafe
 sysOpenPathMode Sys.ax IO,Unsafe
 sysOpenRaw Sys.ax IO
 sysPathExists Sys.ax Alloc,IO,Mut
@@ -1717,6 +1720,7 @@ sysSpawn Sys.ax Alloc,IO,Mut,Spawn,Unsafe
 sysSpawnOutErrTo Sys.ax Alloc,IO,Mut,Spawn,Unsafe
 sysSpawnOutErrToPlatform Sys.ax Alloc,IO,Mut,Spawn
 sysTimeoutMicros Sys.ax Alloc,IO,Mut
+sysTimeoutMicrosRaw Sys.ax Alloc,IO,Mut
 sysUlockWait Sys.ax Block,IO,Unsafe
 sysUnmapPrivate Sys.ax Alloc,IO,Unsafe
 sysUnmapShared Sys.ax Alloc,IO,Unsafe
@@ -1889,7 +1893,7 @@ uuidBytes Uuid.ax Alloc,Mut,Unsafe
 uuidErr Uuid.ax Alloc
 uuidFromBytes Uuid.ax Alloc
 uuidNil Uuid.ax Alloc
-uuidNowMs Uuid.ax Alloc,IO,Mut,Unsafe
+uuidNowMs Uuid.ax Alloc,IO,Mut
 uuidParse Uuid.ax Alloc,Mut,Unsafe
 uuidTimestampMs Uuid.ax Alloc,Mut,Unsafe
 uuidToString Uuid.ax Alloc,Mut,Unsafe

@@ -821,20 +821,17 @@
 (pub :: datetimeNowUtc (Result NaiveDateTime Error))
 ;@axiom:effect(io)
 (pub fn (datetimeNowUtc)
-  {
-    (let buf (rawAlloc 16))
-    (match (sysNowRealtimeNanos buf)
-      ((Ok ns) (datetimeShift 0 0 ns "datetimeNowUtc"))
-      ((Err e)
-        (chronoErr chronoClockUnavailable
-          (if (== (errCode e) 78)
-            "this target has no realtime clock"
-            (if (== (errCode e) errOverflow)
-              "the realtime clock reads later than 2262-04-11"
-              (concat "the realtime clock failed with errno " (decimal (errCode e)))))
-          "datetimeNowUtc")
-      ))
-  })
+  (match sysNowRealtimeNanos
+    ((Ok ns) (datetimeShift 0 0 ns "datetimeNowUtc"))
+    ((Err e)
+      (chronoErr chronoClockUnavailable
+        (if (== (errCode e) 78)
+          "this target has no realtime clock"
+          (if (== (errCode e) errOverflow)
+            "the realtime clock reads later than 2262-04-11"
+            (concat "the realtime clock failed with errno " (decimal (errCode e)))))
+        "datetimeNowUtc")
+    )))
 
 ; ------------------------------------------------------------------
 ; Instants and sleeping.
@@ -846,26 +843,6 @@
     "this target has no monotonic clock"
     (concat "the monotonic clock failed with errno " (decimal (errCode e)))))
 
-; The clock's scratch is counted and released after the read. An
-; `Instant` holds only the reading, so repeated reads keep no buffer.
-(:: chronoMonotonicNanos (Result Int Error))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (chronoMonotonicNanos)
-  {
-    (let buf (rawAlloc 16))
-    {
-      (__retain buf)
-      {
-        (let r (sysNowMonotonicNanos buf))
-        {
-          (__release buf)
-          r
-        }
-      }
-    }
-  })
-
 ;; The monotonic clock now (`Sys.sysNowMonotonicNanos`). It never steps
 ;; backwards, whatever happens to the time of day, so two readings
 ;; measure the time between them. A target without one, such as bare
@@ -873,7 +850,7 @@
 (pub :: instantNow (Result Instant Error))
 ;@axiom:effect(io)
 (pub fn (instantNow)
-  (match chronoMonotonicNanos
+  (match sysNowMonotonicNanos
     ((Ok ns) (Ok (Instant :slot ns)))
     ((Err e) (chronoErr chronoClockUnavailable (monotonicMessage e) "instantNow"))))
 

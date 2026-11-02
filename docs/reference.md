@@ -746,6 +746,11 @@ A conversion cannot make a raw address valid or extend its lifetime. Raw memory 
 operations belong behind an `effect(unsafe)` declaration. Library
 functions that take a raw address, such as `sysRandomBytes`, trust it, so
 passing one a bad address crashes the program.
+Safe code relies on trusted library interfaces; effect checking is not a sandbox.
+
+Clock reads such as `sysNowMonotonicNanos` take no buffer address and
+release their own scratch storage. Tested by
+`tests/stdlib/1005-clock-owned-scratch.ax`.
 
 A function's result is checked like an argument. A record, closure,
 `String` or type variable returned where the signature says `Int` is

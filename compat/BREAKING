@@ -1954,3 +1954,8 @@
 0.8.0  S  Poller  gains the registration table a target without kqueue or epoll polls through WSAPoll (regs, nregs); construct one only with pollerNew
 0.8.0  S  File  gains an owned lifetime marker so a closed Windows poll registration cannot revive when a HANDLE is reused; construct files through IO's checked operations
 0.8.0  D  Expr  gains EPath for multi-step AXQL links; exhaustive expression matches must handle the new constructor
+0.8.1  F  sysNowMicros  takes no buffer address; the clock owns and releases its scratch storage
+0.8.1  F  sysNowMonotonic  takes no buffer address; the clock owns and releases its scratch storage
+0.8.1  F  sysNowMonotonicNanos  takes no buffer address; the clock owns and releases its scratch storage
+0.8.1  F  sysNowRealtimeNanos  takes no buffer address; the clock owns and releases its scratch storage
+0.8.1  F  sysTimeoutMicros  takes no buffer address; the clock owns and releases its scratch storage

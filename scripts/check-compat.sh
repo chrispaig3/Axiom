@@ -241,11 +241,17 @@ for tag in ("#scoped=step", "#compute=worker"):
     for before, after in ((base, current), (current, base), (current, changed)):
         delta = compat.compare(before, after)
         assert len(delta) == 1 and delta[0][:2] == ("CHANGED", ("F", "kernel")), delta
+effectful = compat.normalise(raw + " #effects=IO,Unsafe", sys.argv[2], {"kernel"})
+narrowed = compat.normalise(raw + " #effects=IO", sys.argv[2], {"kernel"})
+assert compat.compare(effectful, narrowed)[0][0] == "NARROWED"
+for changed_raw in (raw.replace("(Int -> Int)", "Int"), raw + " #scoped=step"):
+    changed = compat.normalise(changed_raw + " #effects=IO", sys.argv[2], {"kernel"})
+    assert compat.compare(effectful, changed)[0][0] == "CHANGED"
 CALLBACK_CONTRACTS
 then
-  ok "checked callback preconditions survive normalisation and their changes are breaking"
+  ok "type and callback changes stay breaking even when effects narrow"
 else
-  bad "a scoped or compute callback precondition disappeared from its contract"
+  bad "a type or callback change disappeared from its contract"
 fi
 
 # ---------------------------------------------------------------------

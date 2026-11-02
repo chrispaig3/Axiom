@@ -338,7 +338,7 @@
 ; ---- time left ---------------------------------------------------------
 ; A timed call keeps two words in a 32-byte scratch block: word 2 the
 ; nanoseconds it has left, word 3 the clock reading it last took (words
-; 0-1 are the clock's own buffer). `chanTimeSpent` charges one wait to
+; 0-1 are reserved). `chanTimeSpent` charges one wait to
 ; it: the whole slice when the kernel measured it (`code` 1), otherwise
 ; the clock's step, clamped to [0, slice] - so a step of a realtime
 ; clock (`sysTimeoutMicros` on darwin-x86_64) moves the wait by at most
@@ -352,7 +352,7 @@
     (let b (chanBlock 32))
     {
       (__store64 b 2 nanos)
-      (__store64 b 3 (sysTimeoutMicros b))
+      (__store64 b 3 sysTimeoutMicros)
       b
     }
   })
@@ -390,7 +390,7 @@
 (fn (chanTimeSpent b code slice)
   {
     (let left (__load64 b 2))
-    (let now (sysTimeoutMicros b))
+    (let now sysTimeoutMicros)
     {
       (let step (chanStep code slice (* (- now (__load64 b 3)) 1000)))
       {

@@ -561,7 +561,7 @@ cuts = {
   # A refused spawn traps past the pool again: no recovery point.
   "spawnrp": [("Task.ax", ';@axiom:effect(unsafe)\n(fn (taskSpawn wrapper arg mark)\n  (if (== mark 0)\n    (region r\n      (__axiom_recover __axiom_arena_mark (lambda (x) (taskWordOf (__proc_spawn wrapper arg)))))\n    {\n      (__axiom_arena_mark_into mark)\n      (__axiom_recover mark (lambda (x) (taskWordOf (__proc_spawn wrapper arg))))\n    }))', "(fn (taskSpawn wrapper arg mark)\n  (taskWordOf (__proc_spawn wrapper arg)))")],
   # A refused spawn no longer cancels the pool.
-  "refusecancel": [("Task.ax", "                  {\n                    (set cancelling 1)\n                    (set graceEnd (+ (sysTimeoutMicros clk) graceUs))\n                  })", "                  ())")],
+  "refusecancel": [("Task.ax", "                  {\n                    (set cancelling 1)\n                    (set graceEnd (+ sysTimeoutMicros graceUs))\n                  })", "                  ())")],
   # The checked pool no longer kills its running slots on a refusal.
   "parkill": [("Task.ax", "(taskWordsKill (vecGet hs (% k w)))", "0")],
   # The microseconds conversion rounds without saturating.

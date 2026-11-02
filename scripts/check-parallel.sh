@@ -1636,7 +1636,7 @@ cat > "$work/orphan.ax" <<'ORPHAN'
 (:: nowUs (-> Int Int))
 ;@axiom:effect(io)
 (fn (nowUs buf)
-  (match (sysNowMonotonic buf)
+  (match sysNowMonotonic
     ((Ok t) t)
     ((Err e) 0)))
 

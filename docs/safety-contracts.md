@@ -84,11 +84,15 @@ Tested by `tests/diagnostics/1040-forging-cast.ax` and
 Internal access is refused by `tests/diagnostics/1470-internal-import.ax`
 and `tests/diagnostics/1471-internal-name.ax`.
 
+Clock reads take no buffer address and release their own scratch storage.
+Tested by `tests/stdlib/1005-clock-owned-scratch.ax`.
+
 Not yet: public raw-address interfaces remain
 ([roadmap](roadmap.md#memory-and-resource-safety)). Outside the
 compiler and the standard library, an erasing cast is `AX3073` unless
 the declaration says `effect(unsafe)`. The compiler and the library
-still erase.
+still erase; the compiler's `core` directory-name exemption also admits
+user files in a directory with that name.
 
 ### Ownership
 

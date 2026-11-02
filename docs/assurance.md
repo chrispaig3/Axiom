@@ -297,7 +297,9 @@ the neighbourhood of the corpus.
   its type (`MM-VAL-24`).
 - Some public functions still take a raw address, such as
   `sysRandomBytes` and `sysWaitWord`, so safe code can crash by passing
-  a bad one (`MM-EXEC-9d`, [roadmap](roadmap.md)).
+  a bad one (`MM-EXEC-9d`, [roadmap](roadmap.md)). Clock reads take no
+  address and release their own scratch storage
+  (`tests/stdlib/1005-clock-owned-scratch.ax`).
 - A closure with more than 46 captures retains counted captures without
   a reference map to release them (`MM-LIFE-2c`,
   `tests/stdlib/1004-capture-map-limit.ax`).

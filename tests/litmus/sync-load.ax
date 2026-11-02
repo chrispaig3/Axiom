@@ -117,7 +117,7 @@
 (:: elapsedSince (-> Int Int Int))
 ;@axiom:effect(io)
 (fn (elapsedSince buf t0)
-  (- (sysTimeoutMicros buf) t0))
+  (- sysTimeoutMicros t0))
 
 (:: say (-> String Int Int))
 ;@axiom:effect(io)
@@ -175,7 +175,7 @@
       (while (== (memGetWord flag 0) 0)
         (sysWaitWordTimeout flag 0 1000000))
       {
-        (let t0 (sysTimeoutMicros buf))
+        (let t0 sysTimeoutMicros)
         {
           (let r (mutexLockTimeout m (* ms 1000000)))
           {
@@ -209,7 +209,7 @@
   {
     (let buf (memAlloc 16))
     {
-      (let t0 (sysTimeoutMicros buf))
+      (let t0 sysTimeoutMicros)
       {
         (let r (chanRecvTimeout ch (* ms 1000000)))
         (report "recv-got" (recvCode r) (elapsedSince buf t0))
@@ -232,7 +232,7 @@
               ((Ok flag)
                 {
                   {
-                    (let t0 (sysTimeoutMicros buf))
+                    (let t0 sysTimeoutMicros)
                     {
                       (let r (chanRecvTimeout ch (* ms 1000000)))
                       (report "recv-timeout" (recvCode r) (elapsedSince buf t0))
@@ -240,7 +240,7 @@
                   }
                   (chanSend ch 1)
                   {
-                    (let t0 (sysTimeoutMicros buf))
+                    (let t0 sysTimeoutMicros)
                     {
                       (let r (chanSendTimeout ch 2 (* ms 1000000)))
                       (report "send-timeout" (sendCode r) (elapsedSince buf t0))
@@ -312,7 +312,7 @@
               (while (== (memGetWord flag 0) 0)
                 (sysWaitWordTimeout flag 0 1000000))
               {
-                (let t0 (sysTimeoutMicros buf))
+                (let t0 sysTimeoutMicros)
                 {
                   (let r (mutexLockTimeout m 250000000))
                   (report "alive-timed" (codeOf r) (elapsedSince buf t0))
@@ -324,14 +324,14 @@
               (__proc_join_nr h cell)
               (say "holder-status" (memGetWord cell 0))
               {
-                (let t0 (sysTimeoutMicros buf))
+                (let t0 sysTimeoutMicros)
                 {
                   (let r (mutexLockTimeout m 2000000000))
                   (report "dead-timed" (codeOf r) (elapsedSince buf t0))
                 }
               }
               {
-                (let t0 (sysTimeoutMicros buf))
+                (let t0 sysTimeoutMicros)
                 {
                   (let r (mutexLock m))
                   (report "dead-untimed" (codeOf r) (elapsedSince buf t0))
@@ -392,7 +392,7 @@
   {
     (let buf (memAlloc 16))
     {
-      (let t0 (sysTimeoutMicros buf))
+      (let t0 sysTimeoutMicros)
       {
         (let r (mutexLockTimeout m (* ms 1000000)))
         (report what (codeOf r) (elapsedSince buf t0))
@@ -433,7 +433,7 @@
                       (awaitFlag flag)
                       (timedLock m 2000 "zombie-timed")
                       {
-                        (let t0 (sysTimeoutMicros buf))
+                        (let t0 sysTimeoutMicros)
                         {
                           (let r (mutexLock m))
                           (report "zombie-untimed" (codeOf r) (elapsedSince buf t0))

@@ -1,0 +1,60 @@
+; Public clock reads own their scratch and release it after each call.
+; Warm the allocator, then repeat every read under restrict(no-unsafe).
+(import Sys)
+(import Err)
+(import Mem)
+(import IO)
+
+(:: clockReads Int)
+;@axiom:effect(io)
+;@axiom:restrict(no-unsafe)
+(fn (clockReads)
+  {
+    (let micros
+      (match sysNowMicros
+        ((Ok t) (> t 0))
+        ((Err _) false)))
+    (let realtime
+      (match sysNowRealtimeNanos
+        ((Ok t) (> t 0))
+        ((Err _) false)))
+    (let mono
+      (match sysNowMonotonic
+        ((Ok t) (&& sysHasMonotonic (> t 0)))
+        ((Err e) (&& (! sysHasMonotonic) (== (errCode e) 78)))))
+    (let nanos
+      (match sysNowMonotonicNanos
+        ((Ok t) (&& sysHasMonotonic (> t 0)))
+        ((Err e) (&& (! sysHasMonotonic) (== (errCode e) 78)))))
+    (if (&& micros (&& realtime (&& mono (&& nanos (> sysTimeoutMicros 0)))))
+      0
+      1)
+  })
+
+(:: clockLoop (-> Int Int))
+;@axiom:effect(io)
+;@axiom:restrict(no-unsafe)
+(fn (clockLoop n)
+  {
+    (let mut failures 0)
+    (for i in 0..n
+      (set failures (+ failures clockReads)))
+    failures
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let warm (clockLoop 100))
+    (let before memStats)
+    (let failures (+ warm (clockLoop 2000)))
+    (let after memStats)
+    (let reclaimed (< (- after.backlogBytes before.backlogBytes) 4096))
+    (let clocksWork (== failures 0))
+    (println "clocks answer: {clocksWork}")
+    (println "clock scratch reclaimed: {reclaimed}")
+    (if (&& clocksWork reclaimed)
+      0
+      1)
+  })
