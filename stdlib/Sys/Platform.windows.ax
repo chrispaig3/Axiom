@@ -2287,10 +2287,10 @@
 ;; Unsupported bits answer `Err` 78 before changing the mask. A zero
 ;; mask does nothing. Console close, logoff and shutdown keep their
 ;; system termination behaviour.
-(pub :: platformSignalBlock (-> Int Int (Result Int Error)))
+(pub :: platformSignalBlock (-> Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (platformSignalBlock mask setbuf)
+(pub fn (platformSignalBlock mask)
   (if (!= (& mask -1048579) 0)
     (Err (mkError 78 "platformSignalBlock"))
     (if (== mask 0)

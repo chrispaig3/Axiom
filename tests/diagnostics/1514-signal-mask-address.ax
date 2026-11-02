@@ -1,0 +1,16 @@
+; Signal masks cannot choose a kernel scratch address.
+(import Sys)
+(import Err)
+
+(:: blockAt (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+(fn (blockAt mask address)
+  (sysSignalBlock mask address))
+
+(:: platformAt (-> Int Int (Result Int Error)))
+(fn (platformAt mask address)
+  (platformSignalBlock mask address))
+
+(:: rawBlock (-> Int Int (Result Int Error)))
+(fn (rawBlock mask address)
+  (Sys::sysSignalBlockRaw mask address))

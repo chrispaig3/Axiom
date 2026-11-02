@@ -28,8 +28,7 @@
 ;
 ; The golden is platform-independent. SIGTERM is named rather than
 ; written as 15 because only it and SIGINT agree across every target.
-; `setbuf` is 16 bytes because that is the widest `sigset_t` a kernel
-; copies out of it (FreeBSD's), per `sysSignalBlock`.
+; `sysSignalBlock` owns the platform-sized kernel signal mask.
 (import IO)
 (import Sys)
 (import Err)
@@ -62,9 +61,8 @@
 (fn (main)
   {
     (let port (+ 20000 (% sysPid 9000)))
-    (let setbuf (memAlloc 16))
     {
-      (say (isOk (sysSignalBlock (sysSigBit sigTerm) setbuf)) "SIGTERM is blocked")
+      (say (isOk (sysSignalBlock (sysSigBit sigTerm))) "SIGTERM is blocked")
       (match (pollerNew 8)
         ((Err e) (say false "the poller is created"))
         ((Ok p)

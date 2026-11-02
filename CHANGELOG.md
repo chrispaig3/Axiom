@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Signal masking takes only the mask. `sysSignalBlock` owns and releases
+  its kernel buffer; `platformSignalBlock` also takes no caller address.
+  Tested by `tests/stdlib/315-signal-in-poll.ax` and
+  `tests/stdlib/1007-signal-mask-owned-scratch.ax`.
+
 - Child polling takes only a process ID and owns its kernel scratch.
   `sysChildExited` releases the buffer on success and failure; it still
   observes exit without reaping. Tested by

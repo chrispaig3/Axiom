@@ -231,7 +231,6 @@
     (let nworkers (argInt 2))
     (let arenaOn (argInt 3))
     (let varied (argInt 4))
-    (let setbuf (memAlloc 16))
     (let pids vecNew)
     (let v6 (envOn "AXIOM_NET_LISTEN6"))
     (match (listenAddr v6 port)
@@ -266,7 +265,7 @@
                 ()
               }
               {
-                (let _ (sysSignalBlock (sysSigBit sigTerm) setbuf))
+                (let _ (sysSignalBlock (sysSigBit sigTerm)))
                 ()
               }
               {

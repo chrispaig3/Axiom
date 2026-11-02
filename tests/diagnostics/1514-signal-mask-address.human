@@ -1,0 +1,28 @@
+[1;31merror[AX3004][0m[1m: `sysSignalBlock` takes 1 argument(s), given 2[0m
+ [1;34m--> [0m1514-signal-mask-address.ax:8:4
+[1;34m  |[0m
+[1;34m8 |[0m   (sysSignalBlock mask address))
+[1;34m  |[0m    [1;31m^^^^^^^^^^^^^^ 2 argument(s) provided here[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0mremove the extra argument(s), or add a parameter to the definition
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3004][0m[1m: `platformSignalBlock` takes 1 argument(s), given 2[0m
+  [1;34m--> [0m1514-signal-mask-address.ax:12:4
+[1;34m   |[0m
+[1;34m12 |[0m   (platformSignalBlock mask address))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^^ 2 argument(s) provided here[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0mremove the extra argument(s), or add a parameter to the definition
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3004` for a full explanation
+
+[1;31merror[AX3023][0m[1m: `Sys::sysSignalBlockRaw` is private to module `Sys`[0m
+  [1;34m--> [0m1514-signal-mask-address.ax:16:4
+[1;34m   |[0m
+[1;34m16 |[0m   (Sys::sysSignalBlockRaw mask address))
+[1;34m   |[0m    [1;31m^^^ `sysSignalBlockRaw` is not exported by its module[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0ma name leaves its module when its declaration is written `pub`; if the import that brought the module in carries a name list, the name has to appear there too
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX3023` for a full explanation
+
+compilation failed due to 3 previous errors

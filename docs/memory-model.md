@@ -759,6 +759,12 @@ without reaping the child; the join remains responsible for retirement.
 Tested by `tests/diagnostics/1513-child-poll-address.ax` and
 `tests/stdlib/1006-child-poll-owned-scratch.ax`.
 
+Signal masking takes only the mask. `sysSignalBlock` owns and releases
+its kernel scratch and zeroes the platform signal set before writing it.
+The platform entry point also takes no address. Tested by
+`tests/diagnostics/1514-signal-mask-address.ax` and
+`tests/stdlib/1007-signal-mask-owned-scratch.ax`.
+
 Public clock reads take no address. `sysNowMicros`, `sysNowMonotonic`,
 `sysNowMonotonicNanos`, `sysNowRealtimeNanos` and `sysTimeoutMicros` own
 and release their scratch storage. Their address-taking helpers are private.
@@ -5833,7 +5839,7 @@ A copy of a live handle's word, in the binding that spawned it, still
 joins that child. The salt defends against a wrong word, not one read
 out of memory, and the unsafe layer can read the table. The raw layer
 is internal to the library (`MM-EXEC-9g`), but a public function that
-writes through a caller's address, such as `sysSignalBlock`, can still
+writes through a caller's address, such as `netAddr4`, can still
 overwrite a `Spawn` stored in a struct. The join that reads it back
 traps 85 unless the word names a live slot.
 

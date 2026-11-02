@@ -1,0 +1,41 @@
+; Repeated empty masks leave the process mask unchanged and reclaim scratch.
+(import Sys)
+(import Err)
+(import Mem)
+(import IO)
+
+(:: maskLoop (-> Int Int))
+;@axiom:effect(io)
+;@axiom:restrict(no-unsafe)
+(fn (maskLoop n)
+  {
+    (let mut failures 0)
+    (for i in 0..n
+      (match (sysSignalBlock 0)
+        ((Ok result)
+          (if (== result 0)
+            ()
+            (set failures (+ failures 1)))
+        )
+        ((Err _)
+          (set failures (+ failures 1))
+        )))
+    failures
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let warm (maskLoop 100))
+    (let before memStats)
+    (let failures (+ warm (maskLoop 2000)))
+    (let after memStats)
+    (let reclaimed (< (- after.backlogBytes before.backlogBytes) 4096))
+    (let masksWork (== failures 0))
+    (println "empty signal masks: {masksWork}")
+    (println "signal mask scratch reclaimed: {reclaimed}")
+    (if (&& masksWork reclaimed)
+      0
+      1)
+  })

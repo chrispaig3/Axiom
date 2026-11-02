@@ -1964,3 +1964,5 @@
 0.8.1  F  platformRandomBytes  platform entropy fill is internal; use Crypto.Random.secureRandomBytes
 0.8.1  F  sysChildExited  takes only a process ID; the call owns and releases its kernel scratch buffer
 0.8.1  F  sysChildPollBytes  scratch sizing is private; sysChildExited needs no caller allocation
+0.8.1  F  sysSignalBlock  takes only the signal mask; the call owns and releases its kernel scratch buffer
+0.8.1  F  platformSignalBlock  takes only the signal mask; the unused caller-buffer argument is removed

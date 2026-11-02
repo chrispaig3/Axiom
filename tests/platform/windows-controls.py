@@ -40,10 +40,10 @@ def main():
 (fn (pollAddOp) 1)
 (:: pollDelOp Int)
 (fn (pollDelOp) 2)
-(:: platformSignalBlock (-> Int Int (Result Int Error)))
+(:: platformSignalBlock (-> Int (Result Int Error)))
 ;@axiom:effect(io)
-(fn (platformSignalBlock mask scratch)
-  (WindowsPlatform::controlMaskBlock mask scratch))
+(fn (platformSignalBlock mask)
+  (WindowsPlatform::controlMaskBlock mask))
 (extern "windows_controls_test"
   (platformPoll :: (-> Int Int Int Int) (symbol "pollControls")))
 """

@@ -154,7 +154,6 @@
 (fn (main)
   {
     (let port (+ 20000 (% sysPid 9000)))
-    (let setbuf (memAlloc 16))
     (let pids vecNew)
     {
       (let addr (socketAddrNew ipLocalhostV4 port))
@@ -167,7 +166,7 @@
               ()
             }
             {
-              (let _ (sysSignalBlock (sysSigBit sigTerm) setbuf))
+              (let _ (sysSignalBlock (sysSigBit sigTerm)))
               ()
             }
             ; Block BEFORE forking so every worker inherits the mask and

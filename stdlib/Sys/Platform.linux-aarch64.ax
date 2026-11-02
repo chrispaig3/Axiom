@@ -1470,8 +1470,8 @@
 
 ;; The platform's own signal mask, where raw `sigprocmask` is not
 ;; available; `Err` 78 where the syscall serves.
-(pub :: platformSignalBlock (-> Int Int (Result Int Error)))
-(pub fn (platformSignalBlock mask setbuf)
+(pub :: platformSignalBlock (-> Int (Result Int Error)))
+(pub fn (platformSignalBlock mask)
   (Err (mkError 78 "platformSignalBlock")))
 
 ; ------------------------------------------------------------------

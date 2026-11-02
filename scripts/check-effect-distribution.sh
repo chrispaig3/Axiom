@@ -388,6 +388,9 @@ have() { # have <got> <want> <what>
 # Child polling owns its scratch. With one compiler over both trees,
 # sysChildExitedRaw takes the existing Alloc,Block,IO,Mut,Unsafe row;
 # sysChildExited becomes Alloc,Block,IO,Mut. No other existing row changes.
+# Signal masking owns its scratch too. A same-compiler comparison adds
+# sysSignalBlockRaw with the old Alloc,IO,Mut,Unsafe row; sysSignalBlock
+# becomes Alloc,IO,Mut. All other existing rows keep their effects.
 echo "== compiler view: symbols --calls core/main.ax =="
 "$axc" --diagnostic-format=ai symbols --calls core/main.ax > "$work/main.axsym" 2>"$work/main.err" \
   || { fail "could not read symbols over core/main.ax"; echo "check-effect-distribution: $failed failed"; exit 1; }
@@ -486,7 +489,7 @@ rows="$(grep -c '^F ' "$work/main.axsym" || true)"
 # byte/constant-time helpers. entropyAvailable adds one Entropy,Mut row to the
 # full library view; the public randomAvailable wrapper keeps its effects.
 have "$(bucket "$work/main.axsym" 'Alloc,Mut')" 3662 "exactly Alloc,Mut"
-have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 508 "Alloc,IO,Mut"
+have "$(bucket "$work/main.axsym" 'Alloc,IO,Mut')" 509 "Alloc,IO,Mut"
 have "$(bucket "$work/main.axsym" 'Mut')" 299 "exactly Mut"
 have "$(bucket "$work/main.axsym" 'Alloc')" 477 "exactly Alloc"
 have "$(bucket "$work/main.axsym" 'Alloc,IO')" 26 "Alloc,IO"
@@ -558,7 +561,7 @@ lrows="$(grep -c '^F ' "$work/lib.axsym" || true)"
 (( lrows >= 300 )) && ok "$lrows stdlib functions listed (floor 300)" \
   || fail "only $lrows stdlib functions listed; the floor is 300"
 have "$(bucket "$work/lib.axsym" 'Alloc,Mut')" 742 "exactly Alloc,Mut"
-have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 319 "Alloc,IO,Mut"
+have "$(bucket "$work/lib.axsym" 'Alloc,IO,Mut')" 320 "Alloc,IO,Mut"
 have "$(bucket "$work/lib.axsym" 'Mut')" 180 "exactly Mut"
 have "$(bucket "$work/lib.axsym" 'Alloc')" 189 "exactly Alloc"
 have "$(bucket "$work/lib.axsym" 'Alloc,IO')" 29 "Alloc,IO"

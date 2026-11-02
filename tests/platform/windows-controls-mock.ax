@@ -56,10 +56,10 @@
   {
     (let mut bad 0)
     (let _ resetMock)
-    (set bad (+ bad (say (isOk (WindowsPlatform::controlMaskBlock 0 0)) "zero mask succeeds")))
+    (set bad (+ bad (say (isOk (WindowsPlatform::controlMaskBlock 0)) "zero mask succeeds")))
     (set bad (+ bad (say (== callsMock 0) "zero mask does not install a handler")))
     (set bad (+ bad
-               (say (errorIs (WindowsPlatform::controlMaskBlock 1 0) 78)
+               (say (errorIs (WindowsPlatform::controlMaskBlock 1) 78)
                  "unsupported mask is refused")))
     (set bad (+ bad (say (== callsMock 0) "unsupported mask never reaches the runtime")))
     (let _ (failMock 5))
@@ -73,7 +73,7 @@
                (say (isOk (WindowsIO::pollerAddSignals p 2 71)) "registration can be retried")))
     ; A process may block both controls while one poller watches only
     ; Ctrl-C. Ctrl-Break must remain pending for another registration.
-    (let _ (WindowsPlatform::controlMaskBlock 1048578 0))
+    (let _ (WindowsPlatform::controlMaskBlock 1048578))
     (let _ (queueMock 1048576))
     (set bad (+ bad (say (== (count p) 0) "a row does not consume signals outside its mask")))
     (let _ (queueMock 2))

@@ -341,7 +341,7 @@ Fn       platformMapShared    (Int -> Err::Result Int Err::Error)      [stdlib/S
 Fn       platformUnmapShared  (Int -> (Int -> Err::Result Int Err::Error)) [stdlib/Sys/Platform.darwin.ax:1614:9-28]
 Fn       platformMlock        (Int -> (Int -> Err::Result Int Err::Error)) [stdlib/Sys/Platform.darwin.ax:1620:9-22]
 Fn       platformMunlock      (Int -> (Int -> Err::Result Int Err::Error)) [stdlib/Sys/Platform.darwin.ax:1625:9-24]
-Fn       platformSignalBlock  (Int -> (Int -> Err::Result Int Err::Error)) [stdlib/Sys/Platform.darwin.ax:1631:9-28]
+Fn       platformSignalBlock  (Int -> Err::Result Int Err::Error)      [stdlib/Sys/Platform.darwin.ax:1631:9-28]
 Fn       platformSocket       (Int -> (Int -> (Int -> Int)))           [stdlib/Sys/Platform.darwin.ax:1644:9-23]
 Fn       platformBind         (Int -> (Int -> (Int -> Int)))           [stdlib/Sys/Platform.darwin.ax:1650:9-21]
 Fn       platformListen       (Int -> (Int -> Int))                    [stdlib/Sys/Platform.darwin.ax:1656:9-23]

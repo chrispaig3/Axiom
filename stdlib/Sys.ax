@@ -1298,22 +1298,29 @@
 (pub fn (sysSigBit signo)
   (<< 1 (- signo 1)))
 
-;; Block the signals in `mask` so they become observable instead of
-;; fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is
-;; written as one 64-bit word, and the kernel then copies ITS OWN
-;; `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on
-;; Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target,
-;; and the bytes between the word and that width are zeroed here rather
-;; than left to whatever the caller's buffer held, because on FreeBSD
-;; they are signals 65 through 128 and a stale byte there blocks one.
-;; Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before
-;; a server forks, so that every worker inherits the mask.
-(pub :: sysSignalBlock (-> Int Int (Result Int Error)))
+;; Block the signals in `mask` so they become observable instead of fatal.
+;; The call owns and releases 16 bytes of kernel scratch. It zeroes the
+;; whole platform sigset_t before writing the mask: 4 bytes on Darwin,
+;; 8 on Linux and 16 on FreeBSD, including FreeBSD's upper signal bits.
+;; Answers `Ok 0` on success. Call before a server forks so every worker
+;; inherits the mask.
+(pub :: sysSignalBlock (-> Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (sysSignalBlock mask)
+  {
+    (let setbuf (sysScratch 16))
+    (let result (sysSignalBlockRaw mask setbuf))
+    (sysScratchDone setbuf)
+    result
+  })
+
+; setbuf is live scratch owned by sysSignalBlock.
+(:: sysSignalBlockRaw (-> Int Int (Result Int Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(unsafe)
-(pub fn (sysSignalBlock mask setbuf)
+(fn (sysSignalBlockRaw mask setbuf)
   (if (== usesSyscallAbi 0)
-    (platformSignalBlock mask setbuf)
+    (platformSignalBlock mask)
     {
       (rawSet setbuf 0 sigsetBytes)
       (netPutWord setbuf 0 mask)

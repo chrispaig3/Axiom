@@ -19942,7 +19942,7 @@
           ((Ok ignored)
             {
               (let mask (sysSigBit sigChild))
-              (match (sysSignalBlock mask (memAlloc 16))
+              (match (sysSignalBlock mask)
                 ((Err e) (lspServe None))
                 ((Ok blocked)
                   (match (pollerAddSignals poller mask 2)

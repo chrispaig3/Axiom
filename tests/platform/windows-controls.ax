@@ -92,15 +92,12 @@
 (fn (exercise p q)
   {
     (let mask (| (sysSigBit sigInt) (sysSigBit sigBreak)))
-    (let scratchBytes (strAlloc 16))
-    (let scratch (strData scratchBytes))
     (let mut bad 0)
-    (set bad (+ bad (say (isOk (sysSignalBlock 0 scratch)) "an empty control mask is a no-op")))
+    (set bad (+ bad (say (isOk (sysSignalBlock 0)) "an empty control mask is a no-op")))
     (set bad (+ bad
-               (say (unsupported (sysSignalBlock (sysSigBit sigTerm) scratch))
+               (say (unsupported (sysSignalBlock (sysSigBit sigTerm)))
                  "unsupported controls are refused")))
-    (set bad (+ bad
-               (say (isOk (sysSignalBlock mask scratch)) "Ctrl-C and Ctrl-Break are captured")))
+    (set bad (+ bad (say (isOk (sysSignalBlock mask)) "Ctrl-C and Ctrl-Break are captured")))
     (set bad (+ bad (say (isOk (pollerAddSignals p mask 77)) "controls register with a token")))
     (set bad (+ bad (say (== (waitCount p 0) 0) "an idle control wait is empty")))
     (set bad (+ bad (say (sendControl 0) "Ctrl-C is generated in the private console")))

@@ -303,6 +303,8 @@ the neighbourhood of the corpus.
   bytes; its address-taking fills are internal
   (`tests/diagnostics/1512-entropy-addresses.ax`). Child polling owns its
   scratch too (`tests/stdlib/1006-child-poll-owned-scratch.ax`).
+  Signal masking accepts only the mask
+  (`tests/stdlib/1007-signal-mask-owned-scratch.ax`).
 - A closure with more than 46 captures retains counted captures without
   a reference map to release them (`MM-LIFE-2c`,
   `tests/stdlib/1004-capture-map-limit.ax`).

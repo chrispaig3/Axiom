@@ -341,7 +341,7 @@ F platformMapShared stdlib/Sys/Platform.darwin.ax:1609:9-26 "(Int -> Err::Result
 F platformUnmapShared stdlib/Sys/Platform.darwin.ax:1614:9-28 "(Int -> (Int -> Err::Result Int Err::Error))" @c12a2725af45202e #effects=Alloc
 F platformMlock stdlib/Sys/Platform.darwin.ax:1620:9-22 "(Int -> (Int -> Err::Result Int Err::Error))" @e59c0f70d621d654 #effects=Alloc
 F platformMunlock stdlib/Sys/Platform.darwin.ax:1625:9-24 "(Int -> (Int -> Err::Result Int Err::Error))" @f618183bf0773383 #effects=Alloc
-F platformSignalBlock stdlib/Sys/Platform.darwin.ax:1631:9-28 "(Int -> (Int -> Err::Result Int Err::Error))" @ca6d8b00fb159a61 #effects=Alloc
+F platformSignalBlock stdlib/Sys/Platform.darwin.ax:1631:9-28 "(Int -> Err::Result Int Err::Error)" @ca6d8b00fb159a61 #effects=Alloc
 F platformSocket stdlib/Sys/Platform.darwin.ax:1644:9-23 "(Int -> (Int -> (Int -> Int)))" @ad1981892e881545 #effect=pure
 F platformBind stdlib/Sys/Platform.darwin.ax:1650:9-21 "(Int -> (Int -> (Int -> Int)))" @356922533140578b #effect=pure
 F platformListen stdlib/Sys/Platform.darwin.ax:1656:9-23 "(Int -> (Int -> Int))" @a8966ddd6bef9f2f #effect=pure

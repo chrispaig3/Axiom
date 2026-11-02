@@ -1910,7 +1910,7 @@
       ; arena, so closing a poller cannot race the native handler.
       {
         (pollerPrune p)
-        (match (platformSignalBlock mask 0)
+        (match (platformSignalBlock mask)
           ((Err e) (Err (errContextOf e "pollerAddSignals")))
           ((Ok _)
             {
