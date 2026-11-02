@@ -2587,11 +2587,12 @@ Spell the literal, or read bytes out of a value with `strData` (`stdlib/Str.ax`)
 ### explain AX3073
 AX3073 - a function performs an unsafe operation and does not declare it
 
-The body performs an unsafe operation, and its declaration does not say `;@axiom:effect(unsafe)`. There are three:
+The body performs an unsafe operation, and its declaration does not say `;@axiom:effect(unsafe)`. There are four:
 
 - an extern call, whose implementation is outside the safety checker;
 - a raw primitive, such as `__load64`, `__store8`, `__retain` or `__addr`;
-- a forging cast: `(as x T)` where `T` is a reference - a `String`, a `Vec`, a `Handle`, a struct, a `data` type with a field, a function, a tuple or a type variable - or a spawn handle, `Spawn`, and `x` is not already a `T`.
+- a forging cast: `(as x T)` where `T` is a reference - a `String`, a `Vec`, a `Handle`, a struct, a `data` type with a field, a function, a tuple or a type variable - or a spawn handle, `Spawn`, and `x` is not already a `T`;
+- an erasing cast: `(as v Int)` or `(as v Foreign)` where `v` is a reference, in a module outside the compiler and the standard library. The compiler and the library still erase. Keep the value in a typed binding, or use `addrOf` when the question is identity.
 
     (struct Hid (name : String) (n : Int))
     (fn (peek k) { (let h (as k Hid)) h.n })
@@ -2600,7 +2601,7 @@ Here `peek` makes a `Hid` out of an `Int`, and reading `h.n` reads whatever that
 
 Write `;@axiom:effect(unsafe)` on a line of its own, directly above the `fn` (below the `::` signature when there is one). That tag makes the function a trusted encapsulation: you vouch that every well-typed call to it is safe, and its callers inherit nothing.
 
-A cast that only observes is not unsafe: a reference read as an `Int`, a number converted, a `Foreign` read as an `Int` or back, a value cast to the type it already has. Nor is a cast of a value that never returns, such as `(as (exit 70) a)`.
+A cast that only observes is not unsafe: a number converted, a `Foreign` read as an `Int` or back, a value cast to the type it already has. Nor is a cast of a value that never returns, such as `(as (exit 70) a)`.
 
 This fires where the operation is performed, not up the call chain, and it asks every declaration that does not say `effect(unsafe)`, whatever else it claims. An unsafe operation under `effect(pure)` is AX3010 instead.
 
