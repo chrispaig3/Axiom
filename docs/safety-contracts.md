@@ -91,7 +91,7 @@ Entropy returns owned bytes through `Crypto.Random.secureRandomBytes`.
 The kernel, hardware and Windows address-taking fills are internal.
 Tested by `tests/diagnostics/1512-entropy-addresses.ax`.
 
-Not yet: public raw-address interfaces remain
+No public function takes a raw address now
 ([roadmap](roadmap.md#memory-and-resource-safety)). Outside the
 trusted standard library, an erasing cast is `AX3073` unless the
 declaration says `effect(unsafe)`. This includes compiler source and
@@ -227,7 +227,7 @@ Tested by `tests/stdlib/707-library-pre.ax` and
 
 | Broader claim | Existing counterexample or limit | What you may conclude |
 |---|---|---|
-| Every untagged call is memory-safe for every well-typed argument | `Crypto.Secret.secretFromAddr` still accepts unchecked addresses; foreign ownership helpers carry pointer obligations | Typed process calls and Cereal reject raw addresses (`tests/diagnostics/1519-process-addresses.ax`, `tests/diagnostics/1533-cereal-addresses.ax`); this does not prove every trusted or foreign implementation safe |
+| Every untagged call is memory-safe for every well-typed argument | Foreign ownership helpers carry pointer obligations | Typed process calls, Cereal and the hash and secret interfaces reject raw addresses (`tests/diagnostics/1519-process-addresses.ax`, `tests/diagnostics/1533-cereal-addresses.ax`, `tests/diagnostics/1537-hash-secret-addresses.ax`); this does not prove every trusted or foreign implementation safe |
 | An effect restriction accounts for every cleanup effect | `tests/stdlib/712-drop-effects-at-store.ax` closes a file at a field store inside the swapping function | A field store counts the released value's drop there; drops of local bindings and temporaries are still attributed at creation, so an effect row does not yet establish absence of every cleanup IO |
 | Every reclaimed allocation has run its destructor | `MM-RGN-6` does not promise a destructor for every reclaimed object; `MM-EXEC-20` sweeps registered owners | Reclamation and external-resource cleanup require separate arguments |
 | Every unreachable graph is reclaimed | `MM-LIFE-3` permits cycles | ARC provides no general leak-freedom guarantee |

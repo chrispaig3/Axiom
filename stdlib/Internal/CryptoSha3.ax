@@ -1,0 +1,674 @@
+;;! Internal.CryptoSha3 - Crypto.Sha3 - Keccak, SHA-3 and SHAKE kernels. Hazardous layer:
+;;! raw-address operations for other Crypto modules. Application
+;;! code uses `Crypto.Sha3`.
+(import Internal.CryptoCt)
+(import Internal.CryptoBytes)
+(import Internal.Raw)
+(import Str)
+(import Crypto.Ct)
+(import Crypto.Bytes)
+
+; ------------------------------------------------------------------
+; The word operations, as macros so that every one lands inline in the
+; kernel that uses it: no call is left for the optimiser to keep, and
+; the constant-time check reads one function.
+; ------------------------------------------------------------------
+; `x` rotated left by a literal `n` in 1..63: one rotate instruction
+; after `opt`. The mask clears the sign copies the arithmetic shift
+; brings in.
+(macro (keccakRotl x n) {
+  (let x0 x)
+  (| (<< x0 n) (& (>> x0 (- 64 n)) (- (<< 1 n) 1)))
+})
+
+; The little-endian 64-bit word at `p` + `off`, which need not be
+; aligned, byte by byte; `opt` combines the bytes into one load.
+(macro (keccakLd64le p off) {
+  (let q p)
+  (let o off)
+  (|
+    (| (__load8 q o)
+      (| (<< (__load8 q (+ o 1)) 8) (| (<< (__load8 q (+ o 2)) 16) (<< (__load8 q (+ o 3)) 24))))
+    (<<
+      (| (__load8 q (+ o 4))
+        (| (<< (__load8 q (+ o 5)) 8) (| (<< (__load8 q (+ o 6)) 16) (<< (__load8 q (+ o 7)) 24))))
+      32))
+})
+
+; Store the 64 bits of `v` at `p` + `off`, least significant byte first.
+(macro (keccakSt64le p off v) {
+  (let q p)
+  (let o off)
+  (let v0 v)
+  (for k in 0..8
+    (__store8 q (+ o k) (& (>> v0 (* 8 k)) 255)))
+})
+
+; ------------------------------------------------------------------
+; Keccak-f[1600].
+; ------------------------------------------------------------------
+; One round, Rnd of section 3.3: theta (3.2.1), rho and pi (3.2.2 and
+; 3.2.3) as one step that rotates each lane into its new place, chi
+; (3.2.4), and iota (3.2.5) folded into lane 0. Lane (x, y) is `s`
+; x + 5y. `rc` is the round's constant.
+(macro (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21 s22 s23 s24 rc) {
+  (let c0 (^ (^ (^ (^ s0 s5) s10) s15) s20))
+  (let c1 (^ (^ (^ (^ s1 s6) s11) s16) s21))
+  (let c2 (^ (^ (^ (^ s2 s7) s12) s17) s22))
+  (let c3 (^ (^ (^ (^ s3 s8) s13) s18) s23))
+  (let c4 (^ (^ (^ (^ s4 s9) s14) s19) s24))
+  {
+    (let d0 (^ c4 (keccakRotl c1 1)))
+    (let d1 (^ c0 (keccakRotl c2 1)))
+    (let d2 (^ c1 (keccakRotl c3 1)))
+    (let d3 (^ c2 (keccakRotl c4 1)))
+    (let d4 (^ c3 (keccakRotl c0 1)))
+    {
+      (let b0 (^ s0 d0))
+      (let b1 (keccakRotl (^ s6 d1) 44))
+      (let b2 (keccakRotl (^ s12 d2) 43))
+      (let b3 (keccakRotl (^ s18 d3) 21))
+      (let b4 (keccakRotl (^ s24 d4) 14))
+      (let b5 (keccakRotl (^ s3 d3) 28))
+      (let b6 (keccakRotl (^ s9 d4) 20))
+      (let b7 (keccakRotl (^ s10 d0) 3))
+      (let b8 (keccakRotl (^ s16 d1) 45))
+      (let b9 (keccakRotl (^ s22 d2) 61))
+      (let b10 (keccakRotl (^ s1 d1) 1))
+      (let b11 (keccakRotl (^ s7 d2) 6))
+      (let b12 (keccakRotl (^ s13 d3) 25))
+      (let b13 (keccakRotl (^ s19 d4) 8))
+      (let b14 (keccakRotl (^ s20 d0) 18))
+      (let b15 (keccakRotl (^ s4 d4) 27))
+      (let b16 (keccakRotl (^ s5 d0) 36))
+      (let b17 (keccakRotl (^ s11 d1) 10))
+      (let b18 (keccakRotl (^ s17 d2) 15))
+      (let b19 (keccakRotl (^ s23 d3) 56))
+      (let b20 (keccakRotl (^ s2 d2) 62))
+      (let b21 (keccakRotl (^ s8 d3) 55))
+      (let b22 (keccakRotl (^ s14 d4) 39))
+      (let b23 (keccakRotl (^ s15 d0) 41))
+      (let b24 (keccakRotl (^ s21 d1) 2))
+      {
+        (set s0 (^ (^ b0 (& (^ b1 -1) b2)) rc))
+        (set s1 (^ b1 (& (^ b2 -1) b3)))
+        (set s2 (^ b2 (& (^ b3 -1) b4)))
+        (set s3 (^ b3 (& (^ b4 -1) b0)))
+        (set s4 (^ b4 (& (^ b0 -1) b1)))
+        (set s5 (^ b5 (& (^ b6 -1) b7)))
+        (set s6 (^ b6 (& (^ b7 -1) b8)))
+        (set s7 (^ b7 (& (^ b8 -1) b9)))
+        (set s8 (^ b8 (& (^ b9 -1) b5)))
+        (set s9 (^ b9 (& (^ b5 -1) b6)))
+        (set s10 (^ b10 (& (^ b11 -1) b12)))
+        (set s11 (^ b11 (& (^ b12 -1) b13)))
+        (set s12 (^ b12 (& (^ b13 -1) b14)))
+        (set s13 (^ b13 (& (^ b14 -1) b10)))
+        (set s14 (^ b14 (& (^ b10 -1) b11)))
+        (set s15 (^ b15 (& (^ b16 -1) b17)))
+        (set s16 (^ b16 (& (^ b17 -1) b18)))
+        (set s17 (^ b17 (& (^ b18 -1) b19)))
+        (set s18 (^ b18 (& (^ b19 -1) b15)))
+        (set s19 (^ b19 (& (^ b15 -1) b16)))
+        (set s20 (^ b20 (& (^ b21 -1) b22)))
+        (set s21 (^ b21 (& (^ b22 -1) b23)))
+        (set s22 (^ b22 (& (^ b23 -1) b24)))
+        (set s23 (^ b23 (& (^ b24 -1) b20)))
+        (set s24 (^ b24 (& (^ b20 -1) b21)))
+      }
+    }
+  }
+})
+
+;; Keccak-f[1600], Algorithm 7 with 24 rounds, on the 25 lanes at `st`:
+;; lane (x, y) in word x + 5y, as a 64-bit word. On a little-endian
+;; machine that is also FIPS 202's byte order for the state.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(pub :: keccakF1600 (-> Int Int))
+;@axiom:ct(*st)
+;@axiom:effect(unsafe)
+(pub fn (keccakF1600 st)
+  {
+    (let mut s0 (__load64 st 0))
+    (let mut s1 (__load64 st 1))
+    (let mut s2 (__load64 st 2))
+    (let mut s3 (__load64 st 3))
+    (let mut s4 (__load64 st 4))
+    (let mut s5 (__load64 st 5))
+    (let mut s6 (__load64 st 6))
+    (let mut s7 (__load64 st 7))
+    (let mut s8 (__load64 st 8))
+    (let mut s9 (__load64 st 9))
+    (let mut s10 (__load64 st 10))
+    (let mut s11 (__load64 st 11))
+    (let mut s12 (__load64 st 12))
+    (let mut s13 (__load64 st 13))
+    (let mut s14 (__load64 st 14))
+    (let mut s15 (__load64 st 15))
+    (let mut s16 (__load64 st 16))
+    (let mut s17 (__load64 st 17))
+    (let mut s18 (__load64 st 18))
+    (let mut s19 (__load64 st 19))
+    (let mut s20 (__load64 st 20))
+    (let mut s21 (__load64 st 21))
+    (let mut s22 (__load64 st 22))
+    (let mut s23 (__load64 st 23))
+    (let mut s24 (__load64 st 24))
+    {
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 1)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 32898)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372036854742902)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372034707259392)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 32907)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 2147483649)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372034707259263)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372036854743031)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 138)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 136)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 2147516425)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 2147483658)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 2147516555)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372036854775669)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372036854742903)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372036854743037)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372036854743038)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372036854775680)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 32778)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372034707292150)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372034707259263)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372036854742912)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 2147483649)
+      (keccakRound s0 s1 s2 s3 s4 s5 s6 s7 s8 s9 s10 s11 s12 s13 s14 s15 s16 s17 s18 s19 s20 s21
+        s22 s23 s24 -9223372034707259384)
+      (__store64 st 0 s0)
+      (__store64 st 1 s1)
+      (__store64 st 2 s2)
+      (__store64 st 3 s3)
+      (__store64 st 4 s4)
+      (__store64 st 5 s5)
+      (__store64 st 6 s6)
+      (__store64 st 7 s7)
+      (__store64 st 8 s8)
+      (__store64 st 9 s9)
+      (__store64 st 10 s10)
+      (__store64 st 11 s11)
+      (__store64 st 12 s12)
+      (__store64 st 13 s13)
+      (__store64 st 14 s14)
+      (__store64 st 15 s15)
+      (__store64 st 16 s16)
+      (__store64 st 17 s17)
+      (__store64 st 18 s18)
+      (__store64 st 19 s19)
+      (__store64 st 20 s20)
+      (__store64 st 21 s21)
+      (__store64 st 22 s22)
+      (__store64 st 23 s23)
+      (__store64 st 24 s24)
+      0
+    }
+  })
+
+; ------------------------------------------------------------------
+; The sponge (FIPS 202 section 4).
+; ------------------------------------------------------------------
+; The sponge blob: words 0-24 the lanes, word 25 the rate in bytes,
+; word 26 the position in the current block, word 27 the phase (0
+; absorbing, 1 squeezing) and word 28 the domain byte, which holds the
+; instance's suffix bits and the first bit of the padding.
+(:: keccakStateBytes Int)
+(pub fn (keccakStateBytes)
+  232)
+
+; SHA-3's domain byte: suffix 01, then pad10*1's first 1 (section 6.1).
+(:: sha3Domain Int)
+(pub fn (sha3Domain)
+  6)
+
+; SHAKE's domain byte: suffix 1111, then pad10*1's first 1 (section 6.2).
+(:: shakeDomain Int)
+(pub fn (shakeDomain)
+  31)
+
+; Whether `r` is the rate of a SHA-3 instance: 1600 - 2d bits for d of
+; 224, 256, 384 and 512, in bytes.
+(:: keccakSha3Rate (-> Int Bool))
+(pub fn (keccakSha3Rate r)
+  (|| (|| (== r 144) (== r 136)) (|| (== r 104) (== r 72))))
+
+; Zero the whole sponge blob at `st`, in a way the optimiser may not
+; delete: word stores for the first 28 words, then `ctWipe` over the
+; last, whose closing fence may read any memory and so keeps every
+; store before it. A byte-at-a-time `ctWipe` of all 232 bytes costs
+; more than the permutation does on a short message.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: keccakErase (-> Int Int))
+;@axiom:effect(unsafe)
+(pub fn (keccakErase st)
+  {
+    (for i in 0..28
+      (__store64 st i 0))
+    (ctWipe (+ st 224) 8)
+  })
+
+; A fresh sponge at `st`: all lanes zero, nothing absorbed.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: keccakInit (-> Int Int Int Int))
+;@axiom:effect(unsafe)
+;@axiom:pre((<= rate 200))
+(pub fn (keccakInit st rate domain)
+  {
+    (keccakErase st)
+    (__store64 st 25 rate)
+    (__store64 st 28 domain)
+    0
+  })
+
+; Whether `s` is the size of a sponge blob and its bytes belong to an
+; allocation. A string literal owns none, and its bytes are read-only,
+; so a hand-built state over one is refused before anything is written.
+(:: keccakWritable (-> String Bool))
+(pub fn (keccakWritable s)
+  (&& (== (strLen s) keccakStateBytes) (!= (strOwner s) 0)))
+
+; Whether `s` is a sponge blob this module could have made with rate
+; `want`, or with any SHA-3 rate when `want` is 0: the right size, and a
+; position inside the block.
+(:: keccakBlobOk (-> String Int Bool))
+;@axiom:effect(unsafe)
+(pub fn (keccakBlobOk s want)
+  (if (! (keccakWritable s))
+    false
+    {
+      (let st (strData s))
+      {
+        (let rate (__load64 st 25))
+        (let pos (__load64 st 26))
+        (&&
+          (if (== want 0)
+            (keccakSha3Rate rate)
+            (== rate want))
+          (&& (>= pos 0) (<= pos rate)))
+      }
+    }))
+
+; XOR byte `b` into byte `i` of the state at `st`.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: keccakXorByte (-> Int Int Int Int))
+;@axiom:ct(*st, b)
+;@axiom:effect(unsafe)
+(pub fn (keccakXorByte st i b)
+  {
+    (let w (>> i 3))
+    {
+      (__store64 st w (^ (__load64 st w) (<< b (* 8 (& i 7)))))
+      0
+    }
+  })
+
+; XOR the `n` bytes at `p` into the state's bytes `pos` to `pos` + `n` -
+; 1, a lane at a time where the position is at a lane boundary.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: keccakXorIn (-> Int Int Int Int Int))
+;@axiom:ct(*st, *p)
+;@axiom:effect(unsafe)
+;@axiom:pre((<= (+ pos n) 200))
+(pub fn (keccakXorIn st pos p n)
+  {
+    (let mut i 0)
+    {
+      (while (&& (< i n) (!= (& (+ pos i) 7) 0))
+        {
+          (keccakXorByte st (+ pos i) (__load8 p i))
+          (set i (+ i 1))
+        })
+      (while (<= (+ i 8) n)
+        {
+          (let w (>> (+ pos i) 3))
+          {
+            (__store64 st w (^ (__load64 st w) (keccakLd64le p i)))
+            (set i (+ i 8))
+          }
+        })
+      (while (< i n)
+        {
+          (keccakXorByte st (+ pos i) (__load8 p i))
+          (set i (+ i 1))
+        })
+      0
+    }
+  })
+
+; Copy the state's bytes `pos` to `pos` + `n` - 1 to `out`, a lane at a
+; time where the position is at a lane boundary.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: keccakReadOut (-> Int Int Int Int Int))
+;@axiom:ct(*st, *out)
+;@axiom:effect(unsafe)
+;@axiom:pre((<= (+ pos n) 200))
+(pub fn (keccakReadOut st pos out n)
+  {
+    (let mut i 0)
+    {
+      (while (&& (< i n) (!= (& (+ pos i) 7) 0))
+        {
+          (let j (+ pos i))
+          {
+            (__store8 out i (& (>> (__load64 st (>> j 3)) (* 8 (& j 7))) 255))
+            (set i (+ i 1))
+          }
+        })
+      (while (<= (+ i 8) n)
+        {
+          (keccakSt64le out i (__load64 st (>> (+ pos i) 3)))
+          (set i (+ i 8))
+        })
+      (while (< i n)
+        {
+          (let j (+ pos i))
+          {
+            (__store8 out i (& (>> (__load64 st (>> j 3)) (* 8 (& j 7))) 255))
+            (set i (+ i 1))
+          }
+        })
+      0
+    }
+  })
+
+; Absorb `n` bytes at `p`. Whole blocks go straight from the input; a
+; block is permuted as soon as it fills, so between calls the position
+; is always inside the block. The sponge is in two parts, passed apart
+; so that the constant-time claim can name the secret one: the 25 lanes
+; at `lanes`, and the public fields at `fields` (rate, position, phase,
+; domain byte). Answers 0, or -1 when the sponge is already squeezing or
+; `n` is negative, and then absorbs nothing.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: keccakAbsorbIn (-> Int Int Int Int Int))
+;@axiom:ct(*lanes, *p)
+;@axiom:effect(unsafe)
+(pub fn (keccakAbsorbIn lanes fields p n)
+  {
+    (let rate (__load64 fields 0))
+    (if (|| (< n 0) (!= (__load64 fields 2) 0))
+      -1
+      {
+        (let mut pos (__load64 fields 1))
+        (let mut off 0)
+        {
+          (while (< off n)
+            (if (&& (== pos 0) (>= (- n off) rate))
+              {
+                (keccakXorIn lanes 0 (+ p off) rate)
+                (keccakF1600 lanes)
+                (set off (+ off rate))
+              }
+              {
+                (let take
+                  (if (< (- n off) (- rate pos))
+                    (- n off)
+                    (- rate pos)))
+                {
+                  (keccakXorIn lanes pos (+ p off) take)
+                  (set pos (+ pos take))
+                  (set off (+ off take))
+                  (if (== pos rate)
+                    {
+                      (keccakF1600 lanes)
+                      (set pos 0)
+                    })
+                }
+              }))
+          (__store64 fields 1 pos)
+          0
+        }
+      })
+  })
+
+; `keccakAbsorbIn` on the sponge blob at `st`.
+(:: keccakAbsorb (-> Int Int Int Int))
+;@axiom:ct(*p)
+(pub fn (keccakAbsorb st p n)
+  (keccakAbsorbIn st (+ st 200) p n))
+
+; End the message: the domain byte at the position and pad10*1's last
+; bit at the end of the block (Algorithm 9), then the permutation. The
+; sponge is squeezing from here, from the start of the block.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: keccakPadIn (-> Int Int Int))
+;@axiom:ct(*lanes)
+;@axiom:effect(unsafe)
+(pub fn (keccakPadIn lanes fields)
+  {
+    (let rate (__load64 fields 0))
+    {
+      (keccakXorByte lanes (__load64 fields 1) (& (__load64 fields 3) 255))
+      (keccakXorByte lanes (- rate 1) 128)
+      (keccakF1600 lanes)
+      (__store64 fields 1 0)
+      (__store64 fields 2 1)
+      0
+    }
+  })
+
+; Squeeze `n` bytes to `out`, padding first if the sponge was still
+; absorbing. The permutation runs only when more output is wanted, so
+; the position may rest at the end of a block. The parts are as
+; `keccakAbsorbIn` takes them. Answers 0, or -1 when `n` is negative.
+;@axiom:restrict(no-io,no-alloc,no-foreign)
+(:: keccakSqueezeIn (-> Int Int Int Int Int))
+;@axiom:ct(*lanes, *out)
+;@axiom:effect(unsafe)
+(pub fn (keccakSqueezeIn lanes fields out n)
+  (if (< n 0)
+    -1
+    {
+      (if (== (__load64 fields 2) 0)
+        (keccakPadIn lanes fields))
+      {
+        (let rate (__load64 fields 0))
+        (let mut pos (__load64 fields 1))
+        (let mut off 0)
+        {
+          (while (< off n)
+            {
+              (if (== pos rate)
+                {
+                  (keccakF1600 lanes)
+                  (set pos 0)
+                })
+              {
+                (let take
+                  (if (< (- n off) (- rate pos))
+                    (- n off)
+                    (- rate pos)))
+                {
+                  (keccakReadOut lanes pos (+ out off) take)
+                  (set pos (+ pos take))
+                  (set off (+ off take))
+                }
+              }
+            })
+          (__store64 fields 1 pos)
+          0
+        }
+      }
+    }))
+
+; `keccakSqueezeIn` on the sponge blob at `st`.
+(:: keccakSqueeze (-> Int Int Int Int))
+;@axiom:ct(*out)
+(pub fn (keccakSqueeze st out n)
+  (keccakSqueezeIn st (+ st 200) out n))
+
+; The whole sponge in scratch memory: absorb `n` bytes at `p`, squeeze
+; `outLen` bytes to `out`, wipe the scratch. Answers 0.
+(:: keccakOneShot (-> Int Int Int Int Int Int Int))
+;@axiom:ct(*p)
+(pub fn (keccakOneShot rate domain p n out outLen)
+  {
+    (let st (rawAlloc keccakStateBytes))
+    {
+      (keccakInit st rate domain)
+      (keccakAbsorb st p n)
+      (keccakSqueeze st out outLen)
+      (keccakErase st)
+    }
+  })
+
+; A fresh sponge blob with rate `rate` and domain byte `domain`.
+(:: keccakNewBlob (-> Int Int String))
+(pub fn (keccakNewBlob rate domain)
+  {
+    (let s (strAlloc keccakStateBytes))
+    {
+      (keccakInit (strData s) rate domain)
+      s
+    }
+  })
+
+; ------------------------------------------------------------------
+; SHA-3 (FIPS 202 section 6.1).
+; ------------------------------------------------------------------
+;; The SHA3-224 digest of `n` bytes at `p`, written to the 28 bytes at
+;; `out`. Answers 0.
+(pub :: sha3_224Addr (-> Int Int Int Int))
+;@axiom:ct(*p)
+(pub fn (sha3_224Addr p n out)
+  (keccakOneShot 144 sha3Domain p n out 28))
+
+;; The SHA3-256 digest of `n` bytes at `p`, written to the 32 bytes at
+;; `out`. Answers 0.
+(pub :: sha3_256Addr (-> Int Int Int Int))
+;@axiom:ct(*p)
+(pub fn (sha3_256Addr p n out)
+  (keccakOneShot 136 sha3Domain p n out 32))
+
+;; The SHA3-384 digest of `n` bytes at `p`, written to the 48 bytes at
+;; `out`. Answers 0.
+(pub :: sha3_384Addr (-> Int Int Int Int))
+;@axiom:ct(*p)
+(pub fn (sha3_384Addr p n out)
+  (keccakOneShot 104 sha3Domain p n out 48))
+
+;; The SHA3-512 digest of `n` bytes at `p`, written to the 64 bytes at
+;; `out`. Answers 0.
+(pub :: sha3_512Addr (-> Int Int Int Int))
+;@axiom:ct(*p)
+(pub fn (sha3_512Addr p n out)
+  (keccakOneShot 72 sha3Domain p n out 64))
+
+;; A SHA-3 hash in progress, of any of the four sizes. Make one with
+;; `sha3_224New`, `sha3_256New`, `sha3_384New` or `sha3_512New`.
+(pub struct Sha3
+  (state : String))
+
+;; Absorb `n` bytes at address `p`. Answers 0, or -1 when `h` is not a
+;; SHA-3 state, and then absorbs nothing.
+(pub :: sha3UpdateAddr (-> Sha3 Int Int Int))
+;@axiom:ct(*p)
+(pub fn (sha3UpdateAddr h p n)
+  {
+    (let s h.state)
+    (if (keccakBlobOk s 0)
+      (keccakAbsorb (strData s) p n)
+      -1)
+  })
+
+; ------------------------------------------------------------------
+; SHAKE128 and SHAKE256 (FIPS 202 section 6.2).
+; ------------------------------------------------------------------
+;; `outLen` bytes of SHAKE128 over `n` bytes at `p`, written to `out`.
+;; Answers 0.
+(pub :: shake128Addr (-> Int Int Int Int Int))
+;@axiom:ct(*p)
+(pub fn (shake128Addr p n out outLen)
+  (keccakOneShot 168 shakeDomain p n out outLen))
+
+;; `outLen` bytes of SHAKE256 over `n` bytes at `p`, written to `out`.
+;; Answers 0.
+(pub :: shake256Addr (-> Int Int Int Int Int))
+;@axiom:ct(*p)
+(pub fn (shake256Addr p n out outLen)
+  (keccakOneShot 136 shakeDomain p n out outLen))
+
+;; A SHAKE128 extendable-output function in progress: absorb input, then
+;; squeeze output in as many pieces as wanted.
+(pub struct Shake128
+  (state : String))
+
+;; A SHAKE256 extendable-output function in progress.
+(pub struct Shake256
+  (state : String))
+
+;; Absorb `n` bytes at address `p`. Answers 0, or -1 when `x` is not a
+;; SHAKE128 state or has begun squeezing, and then absorbs nothing.
+(pub :: shake128AbsorbAddr (-> Shake128 Int Int Int))
+;@axiom:ct(*p)
+(pub fn (shake128AbsorbAddr x p n)
+  {
+    (let s x.state)
+    (if (keccakBlobOk s 168)
+      (keccakAbsorb (strData s) p n)
+      -1)
+  })
+
+;; Squeeze the next `n` bytes of output to address `out`; the first
+;; squeeze ends the input. Answers 0, or -1 when `x` is not a SHAKE128
+;; state or `n` is negative.
+(pub :: shake128SqueezeAddr (-> Shake128 Int Int Int))
+;@axiom:ct(*out)
+(pub fn (shake128SqueezeAddr x out n)
+  {
+    (let s x.state)
+    (if (keccakBlobOk s 168)
+      (keccakSqueeze (strData s) out n)
+      -1)
+  })
+
+;; Absorb `n` bytes at address `p`. Answers 0, or -1 when `x` is not a
+;; SHAKE256 state or has begun squeezing, and then absorbs nothing.
+(pub :: shake256AbsorbAddr (-> Shake256 Int Int Int))
+;@axiom:ct(*p)
+(pub fn (shake256AbsorbAddr x p n)
+  {
+    (let s x.state)
+    (if (keccakBlobOk s 136)
+      (keccakAbsorb (strData s) p n)
+      -1)
+  })
+
+;; Squeeze the next `n` bytes of output to address `out`; the first
+;; squeeze ends the input. Answers 0, or -1 when `x` is not a SHAKE256
+;; state or `n` is negative.
+(pub :: shake256SqueezeAddr (-> Shake256 Int Int Int))
+;@axiom:ct(*out)
+(pub fn (shake256SqueezeAddr x out n)
+  {
+    (let s x.state)
+    (if (keccakBlobOk s 136)
+      (keccakSqueeze (strData s) out n)
+      -1)
+  })

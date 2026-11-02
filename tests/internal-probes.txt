@@ -43,3 +43,9 @@ tests/crypto/240-poly1305.ax
 tests/crypto/300-field25519.ax
 tests/crypto/301-scalar25519.ax
 tests/crypto/302-curve25519-group.ax
+tests/crypto/100-sha2.ax
+tests/crypto/110-sha3.ax
+tests/crypto/120-blake2b.ax
+tests/crypto/130-hmac.ax
+tests/crypto/140-hkdf.ax
+tests/stdlib/707-library-pre.ax

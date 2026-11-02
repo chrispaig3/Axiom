@@ -2140,3 +2140,151 @@
 0.8.1  F  ge25519DoubleScalarMultVartime  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
 
 0.8.1  L  drop-effects-at-store  storing over a field counts the released value's drop effects at the store; a restrict claim over such a store may now warn AX3051 and a strict one is refused AX3057; drop or narrow the claim
+
+0.8.1  S  Blake2b  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.1  S  HmacSha256  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.1  S  HmacSha512  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.1  S  SecretBytes  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.1  S  Sha256  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.1  S  Sha3  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.1  S  Sha384  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.1  S  Sha512  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.1  S  Shake128  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.1  S  Shake256  declared with its raw kernels in an internal module; the typed APIs that make and use it are unchanged
+0.8.1  F  blake2bAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  blake2bCompress  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  blake2bUpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hkdfSha256ExpandRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hkdfSha256Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hkdfSha512ExpandRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hkdfSha512Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha256Chains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha256FinalAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha256NewChains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha256NewRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha256Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha256UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha512Chains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha512FinalAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha512NewChains  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha512NewRaw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha512Raw  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  hmacSha512UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  keccakF1600  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  secretAddr  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.1  F  secretBlockAddr  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.1  F  secretBlockFree  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.1  F  secretBlockFrom  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.1  F  secretBlockLen  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.1  F  secretBlockLocked  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.1  F  secretBlockNew  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.1  F  secretBlockRandom  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.1  F  secretFromAddr  the secret store is internal; use SecretBytes and the typed key APIs
+0.8.1  F  sha256Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha256RawChain  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha256RawFinal  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha256RawInit  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha256RawResume  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha256RawSize  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha256RawUpdate  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha256UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha384Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha384UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha3UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha3_224Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha3_256Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha3_384Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha3_512Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha512Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha512RawChain  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha512RawFinal  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha512RawInit  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha512RawResume  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha512RawSize  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha512RawUpdate  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  sha512UpdateAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  shake128AbsorbAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  shake128Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  shake128SqueezeAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  shake256AbsorbAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  shake256Addr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  shake256SqueezeAddr  raw hash memory operations are internal; use the typed hash, HMAC or HKDF APIs
+0.8.1  F  aes128GcmKeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  aes128GcmKeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  aes256GcmKeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  aes256GcmKeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  blake2bCopy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  blake2bFinal  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  blake2bNew  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  blake2bNewKeyed  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  blake2bNewKeyedSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  blake2bUpdate  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  blake2bWipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  chacha20Poly1305KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  chacha20Poly1305KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  ed25519KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  ed25519KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hkdfSha256  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hkdfSha256Expand  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hkdfSha256Extract  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hkdfSha512  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hkdfSha512Expand  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hkdfSha512Extract  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha256Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha256Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha256KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha256KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha256Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha256Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha512Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha512Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha512KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha512KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha512New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha512Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  hmacSha512Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  obfuscationKeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  secretEq  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  secretExposeCopy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  secretFromString  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  secretIsLocked  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  secretLen  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  secretRandom  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  secretWipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha256Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha256Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha256Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha256Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha3_224New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha3_256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha3_384New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha3_512New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha384Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha384Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha384New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha384Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha384Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha3Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha3Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha3Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha3Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha512Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha512Final  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha512New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha512Update  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  sha512Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  shake128Absorb  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  shake128Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  shake128New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  shake128Squeeze  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  shake128Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  shake256Absorb  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  shake256Copy  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  shake256New  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  shake256Squeeze  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  shake256Wipe  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  x25519  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  x25519KeyExport  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged
+0.8.1  F  x25519KeyFromSecret  its signature names a hash state, key or secret type by that type's internal defining module; the type, effects and behaviour are unchanged

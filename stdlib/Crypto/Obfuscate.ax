@@ -23,6 +23,7 @@
 (import Crypto.Hkdf)
 (import Crypto.Aead)
 (import Crypto.ChaCha20Poly1305)
+(import Internal.CryptoSecret)
 
 ;; A sealed 256-bit master key in the secret store. Wipe it after use.
 (pub struct ObfuscationKey word shared
@@ -56,7 +57,7 @@
 (pub fn (obfuscationKeyFromSecret s)
   (if (!= (secretLen s) 32)
     (cryptoLengthErr "an obfuscation key is 32 bytes" "obfuscationKeyFromSecret")
-    (match (secretBlockFrom obfuscationKind (secretAddr s) 32)
+    (match (secretBlockFrom obfuscationKind (secretBytesAddr s) 32)
       ((Ok h) (Ok (ObfuscationKey :slot h)))
       ((Err e) (Err e)))))
 
@@ -94,7 +95,7 @@
 (:: obfuscationDerive (-> ObfuscationKey String String (Result ChaCha20Poly1305Key Error)))
 ;@axiom:effect(io)
 (fn (obfuscationDerive k nonce context)
-  (match (secretFromAddr (secretBlockAddr obfuscationKind k.slot) 32)
+  (match (secretBytesFromAddr (secretBlockAddr obfuscationKind k.slot) 32)
     ((Err e) (Err e))
     ((Ok master)
       {

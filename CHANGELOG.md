@@ -16,6 +16,13 @@ its changelog too.
 
 ## Unreleased
 
+- Hash, HMAC, HKDF and secret-store address operations move into
+  internal crypto modules. Typed hash states, HMAC and HKDF keys,
+  and `SecretBytes` keep their behaviour, and no public function now
+  takes a raw address. Tested by
+  `tests/diagnostics/1537-hash-secret-addresses.ax` and
+  `scripts/check-crypto.sh`.
+
 - Formatting a record that holds an abstract type such as `Vec` is
   refused with `AX3025`. It generated an empty renderer whose null
   string crashed the program that printed it. Tested by

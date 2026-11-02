@@ -14955,7 +14955,8 @@
                         (showRewriteTo tc head "Fmt" "fmtFloat" (spanOf e))
                         (if (strEq n "Char")
                           (showRewriteGen tc e head arg ty 0)
-                          (if (|| (! (isNone (findData tc n))) (! (isNone (findStruct tc n))))
+                          (if (|| (! (isNone (findDataAnyVis tc n)))
+                                (! (isNone (findStructAnyVis tc n))))
                             (showRewriteGen tc e head arg ty 1)
                             ShowUnavailable))))))
               }))
@@ -15192,7 +15193,7 @@
                 (if (showSeenName seen key 0)
                   None
                   {
-                    (let dentFound (findData tc n))
+                    (let dentFound (findDataAnyVis tc n))
                     {
                       (vecPush seen key)
                       (if (let (Some dent) dentFound)
@@ -15208,7 +15209,7 @@
                           (Some ty)
                           (showDerivableCtors tc (dataEntCtors dent) ty seen 0))
                         {
-                          (let sentFound (findStruct tc n))
+                          (let sentFound (findStructAnyVis tc n))
                           (if (let (Some sent) sentFound)
                             (showDerivableFields tc (structEntFields sent) seen 0)
                             (Some ty))
@@ -15499,10 +15500,10 @@
     (if (strEq n "Char")
       (showGenChar tc nm sp)
       {
-        (let dentFound (findData tc n))
+        (let dentFound (findDataAnyVis tc n))
         (if (let (Some dent) dentFound)
           (showGenData tc ty nm sp dent)
-          (if (let (Some sent) (findStruct tc n))
+          (if (let (Some sent) (findStructAnyVis tc n))
             (showGenStruct tc ty nm sp sent)
             false))
       })

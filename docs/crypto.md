@@ -134,6 +134,11 @@ Cipher, authenticator and curve memory kernels are internal too. Use
 queries remain available. Tested by
 `tests/diagnostics/1534-crypto-leaf-addresses.ax`.
 
+Hash, HMAC, HKDF and secret-store address operations are internal
+too. Use the typed hash states, `Crypto.Hmac`, `Crypto.Hkdf` and
+`SecretBytes`. Tested by
+`tests/diagnostics/1537-hash-secret-addresses.ax`.
+
 A `String` holds any bytes, so the suite uses it for public byte data:
 messages, ciphertexts, digests and encoded keys. `Crypto.Bytes` has
 what you need around them:

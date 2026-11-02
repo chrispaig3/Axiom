@@ -70,6 +70,8 @@
 (import Crypto.Sha2)
 (import Internal.CryptoCurve25519Scalar)
 (import Internal.CryptoCurve25519)
+(import Internal.CryptoSecret)
+(import Internal.CryptoSha2)
 
 ;; An Ed25519 private key: a handle to the seed and what it expands to,
 ;; in the secret store. Prints as `<Ed25519SecretKey>`.
@@ -169,7 +171,7 @@
       ((Err e) (Err e))
       ((Ok h)
         {
-          (ctCopy (secretBlockAddr ed25519Kind h) (secretAddr s) 32)
+          (ctCopy (secretBlockAddr ed25519Kind h) (secretBytesAddr s) 32)
           (ed25519BlockFinish h)
           (Ok (Ed25519SecretKey :slot h))
         }
@@ -187,7 +189,7 @@
 (pub :: ed25519KeyExport (-> Ed25519SecretKey (Result SecretBytes Error)))
 ;@axiom:effect(io)
 (pub fn (ed25519KeyExport k)
-  (secretFromAddr (secretBlockAddr ed25519Kind k.slot) 32))
+  (secretBytesFromAddr (secretBlockAddr ed25519Kind k.slot) 32))
 
 ;; The public key of `k`.
 (pub :: ed25519PublicKey (-> Ed25519SecretKey Ed25519PublicKey))

@@ -290,32 +290,6 @@ the neighbourhood of the corpus.
 
 ## Known defects
 
-- Public raw-address interfaces remain in low-level crypto. For example,
-  `Crypto.Secret.secretFromAddr` accepts unchecked addresses (`MM-EXEC-9d`, [roadmap](roadmap.md)). Clock reads take no
-  address and release their own scratch storage
-  (`tests/stdlib/1005-clock-owned-scratch.ax`). Entropy returns owned
-  bytes; its address-taking fills are internal
-  (`tests/diagnostics/1512-entropy-addresses.ax`). Child polling owns its
-  scratch too (`tests/stdlib/1006-child-poll-owned-scratch.ax`).
-  Signal masking accepts only the mask
-  (`tests/stdlib/1007-signal-mask-owned-scratch.ax`). Socket addresses own
-  their bytes; raw builders and readers are internal
-  (`tests/diagnostics/1515-socket-addresses.ax`). Wait and mapping addresses
-  also stay internal (`tests/diagnostics/1516-wait-addresses.ax` and
-  `tests/diagnostics/1517-mapping-addresses.ax`). Raw platform buffer, path
-  and descriptor operations are internal
-  (`tests/diagnostics/1518-platform-addresses.ax`). Process launch takes
-  typed paths and argument vectors, inherits the environment and owns
-  its native buffers (`tests/stdlib/301-process-argv.ax`). Raw launch
-  addresses and `sysEnvp` are refused
-  (`tests/diagnostics/1519-process-addresses.ax`). Byte copies and
-  constant-time address kernels are internal
-  (`tests/diagnostics/1520-crypto-byte-addresses.ax`). Interners use counted
-  `InternState` owners (`tests/diagnostics/1521-intern-addresses.ax`).
-  Cereal exposes typed values; legacy JSON storage is internal
-  (`tests/diagnostics/1533-cereal-addresses.ax`). Cipher, authenticator
-  and curve address kernels are internal
-  (`tests/diagnostics/1534-crypto-leaf-addresses.ax`).
 - Generic match-arm captures with unknown reference types and scoped
   recovery wrappers can retain their outer owners. Concrete reference
   captures reclaim their shares, including a captured `File`.

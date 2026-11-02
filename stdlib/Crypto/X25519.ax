@@ -57,6 +57,7 @@
 (import Internal.Entropy)
 (import Crypto.Secret)
 (import Internal.CryptoField25519)
+(import Internal.CryptoSecret)
 
 ;; An X25519 private key: a handle to 32 secret bytes and their public
 ;; key in the secret store. Prints as `<X25519SecretKey>`.
@@ -262,7 +263,7 @@
       ((Err e) (Err e))
       ((Ok h)
         {
-          (ctCopy (secretBlockAddr x25519Kind h) (secretAddr s) 32)
+          (ctCopy (secretBlockAddr x25519Kind h) (secretBytesAddr s) 32)
           (x25519BlockFinish h)
           (Ok (X25519SecretKey :slot h))
         }
@@ -281,7 +282,7 @@
 (pub :: x25519KeyExport (-> X25519SecretKey (Result SecretBytes Error)))
 ;@axiom:effect(io)
 (pub fn (x25519KeyExport k)
-  (secretFromAddr (secretBlockAddr x25519Kind k.slot) 32))
+  (secretBytesFromAddr (secretBlockAddr x25519Kind k.slot) 32))
 
 ;; The public key of `k`.
 (pub :: x25519PublicKey (-> X25519SecretKey X25519PublicKey))
@@ -328,7 +329,7 @@
             (set acc (| acc (__load8 out i))))
           (if (== (ctMaskZero acc) 0)
             {
-              (let r (secretFromAddr out 32))
+              (let r (secretBytesFromAddr out 32))
               {
                 (ctWipe out 32)
                 r
