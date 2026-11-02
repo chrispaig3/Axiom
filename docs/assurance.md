@@ -180,12 +180,13 @@ an unverifiable claim cannot certify the claim above it
 | Handlers and operations | `AX3011` a handle body that reaches an effect its list does not name; `AX3053` an operation with no handler; `AX3038`, a warning, a handle list the walk cannot check | `tests/diagnostics/320-unhandled-effect.ax` | `tests/stdlib/300-effect-handlers.ax` |
 | FFI | an `extern` call performs IO and is an unsafe operation: `AX3010` a claim over one that says otherwise, and the two rows above a caller that leaves them undeclared | `tests/diagnostics/1041-trusted-call.ax` | `tests/selfhost/1010-trusted-wrapper.ax` |
 
-One limit has no row, because nothing refuses it yet. A value's drop
-runs at the end of the scope that held it, with the effects declared
-where the value was made. So a `no-io` function that stores a new file
-over an old one closes the old one without the restriction seeing it
-([roadmap](roadmap.md)). `tests/stdlib/712-drop-effects-at-creation.ax`
-holds that behaviour in place.
+One limit is narrower than it was. Storing over a field counts the
+released value's drop where it drops, so a `no-io` claim over the
+store is warned and a strict one refused. Drops of local bindings
+and temporaries still count where the value was made
+([roadmap](roadmap.md)). `tests/diagnostics/1535-drop-effects.ax`
+pins the store. `tests/stdlib/712-drop-effects-at-store.ax` keeps
+the runtime close.
 
 ### A. Correctness of the runtime
 

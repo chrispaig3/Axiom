@@ -1288,15 +1288,19 @@ aliases, captures and mutable bindings. A purity claim draws `AX3037`;
 a strict effect restriction is refused with `AX3057`.
 Tested by `tests/diagnostics/1482-callback-alias-effects.ax`.
 
-A restriction speaks for what the function and its callees perform. A
-value made elsewhere drops at the end of the scope that held it, with
-the effects declared where it was made. `openPath` is IO, so a `no-io`
-function that stores a new file over an old one closes the old one
-without the restriction seeing it. Not yet: a drop's effects count
-where the value drops ([roadmap](roadmap.md)).
+A restriction also hears a drop this body performs. Storing over a
+field releases the value the field held, and that release may run
+its owner's destructor here. A file field counts as possible IO at
+the store, so `no-io` over the store draws `AX3051`, and `strict`
+refuses it with `AX3057`. Merely holding a value costs nothing: a
+parameter's release on return only undoes its entry retain, so it
+cannot close anything. Not yet: drops of local bindings and
+temporaries still count where the value was made
+([roadmap](roadmap.md)).
 
 Tested by `tests/diagnostics/1463-callback-restrictions.ax` and
-`tests/stdlib/712-drop-effects-at-creation.ax`.
+`tests/diagnostics/1535-drop-effects.ax`. The runtime close is
+`tests/stdlib/712-drop-effects-at-store.ax`.
 
 ### Contracts: pre and post
 

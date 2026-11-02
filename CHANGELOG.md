@@ -16,6 +16,13 @@ its changelog too.
 
 ## Unreleased
 
+- Storing over a field counts the released value's drop effects where
+  it drops. A `restrict(no-io)` claim over such a store is warned as
+  unverifiable, and a strict one is refused. Holding a value costs
+  nothing: a parameter's release on return cannot close it. Tested
+  by `tests/diagnostics/1535-drop-effects.ax` and
+  `tests/stdlib/712-drop-effects-at-store.ax`.
+
 - Cipher, authenticator and curve memory kernels move into internal
   crypto modules. Typed encryption and curve APIs retain their
   behaviour, and safe size and round-count queries remain public.

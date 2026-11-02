@@ -19994,6 +19994,293 @@
         (vecGetStr v i)
         (concat (concat acc ",") (vecGetStr v i))))))
 
+; ------------------------------------------------------------------
+; DROP EFFECTS COUNT WHERE THE VALUE DROPS.
+;
+; Storing over a field releases the share the field held, and that
+; release can run an owner's destructor here. The destructor a
+; `Handle` carries is a function chosen where the owner was made
+; (`__resource_new`), and its row - `Alloc` and `IO` at creation -
+; used to be the only place the close was charged, so
+; `restrict(no-io)` stayed silent while a descriptor closed inside
+; the restricted body
+; (`tests/stdlib/712-drop-effects-at-store.ax` held that limit, as
+; -at-creation, until the store was charged).
+;
+; The field store is the charged site because a field is an OWNING
+; slot: its share is a real one, and releasing it can end the last
+; share. A parameter's return-path release is not charged, because
+; it only undoes the entry retain (`fnConsumeMask` in codegen.ax):
+; the close for a value the caller owned happens caller-side, where
+; making or storing the value already charged it. Charging
+; parameters instead warned every field reader over an owner record
+; (`Tui.Term`'s `keyInPending` over `KeyIn`) for a close its body
+; cannot perform.
+;
+; The charge is NOMINAL and POSSIBLE. Nominal, because the walk runs
+; before bodies are typed and only declared types are available: a
+; signature's parameter types, a struct's field types, a data type's
+; payloads. Possible, because a release runs the destructor only
+; when it ends the last share, and the destructor may be the no-op a
+; standard stream carries: the row gains `~b:IO`, never `b:IO`, so an
+; unrestricted claim is warned (AX3051) where it used to pass in
+; silence and a `strict` one is refused (AX3057). A `Handle` also
+; marks the row incomplete, because its destructor is an arbitrary
+; function whose effects no type here names.
+;
+; Owner-free shapes charge nothing: scalars, `String`, and records
+; built from them drop no effect, so a strict claim over one keeps
+; its silence. Three shapes stay uncharged, as limits of the nominal
+; reading rather than facts: a type variable (the concrete owner's
+; caller charges its own binders), an arrow (a closure's captures are
+; not in its type), and binders and temporaries whose type only
+; inference knows. `tests/diagnostics/1535-drop-effects.ax` pins the
+; charged shapes and the owner-free control.
+; ------------------------------------------------------------------
+(pub :: dropEffsInto (-> TC ASTNode Strings Strings Int))
+(pub fn (dropEffsInto tc t0 visiting acc)
+  (if (nodeSame t0 nilNode)
+    0
+    {
+      (let t (tyExpandAliases tc t0 0))
+      (if (|| (nodeSame t nilNode) (== (tyIsErr t) 1))
+        0
+        {
+          (let tg (nodeTag t))
+          (if (== tg TAG_T_TUP)
+            (dropEffsVecInto tc (nodeAChildren t) visiting acc 0)
+            (if (== tg TAG_T_CON)
+              (dropEffsConInto tc t visiting acc)
+              (if (|| (== tg TAG_T_VAR) (|| (== tg TAG_T_ARR) (== tg TAG_T_PTR)))
+                0
+                (effAdd acc effIncomplete))))
+        })
+    }))
+
+(pub :: dropEffsVecInto (-> TC (Vec ASTNode) Strings Strings Int Int))
+;@axiom:effect(unsafe)
+(pub fn (dropEffsVecInto tc xs visiting acc i)
+  (if (== (as xs Int) 0)
+    0
+    (if (>= i (vecLen xs))
+      0
+      {
+        (dropEffsInto tc (vecGet xs i) visiting acc)
+        (dropEffsVecInto tc xs visiting acc (+ i 1))
+      })))
+
+(pub :: dropEffsArgInto (-> TC (Vec ASTNode) Int Strings Strings Int))
+;@axiom:effect(unsafe)
+(pub fn (dropEffsArgInto tc args i visiting acc)
+  (if (== (as args Int) 0)
+    0
+    (if (< i (vecLen args))
+      (dropEffsInto tc (vecGet args i) visiting acc)
+      0)))
+
+(pub :: dropEffsConInto (-> TC ASTNode Strings Strings Int))
+(pub fn (dropEffsConInto tc t visiting acc)
+  {
+    (let n (nodeAName t))
+    (let targs (nodeBChildren t))
+    (if (== (tcScalarTyName n) 1)
+      0
+      (if (strEq n "String")
+        0
+        (if (strEq n "Handle")
+          {
+            (effAdd acc (effPossibleOf (builtinEff "IO")))
+            (effAdd acc effIncomplete)
+          }
+          (if (|| (strEq n "Vec") (strEq n "Option"))
+            (dropEffsArgInto tc targs 0 visiting acc)
+            (if (strEq n "Err$Result")
+              {
+                (dropEffsArgInto tc targs 0 visiting acc)
+                (dropEffsArgInto tc targs 1 visiting acc)
+              }
+              ; A subtype drops what its base drops: `Byte` is an
+              ; `Int` with bounds, and charging it as an unknown
+              ; nominal warned every low-level `restrict` claim in
+              ; the library for holding a byte.
+              (match (tySubtypeBase tc t)
+                ((Some base) (dropEffsInto tc base visiting acc))
+                ((None) (dropEffsNominalInto tc n targs visiting acc))))))))
+  })
+
+; A nominal type drops what its fields drop. `visiting` holds the
+; nominal names on the path here, so a recursive type contributes its
+; fields once rather than forever: the row is a set, and the outer
+; frame already unions what the inner one would repeat.
+(pub :: dropEffsNominalInto (-> TC String (Vec ASTNode) Strings Strings Int))
+(pub fn (dropEffsNominalInto tc n targs visiting acc)
+  (if (== (strInVec visiting n 0) 1)
+    0
+    (match (findStructAnyVis tc n)
+      ((Some sent)
+        {
+          (let v2 vecNew)
+          {
+            (copyInto v2 visiting 0)
+            (vecPush v2 n)
+            (dropEffsFieldsInto tc sent (structEntFields sent) targs v2 acc 0)
+          }
+        }
+      )
+      ((None)
+        (match (findDataAnyVis tc n)
+          ((Some dent)
+            {
+              (let v2 vecNew)
+              {
+                (copyInto v2 visiting 0)
+                (vecPush v2 n)
+                (dropEffsCtorsInto tc dent.ctors targs v2 acc 0)
+              }
+            }
+          )
+          ((None) (effAdd acc effIncomplete)))
+      ))))
+
+(pub :: dropEffsFieldsInto (-> TC StructEnt (Vec ASTNode) (Vec ASTNode) Strings Strings Int Int))
+;@axiom:effect(unsafe)
+(pub fn (dropEffsFieldsInto tc sent fields targs visiting acc i)
+  (if (== (as fields Int) 0)
+    0
+    (if (>= i (vecLen fields))
+      0
+      {
+        (let f (vecGet fields i))
+        {
+          (dropEffsInto tc
+            (structSubstField sent
+              (if (== (nodeTy f) 0)
+                mkSilentWild
+                (nodeTyChild f))
+              targs)
+            visiting acc)
+          (dropEffsFieldsInto tc sent fields targs visiting acc (+ i 1))
+        }
+      })))
+
+(pub :: dropEffsCtorsInto (-> TC (Vec CtorEnt) (Vec ASTNode) Strings Strings Int Int))
+;@axiom:effect(unsafe)
+(pub fn (dropEffsCtorsInto tc ctors targs visiting acc i)
+  (if (== (as ctors Int) 0)
+    0
+    (if (>= i (vecLen ctors))
+      0
+      {
+        (let ctor (vecGet ctors i))
+        {
+          (dropEffsPayloadInto tc ctor targs visiting acc 0)
+          (dropEffsCtorsInto tc ctors targs visiting acc (+ i 1))
+        }
+      })))
+
+; One constructor's payloads, with the data type's parameters read off
+; the constructor's result type in order and substituted once.
+(pub :: dropEffsPayloadInto (-> TC CtorEnt (Vec ASTNode) Strings Strings Int Int))
+;@axiom:effect(unsafe)
+(pub fn (dropEffsPayloadInto tc ctor targs visiting acc i)
+  {
+    (let tys ctor.fieldTys)
+    (if (== (as tys Int) 0)
+      0
+      (if (>= i (vecLen tys))
+        0
+        {
+          (dropEffsInto tc (tyEnvSubst (vecGet tys i) (dropCtorEnv ctor.resTy targs vecNew 0))
+            visiting acc)
+          (dropEffsPayloadInto tc ctor targs visiting acc (+ i 1))
+        }))
+  })
+
+(pub :: dropCtorEnv (-> ASTNode (Vec ASTNode) TypeEnv Int TypeEnv))
+;@axiom:effect(unsafe)
+(pub fn (dropCtorEnv resTy targs env i)
+  (if (nodeSame resTy nilNode)
+    env
+    {
+      (let params (nodeBChildren resTy))
+      (if (|| (== (as params Int) 0) (== (as targs Int) 0))
+        env
+        (if (|| (>= i (vecLen params)) (>= i (vecLen targs)))
+          env
+          {
+            (vecPush env (TypeBinding :name (nodeAName (vecGet params i)) :ty (vecGet targs i)))
+            (dropCtorEnv resTy targs env (+ i 1))
+          }))
+    }))
+
+; `(set e.f v)` releases the share the field held. The field's
+; declared type is read from the receiver's struct: a parameter
+; receiver's signature names it in both walks; the checker-stamped
+; struct names it in the validation walk (the reading
+; `fieldStoreSetCheck` makes); otherwise every struct declaring the
+; field contributes its drop row (`dropEffsFieldNameInto`).
+(pub :: dropEffsFieldInto (-> TC ASTNode BScope Strings Int))
+(pub fn (dropEffsFieldInto tc e bound acc)
+  (match (fieldParamStruct tc (nodeAChild e) bound)
+    ((Some sent)
+      {
+        (let recvTy (bsParamTy bound (bsParamAlias bound (nodeAName (nodeAChild e)))))
+        (dropEffsFieldTyInto tc sent (nodeBName e)
+          (match recvTy
+            ((Some ty)
+              (if (== (nodeTag ty) TAG_T_CON)
+                (nodeBChildren ty)
+                vecNew)
+            )
+            ((None) vecNew))
+          acc)
+      }
+    )
+    ((None)
+      {
+        (let state (tcCheckState tc))
+        (if (&& state.validatingEffects (!= (nodeTy e) 0))
+          (match (fieldStructNamed tc (nodeTyText e))
+            ((Some sent) (dropEffsFieldTyInto tc sent (nodeBName e) vecNew acc))
+            ((None) (dropEffsFieldNameInto tc (nodeBName e) acc)))
+          (dropEffsFieldNameInto tc (nodeBName e) acc))
+      }
+    )))
+
+(pub :: dropEffsFieldTyInto (-> TC StructEnt String (Vec ASTNode) Strings Int))
+(pub fn (dropEffsFieldTyInto tc sent fname targs acc)
+  (match (structFieldTy sent fname)
+    ((Some fty) (dropEffsInto tc (structSubstField sent fty targs) vecNew acc))
+    ((None) 0)))
+
+; No receiver type to read: every struct declaring the field is a
+; candidate, and the drop row is their union. Marking the row
+; incomplete instead warned callers throughout the library for
+; stores to fields named `n` or `len`, whose candidates all drop
+; nothing - the union says exactly that, and charges only where some
+; candidate's field really can run a destructor.
+(pub :: dropEffsFieldNameInto (-> TC String Strings Int))
+;@axiom:effect(unsafe)
+(pub fn (dropEffsFieldNameInto tc fname acc)
+  {
+    (let structs (tcStructsVec tc))
+    (if (== (as structs Int) 0)
+      0
+      (dropFieldStructsInto tc structs fname acc 0))
+  })
+
+(pub :: dropFieldStructsInto (-> TC (Vec StructEnt) String Strings Int Int))
+(pub fn (dropFieldStructsInto tc structs fname acc i)
+  (if (>= i (vecLen structs))
+    0
+    {
+      (let sent (vecGet structs i))
+      {
+        (dropEffsFieldTyInto tc sent fname vecNew acc)
+        (dropFieldStructsInto tc structs fname acc (+ i 1))
+      }
+    }))
+
 (pub :: walkEffects (-> TC ASTNode BScope Strings Int))
 (pub fn (walkEffects tc e bound acc)
   (if (nodeSame e nilNode)
@@ -20025,6 +20312,7 @@
               (effAdd acc (builtinEff "Mut"))
               (walkEffects tc (nodeAChild e) bound acc)
               (walkEffects tc (nodeCChild e) bound acc)
+              (dropEffsFieldInto tc e bound acc)
               (fieldStoreSetCheck tc e bound)
               0
             }

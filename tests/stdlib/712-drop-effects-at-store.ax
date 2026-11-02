@@ -1,0 +1,37 @@
+; A drop's effects count where the value drops. Storing a new file
+; over the old one releases the old owner's share inside `swap`, and
+; the close runs there - so `swap` carries no `no-io` claim: the
+; claim is warned as unverifiable without `strict` and refused with
+; it (`tests/diagnostics/1535-drop-effects.ax`). This case keeps the
+; runtime half: the replaced file still closes, and the program
+; still runs. It held the opposite limit until the store was
+; charged, and was renamed with the change.
+(import IO)
+(import Err)
+
+(struct Box
+  (mut file : File))
+
+(:: swap (-> Box File Int))
+(fn (swap b f)
+  {
+    (set b.file f)
+    0
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+(fn (main)
+  (match (openPath nullDevice oRdonly)
+    ((Ok a)
+      (match (openPath nullDevice oRdonly)
+        ((Ok b)
+          {
+            (let r (swap (Box :file a) b))
+            (println "the replaced file closes at the store: {r}")
+            r
+          }
+        )
+        ((Err e) 2))
+    )
+    ((Err e) 1)))

@@ -2138,3 +2138,5 @@
 0.8.1  F  ge25519CombTable  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
 0.8.1  F  ge25519ScalarMultBase  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
 0.8.1  F  ge25519DoubleScalarMultVartime  raw cryptographic memory operations are internal; use the typed AEAD, X25519 or Ed25519 APIs
+
+0.8.1  L  drop-effects-at-store  storing over a field counts the released value's drop effects at the store; a restrict claim over such a store may now warn AX3051 and a strict one is refused AX3057; drop or narrow the claim

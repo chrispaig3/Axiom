@@ -1,0 +1,45 @@
+; A drop's effects count where the value drops. Storing over a file
+; releases the share the field held, and that release may close a
+; descriptor here: `no-io` cannot be verified for the store, and
+; `strict` refuses it outright. Merely holding a file parameter
+; releases only the entry retain on return, which cannot close, and
+; an owner-free record drops nothing effectful: both keep a strict
+; claim without a warning.
+(import IO)
+
+(struct Box
+  (mut file : File))
+
+(struct Plain
+  (mut n : Int)
+  (mut s : String))
+
+(:: swap (-> Box File Int))
+;@axiom:restrict(no-io)
+(fn (swap b f)
+  {
+    (set b.file f)
+    0
+  })
+
+(:: swapStrict (-> Box File Int))
+;@axiom:restrict(no-io, strict)
+(fn (swapStrict b f)
+  {
+    (set b.file f)
+    0
+  })
+
+(:: holdStrict (-> File Int))
+;@axiom:restrict(no-io, strict)
+(fn (holdStrict f)
+  0)
+
+(:: plainStrict (-> Plain Int))
+;@axiom:restrict(no-io, strict)
+(fn (plainStrict p)
+  {
+    (set p.n 1)
+    (set p.s "x")
+    p.n
+  })

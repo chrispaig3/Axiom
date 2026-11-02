@@ -489,6 +489,12 @@ cerealSerialize Cereal.ax encodes through the caller's codec, then writes text
 cerealSerializeWith Cereal.ax `cerealSerialize` with caller-chosen limits
 cerealDeserialize Cereal.ax reads text, then decodes through the caller's codec
 cerealDeserializeWith Cereal.ax `cerealDeserialize` with caller-chosen limits
+pollerAddSignals IO.ax stores over the poller's `(Option File)` signal descriptor; the released file's destructor is a `Handle` callback whose effects no type enumerates, so the row is a lower bound beside its declared IO
+termRawEnter Term.ax stores over the reader's `(Option TermGuard)`; releasing the old guard runs a `Handle` destructor of the same unenumerated kind
+termRawLeave Term.ax clears the same guard field on the way out, for the same reason
+workerStart Worker.ax stores over the slot's `(Option WorkerMapping)`; releasing the old mapping runs its owner destructor, unenumerated beside the declared IO and Spawn
+workerRun Worker.ax reaches `workerStart` and the slot cleanup that clears the same mapping field, and inherits their labelled lower bound
+workerMap Worker.ax `workerRun` one frame up: starting each worker is the whole of the map
 INCOMPLETE
 awk 'NF { print $1, $2 }' "$work/incomplete.exempt" | LC_ALL=C sort -u > "$work/incomplete.exempted"
 grep -F '#effects-incomplete' "$work/rows" | axsym_name_file > "$work/incomplete" || true
