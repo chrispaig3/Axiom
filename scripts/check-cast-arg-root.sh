@@ -339,6 +339,9 @@ echo "--- 1. user-level cast count does not grow ---"
 # two existing syntax-zoo spellings: a numeric conversion and the unsafe
 # `(as 0 (Box Int))` syntax subject. They are unexecuted formatter golden
 # text, adding no production conversion or permission to forge references.
+# The erasure-claim support harness adds three cast subjects: a reference
+# erasure, a numeric identity and a reference identity. They test AX3010
+# claim support under MM-VAL-23; no production cast is added.
 cast_count="$(git -C "$repo_root" grep -h -o '(as ' -- stdlib tests examples ':!tests/fuzz' | wc -l | tr -d ' ')"
 # Optional context/query and propagation probes add five live-owner header
 # observations under MM-VAL-23. The exact documentation-render golden adds
@@ -687,6 +690,13 @@ if [[ "$(erasure_sum "$work/synthetic.axsym")" == 4 ]]; then
   ok "the sum counts compiler rows and skips the library's"
 else
   bad "the sum of a synthetic stream read $(erasure_sum "$work/synthetic.axsym"), not 4"
+fi
+
+echo "--- explicit unsafe claims recognise confirmed erasures ---"
+if python3 "$repo_root/tests/selfhost/erasure-claim-support.py" --axiom "$axc"; then
+  ok "compiler and library erasures support unsafe claims; no-op claims remain refused"
+else
+  bad "erasure claim support or unchanged user diagnostics failed"
 fi
 
 echo

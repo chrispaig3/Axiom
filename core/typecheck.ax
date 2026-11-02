@@ -26383,10 +26383,10 @@
   ; given - so the sites `castNoteForge` recorded while this
   ; body was checked are added here, before any claim is read.
   ; Does THIS body perform an unsafe operation itself - the four
-  ; AX3073 asks about? An erasing cast counts only outside the
-  ; compiler and the library (`erasureNeedsUnsafe`). `Unsafe` is
-  ; required lexically (`MM-EXEC-9d`), so this, and not the row, is
-  ; what an `effect(unsafe)` claim answers to (`axtagUnsafeUnsupported`).
+  ; AX3073 asks about? Confirmed erasures support an explicit claim
+  ; in every unit, including the compiler and library. Required Unsafe
+  ; still follows `userEraseSites`; this bridge does not widen it.
+  ; The lexical operation, rather than the row, supports the claim.
   {
     (let own (nodeAxtagsOf d))
     ; An absent signature contributes the empty set to this union.
@@ -26415,7 +26415,10 @@
           (if (> (vecLen erases) 0)
             (effAdd eff (builtinEff "Unsafe"))
             0))
-        (let lex (unsafeLexical (nodeCChild d) sink forges erases))
+        ; Claim support includes exempt erasures; requirements above and
+        ; below keep using only the erasures this unit must declare.
+        (let lex (unsafeLexical (nodeCChild d) sink forges
+          (eraseConfirmed tc (tcEraseSites tc))))
         {
           ; The signature's first: it is written first.
           (if (! (== (as sig Int) 0))
@@ -31183,8 +31186,8 @@
 
 ; Is there an unsafe operation in THIS body: a raw primitive
 ; (`unsafeScanInto`), a reference to an extern (`sink`, filled by the
-; effect walk), a forging cast (`forges`), or an erasing cast the unit
-; must declare (`erases`)? The four AX3073 names.
+; effect walk), a forging cast (`forges`), or a confirmed erasing cast
+; (`erases`)? Claim support is independent of the unit exemption.
 (pub :: unsafeLexical (-> ASTNode (Vec ASTNode) (Vec ASTNode) (Vec ASTNode) Int))
 (pub fn (unsafeLexical e sink forges erases)
   (if (> (vecLen erases) 0)
