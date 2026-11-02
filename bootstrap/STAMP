@@ -1,6 +1,6 @@
-Source stamp:          c323ece2fe1a797f826b02f9b4c5899e55a76aca360b262fc8dd582c8cadef15
-Source files:          139
-Generated on:          2026-10-22T12:16:49Z
+Source stamp:          dfb70481d8dd05c16daa84821e46ddb76d7193ec232cb8f2e6e3114b69fbc818
+Source files:          167
+Generated on:          2026-11-02T03:23:31Z
 Generated on host:     darwin-aarch64 (llc 23.1.4)
 Regenerate with:       scripts/reseed.sh
 Verified by:           scripts/bootstrap-from-seed.sh, scripts/check-seed-provenance.sh, scripts/check-seed-lineage.sh
