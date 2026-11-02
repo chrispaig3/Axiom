@@ -1407,18 +1407,12 @@
 (pub fn (platformSleepNanos nanos)
   (Err (mkError 78 "platformSleepNanos")))
 
-;; Whether `Sys.ax` draws entropy through `platformRandomBytes`: 0 here,
-;; where the kernel's entropy call serves.
+;; Whether entropy uses a separate platform source: 0 here.
+;; The entropy layer selects the kernel or hardware path otherwise.
 (pub :: platformHasEntropy Int)
 ;@axiom:effect(pure)
 (pub fn (platformHasEntropy)
   0)
-
-;; The platform's own entropy source, filling `n` bytes at `buf`, where
-;; the raw entropy call is not available; `Err` 78 where it serves.
-(pub :: platformRandomBytes (-> Int Int (Result Int Error)))
-(pub fn (platformRandomBytes buf n)
-  (Err (mkError 78 "platformRandomBytes")))
 
 ; ------------------------------------------------------------------
 ; Waiting on a word, mapping memory, locking it and masking signals as

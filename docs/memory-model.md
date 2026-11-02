@@ -747,7 +747,7 @@ needs no tag. `vecPush`, `concat` and `mapInsert` are trusted.
 a program is one `grep`.
 
 Functions that take a raw address or handle are trusted too, such as
-`sysRandomBytes` and `sysWaitWord`. That is the trade-off: safe code can still crash by passing one of them a bad
+`sysChildExited` and `sysWaitWord`. That is the trade-off: safe code can still crash by passing one of them a bad
 address or handle, because an `Int` carries no proof of what it points
 at. State a condition the arguments can show as a `;@axiom:pre(...)`
 contract, which is checked on every call and traps 80, and describe
@@ -758,6 +758,12 @@ Public clock reads take no address. `sysNowMicros`, `sysNowMonotonic`,
 and release their scratch storage. Their address-taking helpers are private.
 Tested by `tests/diagnostics/1511-clock-addresses.ax` and
 `tests/stdlib/1005-clock-owned-scratch.ax`.
+
+Entropy returns owned bytes through `Crypto.Random.secureRandomBytes`.
+`sysRandomBytes`, `randomFill` and `platformRandomBytes` belong to internal
+modules, including the Windows `ProcessPrng` boundary.
+Tested by `tests/diagnostics/1512-entropy-addresses.ax` and
+`tests/stdlib/309-entropy.ax`.
 
 The functions that read raw memory at any address, or read a word
 back as a reference, are not public at all (`MM-EXEC-9g`).
@@ -797,13 +803,13 @@ one or reads or sets a field. Another module can still name the type
 in a signature.
 
 *Withdrawn:* a function that hands the kernel a caller's address is a
-trusted encapsulation like any other (`MM-EXEC-9d`). `sysRandomBytes`, `sysUnmapShared` and
+trusted encapsulation like any other (`MM-EXEC-9d`). `sysChildExited`, `sysUnmapShared` and
 `sysWaitWord` take the address as an `Int`, `restrict(no-unsafe)`
 admits a call to each, and a bad address crashes the program. No
 public call takes a descriptor (`MM-EXEC-17a`). The typed calls' range
 check, the half that still holds, is `MM-EXEC-9f`. Tested by
 `tests/diagnostics/1081-sys-buffer-calls.ax`, which accepts an untagged
-call to each entropy, unmap and wait function, and
+call to each unmap and wait function, and
 `tests/stdlib/580-kernel-precondition.ax`.
 
 **MM-EXEC-9f (H). `IO`'s typed descriptor calls check their range
@@ -848,8 +854,7 @@ library. Tested by `tests/diagnostics/1470-internal-import.ax` and
 `tests/diagnostics/1471-internal-name.ax`.
 
 Not yet: some public functions still take a raw address, such as
-`sysRandomBytes`, `sysWaitWord` and the clock reads that fill a
-caller's buffer ([roadmap](roadmap.md)).
+`sysChildExited`, `sysWaitWord` and `sysUnmapShared` ([roadmap](roadmap.md)).
 
 **MM-EXEC-10 (H).** Handlers for a declared effect are installed by
 `handle` and dispatch through a per-effect evidence slot:
@@ -5822,7 +5827,7 @@ A copy of a live handle's word, in the binding that spawned it, still
 joins that child. The salt defends against a wrong word, not one read
 out of memory, and the unsafe layer can read the table. The raw layer
 is internal to the library (`MM-EXEC-9g`), but a public function that
-writes through a caller's address, such as `sysRandomBytes`, can still
+writes through a caller's address, such as `sysChildExited`, can still
 overwrite a `Spawn` stored in a struct. The join that reads it back
 traps 85 unless the word names a live slot.
 

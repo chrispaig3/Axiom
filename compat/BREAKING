@@ -1959,3 +1959,6 @@
 0.8.1  F  sysNowMonotonicNanos  takes no buffer address; the clock owns and releases its scratch storage
 0.8.1  F  sysNowRealtimeNanos  takes no buffer address; the clock owns and releases its scratch storage
 0.8.1  F  sysTimeoutMicros  takes no buffer address; the clock owns and releases its scratch storage
+0.8.1  F  sysRandomBytes  raw entropy fill is internal; use Crypto.Random.secureRandomBytes for owned bytes
+0.8.1  F  randomFill  raw entropy fill is internal; use Crypto.Random.secureRandomBytes for owned bytes
+0.8.1  F  platformRandomBytes  platform entropy fill is internal; use Crypto.Random.secureRandomBytes

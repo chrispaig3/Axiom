@@ -555,6 +555,7 @@ emitRow AxqlExec.ax Alloc,Mut
 emitSorted AxqlExec.ax Alloc,Mut
 endTxn Axqlite.ax Mut
 endTxn Pager.ax Alloc,IO,Mut
+entropyAvailable Entropy.ax Entropy,Mut
 entryVec AxqlExec.ax Alloc,Mut
 errContextOf Err.ax Alloc
 errorText Err.ax Alloc,Mut
@@ -1241,7 +1242,7 @@ platformMapShared Platform.ax Alloc
 platformMlock Platform.ax Alloc
 platformMonotonicNanos Platform.ax Alloc
 platformMunlock Platform.ax Alloc
-platformRandomBytes Platform.ax Alloc
+platformRandomBytes EntropyPlatform.ax Alloc
 platformReadFd Platform.ax Alloc
 platformRealtimeNanos Platform.ax Alloc
 platformSignalBlock Platform.ax Alloc
@@ -1311,8 +1312,8 @@ quoteName AxqlExec.ax Alloc,Mut
 quotedContent AxqlExec.ax Alloc,Mut
 randomAvailable Random.ax Entropy,Mut
 randomBelow Random.ax Alloc,Entropy,IO,Mut
-randomFill Random.ax Alloc,Entropy,IO,Mut
-randomHasKernel Random.ax Entropy
+randomFill Entropy.ax Alloc,Entropy,IO,Mut
+randomHasKernel Entropy.ax Entropy
 randomRange Random.ax Alloc,Entropy,IO,Mut
 randomShuffle Random.ax Alloc,Entropy,IO,Mut
 randomTokenHex Random.ax Alloc,Entropy,IO,Mut
@@ -1392,9 +1393,9 @@ reparse Axqlite.ax Alloc,Mut
 replaceEntry AxqlExec.ax Alloc,IO,Mut
 replaceText AxqlEval.ax Alloc,Mut
 reprFormat Float.ax Alloc,Mut
-rndrFill Random.ax Alloc,Mut,Unsafe
-rndrPresent Random.ax Mut,Unsafe
-rndrWord Random.ax Mut,Unsafe
+rndrFill Entropy.ax Alloc,Mut,Unsafe
+rndrPresent Entropy.ax Mut,Unsafe
+rndrWord Entropy.ax Mut,Unsafe
 rollbackTxn Pager.ax Alloc,IO,Mut
 roundReal AxqlEval.ax Alloc,Mut
 rowBlob Axqlite.ax Alloc,Mut
@@ -1701,7 +1702,7 @@ sysOpenRaw Sys.ax IO
 sysPathExists Sys.ax Alloc,IO,Mut
 sysPid Sys.ax IO,Unsafe
 sysPosixSpawnNum Platform.ax Spawn
-sysRandomBytes Sys.ax Alloc,Entropy,IO,Unsafe
+sysRandomBytes Entropy.ax Alloc,Entropy,IO,Unsafe
 sysRandomNum Platform.ax Entropy
 sysResult Sys.ax Alloc
 sysRun Sys.ax Alloc,Block,IO,Mut,Spawn

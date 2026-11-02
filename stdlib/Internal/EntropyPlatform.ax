@@ -1,0 +1,6 @@
+;;! Internal.EntropyPlatform - no separate platform entropy source.
+(import Err)
+
+(pub :: platformRandomBytes (-> Int Int (Result Int Error)))
+(pub fn (platformRandomBytes buf n)
+  (Err (mkError 78 "platformRandomBytes")))

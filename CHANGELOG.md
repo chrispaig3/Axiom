@@ -16,6 +16,11 @@ its changelog too.
 
 ## Unreleased
 
+- Entropy fills are internal, including the Windows platform entry.
+  Applications receive owned bytes through `Crypto.Random.secureRandomBytes`.
+  Tested by `tests/diagnostics/1512-entropy-addresses.ax` and
+  `tests/stdlib/309-entropy.ax`.
+
 - Public clock reads take no buffer address. `sysNowMicros`,
   `sysNowMonotonic`, `sysNowMonotonicNanos`, `sysNowRealtimeNanos` and
   `sysTimeoutMicros` own and release their scratch storage.

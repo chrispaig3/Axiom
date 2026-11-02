@@ -5,7 +5,7 @@
 ;;!     (randomTokenUrl 16)       ; (Ok "q0V9..."), 128 bits, URL-safe
 ;
 ; EVERY BYTE COMES FROM THE KERNEL, per call. `getentropy` on Darwin,
-; `getrandom` on Linux and FreeBSD (`Sys.sysRandomBytes`). There is no
+; `getrandom` on Linux and FreeBSD (through `Internal.Entropy`). There is no
 ; generator in this process: nothing to seed, nothing a `fork` could
 ; duplicate, nothing two threads could race on, and no state to steal.
 ; The price is a system call per request, measured in docs/crypto.md;
@@ -28,116 +28,16 @@
 (import Str)
 (import Vec)
 (import Err)
-(import Sys)
+(import Internal.Entropy)
 (import Crypto.Ct)
 (import Crypto.Errors)
 (import Crypto.Bytes)
 
-; ------------------------------------------------------------------
-; The source.
-; ------------------------------------------------------------------
-; 1 when the kernel entropy call is available on this target.
-(:: randomHasKernel Int)
-;@axiom:effect(entropy)
-(fn (randomHasKernel)
-  (if (== usesSyscallAbi 0)
-    platformHasEntropy
-    (if (== sysRandomNum 0)
-      0
-      1)))
-
-; The RNDR field of ID_AA64ISAR0_EL1 (bits 63:60): nonzero when the
-; CPU implements FEAT_RNG. Readable at EL1, which is where a
-; `baremetal-aarch64` program runs. The x86_64 arm exists so a program
-; built for that architecture compiles; it answers 0, and nothing asks
-; it, because `randomUsesRndr` is 1 only on bare metal.
-(:: rndrPresent Int)
-;@axiom:effect(unsafe)
-(fn (rndrPresent)
-  (shrU
-    (asm
-      (aarch64 "mrs {r}, ID_AA64ISAR0_EL1" (out r))
-      (x86_64 "xorl {r:k}, {r:k}" (out r)))
-    60))
-
-; One word from RNDR, or 0 when the hardware could not produce one in
-; time (it then sets the Z flag and answers 0; a genuine 0 has
-; probability 2^-64 and is discarded the same way).
-(:: rndrWord Int)
-;@axiom:effect(unsafe)
-(fn (rndrWord)
-  (asm
-    (aarch64 "mrs {r}, S3_3_C2_C4_0" (out r))
-    (x86_64 "xorl {r:k}, {r:k}" (out r))))
-
-; Fill `n` bytes at `p` from RNDR, retrying a failed read up to 64
-; times before giving up.
-(:: rndrFill (-> Int Int (Result Int Error)))
-;@axiom:effect(unsafe)
-(fn (rndrFill p n)
-  (if (== rndrPresent 0)
-    (cryptoErr cryptoEntropyUnavailable "the CPU has no RNDR register (FEAT_RNG)" "randomFill")
-    {
-      (let mut off 0)
-      (let mut tries 0)
-      {
-        (while (&& (< off n) (< tries 64))
-          {
-            (let w (rndrWord))
-            (if (== w 0)
-              (set tries (+ tries 1))
-              {
-                (set tries 0)
-                {
-                  (let take
-                    (if (> (- n off) 8)
-                      8
-                      (- n off)))
-                  (for i in 0..take
-                    (__store8 p (+ off i) (& (>> w (* 8 i)) 255)))
-                }
-                (set off (+ off 8))
-              })
-          })
-        (if (< off n)
-          (cryptoErr cryptoEntropyFailed "RNDR failed 64 times in a row" "randomFill")
-          (Ok 0))
-      }
-    }))
-
-;; Fill `n` bytes at `p` with secure random bytes. The low-level entry
-;; every other function here and every key generator uses. On `Err` the
-;; bytes at `p` are unspecified and must not be used.
-(pub :: randomFill (-> Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(entropy)
-(pub fn (randomFill p n)
-  (if (< n 0)
-    (cryptoLengthErr "a negative byte count" "randomFill")
-    (if (== n 0)
-      (Ok 0)
-      (if (== randomHasKernel 1)
-        (match (sysRandomBytes p n)
-          ((Ok _) (Ok 0))
-          ((Err e)
-            (cryptoErr cryptoEntropyFailed
-              (concat "the kernel entropy call failed: " (errorText e)) "randomFill")
-          ))
-        (if (== randomUsesRndr 1)
-          (rndrFill p n)
-          (cryptoErr cryptoEntropyUnavailable "this target has no secure entropy source"
-            "randomFill"))))))
-
-;; Whether this target has a secure entropy source at all. A program
-;; can ask before it depends on one.
+;; Whether this target has a secure entropy source at all.
 (pub :: randomAvailable Bool)
 ;@axiom:effect(entropy)
 (pub fn (randomAvailable)
-  (if (== randomHasKernel 1)
-    true
-    (if (== randomUsesRndr 1)
-      (!= rndrPresent 0)
-      false)))
+  entropyAvailable)
 
 ; ------------------------------------------------------------------
 ; Values.

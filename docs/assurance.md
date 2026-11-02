@@ -296,10 +296,12 @@ the neighbourhood of the corpus.
   applies to user files (`MM-EXEC-9d`). A function result can't erase
   its type (`MM-VAL-24`).
 - Some public functions still take a raw address, such as
-  `sysRandomBytes` and `sysWaitWord`, so safe code can crash by passing
+  `sysChildExited` and `sysWaitWord`, so safe code can crash by passing
   a bad one (`MM-EXEC-9d`, [roadmap](roadmap.md)). Clock reads take no
   address and release their own scratch storage
-  (`tests/stdlib/1005-clock-owned-scratch.ax`).
+  (`tests/stdlib/1005-clock-owned-scratch.ax`). Entropy returns owned
+  bytes; its address-taking fills are internal
+  (`tests/diagnostics/1512-entropy-addresses.ax`).
 - A closure with more than 46 captures retains counted captures without
   a reference map to release them (`MM-LIFE-2c`,
   `tests/stdlib/1004-capture-map-limit.ax`).

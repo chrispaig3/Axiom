@@ -6,7 +6,7 @@
 (import Vec)
 (import Fmt)
 (import Err)
-(import Sys)
+(import Crypto.Random)
 (import Intern)
 (import codegen (symtabNames pruneRefEnd hexDigit))
 
@@ -213,9 +213,6 @@
 ;@axiom:effect(io)
 ;@axiom:effect(entropy)
 (pub fn (obfuscateIr ir)
-  {
-    (let random (strAlloc 8))
-    (match (sysRandomBytes (strData random) 8)
-      ((Err e) (Err e))
-      ((Ok _) (Ok (obfTransform ir (| (obfWord random 0) 1) (obfWord random 4)))))
-  })
+  (match (secureRandomBytes 8)
+    ((Err e) (Err e))
+    ((Ok random) (Ok (obfTransform ir (| (obfWord random 0) 1) (obfWord random 4))))))

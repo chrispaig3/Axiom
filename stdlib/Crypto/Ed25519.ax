@@ -63,6 +63,7 @@
 (import Crypto.Errors)
 (import Crypto.Bytes)
 (import Crypto.Random)
+(import Internal.Entropy)
 (import Crypto.Secret)
 (import Crypto.Sha2)
 (import Crypto.Curve25519Scalar)

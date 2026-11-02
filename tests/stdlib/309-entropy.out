@@ -7,3 +7,4 @@ ok   the first chunk is filled
 ok   the region past the first chunk is filled too
 ok   the last chunk is filled
 ok   two draws differ
+ok   a negative length is refused

@@ -1,0 +1,19 @@
+;;! Internal.EntropyPlatform - Windows kernel entropy.
+(import Err)
+
+; `ProcessPrng` lives in its own DLL. The driver writes one import
+; library per `extern` block a module names, so this block links the
+; way the kernel32 one does.
+(extern "bcryptprimitives"
+  (winProcessPrng :: (-> Int Int Int) (symbol "ProcessPrng")))
+
+; Fill live library-owned storage; report a failed ProcessPrng call as EIO.
+(pub :: platformRandomBytes (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+(pub fn (platformRandomBytes buf n)
+  (if (<= n 0)
+    (Ok 0)
+    (if (== (& (winProcessPrng buf n) 4294967295) 0)
+      (Err (mkError 5 "platformRandomBytes"))
+      (Ok n))))

@@ -65,6 +65,7 @@
 (import Crypto.Ct)
 (import Crypto.Errors)
 (import Crypto.Random)
+(import Internal.Entropy)
 (import Crypto.Secret)
 (import Crypto.Aes)
 (import Crypto.Ghash)

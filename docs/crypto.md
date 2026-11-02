@@ -49,6 +49,10 @@ system's kernel on every call:
 | `(randomTokenUrl n)` | `n` random bytes as URL-safe base64, for tokens and identifiers |
 | `(randomTokenHex n)` | `n` random bytes as lower-case hex |
 
+Entropy fills use library-owned storage. Application code receives an
+owned string; the address-taking helpers are internal.
+Tested by `tests/diagnostics/1512-entropy-addresses.ax`.
+
 Each one answers a `Result` and performs `Entropy`, so a function that
 calls one, or makes a key, says `;@axiom:effect(entropy)` beside
 `effect(io)`, as the example at the top of this page does. The source

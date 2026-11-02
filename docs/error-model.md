@@ -152,7 +152,7 @@ sentinel:
 | Seeds a loop accumulator, such as `(let mut found (- 0 1))`; never an answer | 4 | `Str.strFind` (which already answers `(Option Int)`), `rdFindHeaderEnd`, `rdContentLength`, `rpcRead` |
 | A private helper below a wrapper that already answers `Option`, keeping `-1` on the recursion (§10's rule for `internFindFrom`) | 4 | `internFindFrom` (twice), `pathLastSlashFrom`, `pathLastDotFrom` |
 | `Map.ax`'s private probe walk below `mapGet`, whose absent-key answer is a caller-supplied default and not a sentinel | 4 | `mapFindSlot`, `mapFindLoop` (twice), `mapInsertNoGrow` |
-| Passes `-1` as an argument, or sets a local to it, in `stdlib/Sys.ax` | 3 | `netAddrText`'s zero-run seed, `sysSignalOpenRaw`'s syscall slot, `sysRandomBytes`' `(set rc (- 0 1))` |
+| Passes `-1` as an argument, or sets a local to it, in `Sys` and `Internal.Entropy` | 3 | `netAddrText`'s zero-run seed, `sysSignalOpenRaw`'s syscall slot, `Internal.Entropy.sysRandomBytes`' `(set rc (- 0 1))` |
 | A bitwise NOT written as XOR with all ones, `(^ x (- 0 1))` | 2 | `netSetBlocking`, `termFlagClear` |
 | `EVFILT_READ`, a kernel constant that happens to be -1 | 2 | `pollReadFilter` on Darwin and FreeBSD |
 | A private peek | 1 | `Cereal.ax`'s `jcPeek` |
@@ -1709,8 +1709,8 @@ The slices, in order, each green before the next starts:
    asserts an observed value still covers the ground the type system
    doesn't.
 
-   **Processes.** `sysSpawn`, `sysWaitPid`, `sysRun`, `sysRunPath` and
-   `sysRandomBytes` answer `(Result Int Error)`. `sysRun`'s three-way
+   **Processes.** `sysSpawn`, `sysWaitPid`, `sysRun` and `sysRunPath`
+   answer `(Result Int Error)`. `sysRun`'s three-way
    contract is split by type rather than by sign. `Err` means the child
    never ran, and carries the spawn's own errno. `Ok` means it ran, and
    carries what it answered, including `128+n` for a signal.
@@ -1937,7 +1937,7 @@ The prose census counted five failures, and one of them was wrong.
 syscall number: a constant with no failure path. It was counted because
 the comment walk climbed a `; ---` banner into prose about
 `getentropy`'s `0 or -errno` contract. The real entropy call,
-`sysRandomBytes`, answers `(Result Int Error)`.
+`Internal.Entropy.sysRandomBytes`, answers `(Result Int Error)`.
 
 The prose census also missed most of the failures. Almost every `net*`
 and `sys*` call forwards a raw syscall result, in wording the six

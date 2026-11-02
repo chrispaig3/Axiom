@@ -111,10 +111,9 @@ a line. `IO.writeStr` writes existing bytes to a descriptor.
 Qualified access such as `IO::writeStr` identifies the owning module.
 See the [generated API](stdlib-api.md) for exact signatures.
 
-For entropy, `Sys.sysRandomBytes` fills caller-owned storage from the
-kernel. `Crypto.Random.randomFill` wraps that source, or uses `RNDR` on
-supported bare-metal CPUs. Both require a live writable range.
-`secureRandomBytes` allocates the string for you and returns a `Result`.
+For entropy, `Crypto.Random.secureRandomBytes` returns owned bytes in
+a `Result`. It uses the kernel, or `RNDR` on supported bare-metal CPUs.
+The address-taking fills are internal to the standard library.
 See [cryptography](crypto.md).
 
 `Chrono` keeps calendar values separate from the clock: its date-times

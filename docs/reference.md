@@ -744,7 +744,7 @@ parameter requires the explicit low-level contract described in
 operate on values; reference conversions preserve the existing lifetime.
 A conversion cannot make a raw address valid or extend its lifetime. Raw memory and foreign
 operations belong behind an `effect(unsafe)` declaration. Library
-functions that take a raw address, such as `sysRandomBytes`, trust it, so
+functions that take a raw address, such as `sysWaitWord`, trust it, so
 passing one a bad address crashes the program.
 Safe code relies on trusted library interfaces; effect checking is not a sandbox.
 

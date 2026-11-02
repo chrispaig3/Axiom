@@ -1,0 +1,28 @@
+[1;31merror[AX5002][0m[1m: `sysRandomBytes` belongs to `Internal.Entropy`, which is internal to the standard library[0m
+ [1;34m--> [0m1512-entropy-addresses.ax:9:4
+[1;34m  |[0m
+[1;34m9 |[0m   (sysRandomBytes address 16))
+[1;34m  |[0m    [1;31m^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m  |[0m
+ [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+ [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `randomFill` belongs to `Internal.Entropy`, which is internal to the standard library[0m
+  [1;34m--> [0m1512-entropy-addresses.ax:14:4
+[1;34m   |[0m
+[1;34m14 |[0m   (randomFill address 16))
+[1;34m   |[0m    [1;31m^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+[1;31merror[AX5002][0m[1m: `platformRandomBytes` belongs to `Internal.EntropyPlatform`, which is internal to the standard library[0m
+  [1;34m--> [0m1512-entropy-addresses.ax:19:4
+[1;34m   |[0m
+[1;34m19 |[0m   (platformRandomBytes address 16))
+[1;34m   |[0m    [1;31m^^^^^^^^^^^^^^^^^^^ internal to the standard library[0m
+[1;34m   |[0m
+  [1;34m = [0m[1;32mhelp: [0muse the library's typed interface instead, such as `vecGet` or `strSlice`; raw memory access belongs in your own function, written with the primitives under `;@axiom:effect(unsafe)`
+  [1;34m = [0m[1;32mhelp: [0mrun `axiom explain AX5002` for a full explanation
+
+compilation failed due to 3 previous errors

@@ -1244,7 +1244,7 @@ in constant time with 26-bit limbs. Hazardous layer.
 
 ## `Crypto.Random`
 
-`stdlib/Crypto/Random.ax` — 9 public names
+`stdlib/Crypto/Random.ax` — 8 public names
 
 Crypto.Random - cryptographically secure random values.
 
@@ -1254,8 +1254,7 @@ Crypto.Random - cryptographically secure random values.
 
 | Name | Kind | Type | Effects | Contracts | Summary |
 |---|---|---|---|---|---|
-| `randomFill` | value | `(-> Int Int (Result Int Error))` | `Alloc,Entropy,IO,Mut` |  | Fill `n` bytes at `p` with secure random bytes. The low-level entry every other function here and every key generator uses. On `Err` the bytes at `p` are unspecified and must not be used. |
-| `randomAvailable` | value | `Bool` | `Entropy,Mut` |  | Whether this target has a secure entropy source at all. A program can ask before it depends on one. |
+| `randomAvailable` | value | `Bool` | `Entropy,Mut` |  | Whether this target has a secure entropy source at all. |
 | `secureRandomBytes` | value | `(-> Int (Result String Error))` | `Alloc,Entropy,IO,Mut` |  | `n` secure random bytes. |
 | `randomWord` | value | `(Result Int Error)` | `Alloc,Entropy,IO,Mut` |  | A uniformly random 64-bit word (any Int, negative included). |
 | `randomBelow` | value | `(-> Int (Result Int Error))` | `Alloc,Entropy,IO,Mut` |  | A uniformly random Int in 0..bound-1. `bound` must be at least 1. |
@@ -2013,7 +2012,7 @@ A mutual-exclusion lock between `parallel` bindings, in both lowerings
 
 ## `Sys`
 
-`stdlib/Sys.ax` — 52 public names
+`stdlib/Sys.ax` — 51 public names
 
 Sys - portable syscall wrappers.
 
@@ -2051,7 +2050,6 @@ Sys - portable syscall wrappers.
 | `netAddrText` | value | `(-> Int String)` | `Alloc,Mut` |  | Render an address as text: a dotted quad for `afInet`, RFC 5952 form for `afInet6`. |
 | `netAddrTextPort` | value | `(-> Int String)` | `Alloc,Mut` |  | The same, with the port, in the form a URL authority uses: `127.0.0.1:80` and `[::1]:80`. |
 | `netWouldBlock` | value | `(-> Int Bool)` |  |  | Whether a negative answer means "nothing to take yet" rather than a broken socket. This is the whole reason `eAgain` is a capability: the number is 35 on Darwin and 11 on Linux, so an event loop written against a literal runs correctly on the machine it was written on. |
-| `sysRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc,Entropy,IO,Unsafe` |  | Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)` whose code is the errno - and on `Err` the buffer's contents are unspecified, so a caller must not read them. |
 | `sysSigBit` | value | `(-> Int Int)` |  |  | The `sigset_t` bit for a signal. SIGNAL N IS BIT N-1, an off-by-one that is easy to write the other way and yields the neighbouring signal's mask rather than an error. |
 | `sysSignalBlock` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Mut,Unsafe` |  | Block the signals in `mask` so they become observable instead of fatal. `setbuf` is caller scratch of at least 16 bytes: the mask is written as one 64-bit word, and the kernel then copies ITS OWN `sigset_t` width out of the buffer - `sigsetBytes`, which is 4 on Darwin, 8 on Linux and 16 on FreeBSD. Sixteen covers every target, and the bytes between the word and that width are zeroed here rather than left to whatever the caller's buffer held, because on FreeBSD they are signals 65 through 128 and a stale byte there blocks one. Answers `(Result Int Error)`; `Ok 0` on success. Runs once, before a server forks, so that every worker inherits the mask. |
 | `sysKill` | value | `(-> Int Int (Result Int Error))` | `Alloc,IO,Unsafe` |  | Send a signal, which is how a test raises one against itself. |
@@ -2074,7 +2072,7 @@ Sys - portable syscall wrappers.
 
 ## `Sys.Platform`
 
-`stdlib/Sys/Platform.darwin.ax` — 222 public names
+`stdlib/Sys/Platform.darwin.ax` — 221 public names
 
 Sys.Platform - the numbers this target's kernel uses: syscall
 numbers, open and socket flags, errno values, poll and signal
@@ -2279,8 +2277,7 @@ target being compiled for (this one is `darwin`).
 | `platformMonotonicNanos` | value | `(Result Int Error)` | `Alloc` |  | The platform's own monotonic clock in nanoseconds, where raw `clock_gettime` is not available; `Err` 78 where the syscall serves. |
 | `platformRealtimeNanos` | value | `(Result Int Error)` | `Alloc` |  | The platform's own wall clock in nanoseconds since the Unix epoch, where raw `clock_gettime` is not available; `Err` 78 where the syscall serves. |
 | `platformSleepNanos` | value | `(-> Int (Result Int Error))` | `Alloc` |  | The platform's own sleep for at least `nanos` nanoseconds, where the raw wait is not available; `Err` 78 where the syscall serves. |
-| `platformHasEntropy` | value | `Int` |  |  | Whether `Sys.ax` draws entropy through `platformRandomBytes`: 0 here, where the kernel's entropy call serves. |
-| `platformRandomBytes` | value | `(-> Int Int (Result Int Error))` | `Alloc` |  | The platform's own entropy source, filling `n` bytes at `buf`, where the raw entropy call is not available; `Err` 78 where it serves. |
+| `platformHasEntropy` | value | `Int` |  |  | Whether entropy uses a separate platform source: 0 here. The entropy layer selects the kernel or hardware path otherwise. |
 | `platformWaitWord` | value | `(-> Int Int Int Int)` |  |  | Block until the word at `addr` differs from `expected`, for at most `nanos` nanoseconds (negative: no limit): 0 woken or spurious, 1 timed out, 2 the word already differed. Unreached here: `waitWordKind` picks the kernel's own wait. |
 | `platformWakeWord` | value | `(-> Int Int)` |  |  | Wake every waiter on the word at `addr`. Unreached here. |
 | `platformMapPrivate` | value | `(-> Int (Result Int Error))` | `Alloc` |  | The platform's own private mapping of `len` zeroed bytes, where raw `mmap` is not available; `Err` 78 where the syscall serves. |

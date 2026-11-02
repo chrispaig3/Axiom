@@ -1,0 +1,19 @@
+; The raw entropy fills are internal, including through transitive imports.
+(import Sys)
+(import Crypto.Random)
+(import Err)
+
+(:: raw (-> Int (Result Int Error)))
+;@axiom:restrict(no-unsafe)
+(fn (raw address)
+  (sysRandomBytes address 16))
+
+(:: crypto (-> Int (Result Int Error)))
+;@axiom:restrict(no-unsafe)
+(fn (crypto address)
+  (randomFill address 16))
+
+(:: platform (-> Int (Result Int Error)))
+;@axiom:restrict(no-unsafe)
+(fn (platform address)
+  (platformRandomBytes address 16))

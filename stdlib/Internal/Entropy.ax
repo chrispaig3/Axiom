@@ -1,0 +1,199 @@
+;;! Internal.Entropy - fills storage owned by the standard library.
+;
+; Applications receive owned bytes through Crypto.Random.secureRandomBytes.
+(import Sys)
+(import Sys.Platform)
+(import Internal.EntropyPlatform)
+(import Internal.Raw)
+(import Str)
+(import Err)
+(import Crypto.Ct)
+(import Crypto.Errors)
+(import Crypto.Bytes)
+
+; ------------------------------------------------------------------
+; Entropy
+;
+; Cryptographically strong random bytes from the kernel, which is the
+; only source there is: Axiom links no libc, so there is no `arc4random`
+; and no seeded generator to fall back to, and a PRNG written here would
+; be a PRNG with no seed.
+;
+; THE TWO CALLS DIFFER IN THEIR FAILURE SHAPE, not just their number.
+; Darwin's `getentropy` fills the buffer completely or answers -errno,
+; and refuses more than 256 bytes at a time - measured, a 257-byte
+; request answers -22. Linux's `getrandom` answers the COUNT it wrote
+; and may write fewer than asked when a signal interrupts it. So the
+; loop below advances by the request on one platform and by the answer
+; on the other, and `randomIsGetentropy` is which.
+; ------------------------------------------------------------------
+;; Fill `n` bytes at `buf` with kernel entropy. `(Ok 0)`, or `(Err e)`
+;; whose code is the errno - and on `Err` the buffer's contents are
+;; unspecified, so a caller must not read them.
+;
+; A ZERO-BYTE REQUEST IS 0 AND MAKES NO SYSCALL, so a caller computing a
+; length does not have to special-case an empty one.
+;
+; A TARGET WITH NO KERNEL ENTROPY SOURCE ANSWERS `Err`, code 78, and
+; makes no call, so a caller can fall back to another source it trusts.
+; Bare metal is one: there `Crypto.Random` reads the CPU's RNDR
+; register. Windows draws from `ProcessPrng` through its platform
+; module.
+(pub :: sysRandomBytes (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(unsafe)
+;@axiom:effect(entropy)
+(pub fn (sysRandomBytes buf n)
+  (if (== usesSyscallAbi 0)
+    (if (== platformHasEntropy 1)
+      (platformRandomBytes buf n)
+      (sysResult "sysRandomBytes"
+        (if (> n 0)
+          (- 0 78)
+          0)))
+    (sysResult
+      "sysRandomBytes"
+      {
+        (let mut off 0)
+        {
+          (let mut rc
+            (if (|| (== usesSyscallAbi 0) (== sysRandomNum 0))
+              (if (> n 0)
+                (- 0 78)
+                0)
+              0))
+          {
+            (while (&& (< off n) (== rc 0))
+              {
+                (let want
+                  (if (> (- n off) randomMaxChunk)
+                    randomMaxChunk
+                    (- n off)))
+                {
+                  (let r (__syscall3 sysRandomNum (+ buf off) want 0))
+                  (if (< r 0)
+                    (set rc r)
+                    (if (== randomIsGetentropy 1)
+                      ; getentropy filled `want` or it failed; there is no
+                      ; partial answer to advance by.
+                      (set off (+ off want))
+                      ; getrandom answers a count. A zero would be neither a
+                      ; failure nor progress, and looping on it would spin,
+                      ; so it is treated as a failure the caller can see.
+                      (if (== r 0)
+                        (set rc (- 0 1))
+                        (set off (+ off r)))))
+                }
+              })
+            (if (< rc 0)
+              rc
+              0)
+          }
+        }
+      })))
+
+; ------------------------------------------------------------------
+; The source.
+; ------------------------------------------------------------------
+; 1 when the kernel entropy call is available on this target.
+(:: randomHasKernel Int)
+;@axiom:effect(entropy)
+(fn (randomHasKernel)
+  (if (== usesSyscallAbi 0)
+    platformHasEntropy
+    (if (== sysRandomNum 0)
+      0
+      1)))
+
+; The RNDR field of ID_AA64ISAR0_EL1 (bits 63:60): nonzero when the
+; CPU implements FEAT_RNG. Readable at EL1, which is where a
+; `baremetal-aarch64` program runs. The x86_64 arm exists so a program
+; built for that architecture compiles; it answers 0, and nothing asks
+; it, because `randomUsesRndr` is 1 only on bare metal.
+(:: rndrPresent Int)
+;@axiom:effect(unsafe)
+(fn (rndrPresent)
+  (shrU
+    (asm
+      (aarch64 "mrs {r}, ID_AA64ISAR0_EL1" (out r))
+      (x86_64 "xorl {r:k}, {r:k}" (out r)))
+    60))
+
+; One word from RNDR, or 0 when the hardware could not produce one in
+; time (it then sets the Z flag and answers 0; a genuine 0 has
+; probability 2^-64 and is discarded the same way).
+(:: rndrWord Int)
+;@axiom:effect(unsafe)
+(fn (rndrWord)
+  (asm
+    (aarch64 "mrs {r}, S3_3_C2_C4_0" (out r))
+    (x86_64 "xorl {r:k}, {r:k}" (out r))))
+
+; Fill `n` bytes at `p` from RNDR, retrying a failed read up to 64
+; times before giving up.
+(:: rndrFill (-> Int Int (Result Int Error)))
+;@axiom:effect(unsafe)
+(fn (rndrFill p n)
+  (if (== rndrPresent 0)
+    (cryptoErr cryptoEntropyUnavailable "the CPU has no RNDR register (FEAT_RNG)" "randomFill")
+    {
+      (let mut off 0)
+      (let mut tries 0)
+      {
+        (while (&& (< off n) (< tries 64))
+          {
+            (let w (rndrWord))
+            (if (== w 0)
+              (set tries (+ tries 1))
+              {
+                (set tries 0)
+                {
+                  (let take
+                    (if (> (- n off) 8)
+                      8
+                      (- n off)))
+                  (for i in 0..take
+                    (__store8 p (+ off i) (& (>> w (* 8 i)) 255)))
+                }
+                (set off (+ off 8))
+              })
+          })
+        (if (< off n)
+          (cryptoErr cryptoEntropyFailed "RNDR failed 64 times in a row" "randomFill")
+          (Ok 0))
+      }
+    }))
+
+;; Fill `n` bytes at `p` with secure random bytes. The low-level entry
+;; the random-value functions and key generators use. On `Err` the
+;; bytes at `p` are unspecified and must not be used.
+(pub :: randomFill (-> Int Int (Result Int Error)))
+;@axiom:effect(io)
+;@axiom:effect(entropy)
+(pub fn (randomFill p n)
+  (if (< n 0)
+    (cryptoLengthErr "a negative byte count" "randomFill")
+    (if (== n 0)
+      (Ok 0)
+      (if (== randomHasKernel 1)
+        (match (sysRandomBytes p n)
+          ((Ok _) (Ok 0))
+          ((Err e)
+            (cryptoErr cryptoEntropyFailed
+              (concat "the kernel entropy call failed: " (errorText e)) "randomFill")
+          ))
+        (if (== randomUsesRndr 1)
+          (rndrFill p n)
+          (cryptoErr cryptoEntropyUnavailable "this target has no secure entropy source"
+            "randomFill"))))))
+
+;; Whether this target has a secure entropy source at all. A program
+;; can ask before it depends on one.
+(pub :: entropyAvailable Bool)
+;@axiom:effect(entropy)
+(pub fn (entropyAvailable)
+  (if (== randomHasKernel 1)
+    true
+    (if (== randomUsesRndr 1)
+      (!= rndrPresent 0)
+      false)))

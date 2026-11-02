@@ -680,12 +680,6 @@
   (winWaitOnAddress :: (-> Int Int Int Int Int) (symbol "WaitOnAddress"))
   (winWakeByAddressAll :: (-> Int Int) (symbol "WakeByAddressAll")))
 
-; `ProcessPrng` lives in its own DLL. The driver writes one import
-; library per `extern` block a module names, so this block links the
-; way the kernel32 one does.
-(extern "bcryptprimitives"
-  (winProcessPrng :: (-> Int Int Int) (symbol "ProcessPrng")))
-
 ; HANDLE GetStdHandle(DWORD) - a HANDLE: not masked.
 ; BOOL WriteFile(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED) - BOOL: masked.
 ; BOOL ReadFile(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED) - BOOL: masked.
@@ -2150,26 +2144,11 @@
     (Ok 0)
   })
 
-;; Whether `Sys.ax` draws entropy through `platformRandomBytes`: 1 here.
+;; Whether entropy uses a separate platform source: 1 here.
 (pub :: platformHasEntropy Int)
 ;@axiom:effect(pure)
 (pub fn (platformHasEntropy)
   1)
-
-;; Fill `n` bytes at `buf` from `ProcessPrng`, answering `Ok n`. The
-;; call is documented to always succeed; a zero answer is reported as
-;; EIO rather than trusted.
-;; The platform's own entropy source, filling `n` bytes at `buf`, where
-;; the raw entropy call is not available; `Err` 78 where it serves.
-(pub :: platformRandomBytes (-> Int Int (Result Int Error)))
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(pub fn (platformRandomBytes buf n)
-  (if (<= n 0)
-    (Ok 0)
-    (if (== (& (winProcessPrng buf n) 4294967295) 0)
-      (Err (mkError 5 "platformRandomBytes"))
-      (Ok n))))
 
 ; ------------------------------------------------------------------
 ; Waiting on a word, memory, and the signal mask.

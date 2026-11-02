@@ -1,27 +1,18 @@
-; Every `Sys` call that hands the kernel an address its caller chose is
-; a trusted encapsulation (docs/memory-model.md MM-EXEC-9d), so its
-; caller needs no tag and a call to it is ordinary safe code. The kernel
-; reads or writes wherever the address points, so a bad address still
-; crashes the program; nothing here checks it. None of them takes a
-; descriptor: the descriptor calls are `IO`'s, over a `File`.
-;
-; One untagged declaration per call, each accepted: entropy, and the
-; shared-memory unmap and wait. `noUnsafe` claims `restrict(no-unsafe)`
-; over `sysRandomBytes` and is accepted too. `pureFill` claims `pure`
-; over `sysRandomBytes` and draws AX3010 for the IO it performs.
-;
-; `typed` does the same work through the typed calls in `IO`, which
-; take a `File` and a `String` or `ReadBuffer`, or answer a fresh one.
+; Unmap and wait still accept caller addresses through trusted wrappers.
+; Entropy uses the typed Crypto.Random interface: it returns owned bytes.
+; noUnsafe accepts the typed call; pureFill refutes its IO and Entropy claims.
+; IO's typed descriptor calls keep their own range checks.
 (import Sys)
+(import Crypto.Random)
 (import IO)
 (import Str)
 (import Err)
 
 ;@axiom:effect(io)
-(:: fillsAt (-> Int (Result Int Error)))
+(:: randomBytes (-> Int (Result String Error)))
 ;@axiom:effect(entropy)
-(fn (fillsAt buf)
-  (sysRandomBytes buf 64))
+(fn (randomBytes n)
+  (secureRandomBytes n))
 
 ;@axiom:effect(io)
 (:: unmapsAt (-> Int (Result Int Error)))
@@ -34,17 +25,17 @@
 (fn (waitsAt addr)
   (sysWaitWord addr 0))
 
-(:: pureFill (-> Int (Result Int Error)))
+(:: pureFill (-> Int (Result String Error)))
 ;@axiom:effect(pure)
-(fn (pureFill buf)
-  (sysRandomBytes buf 64))
+(fn (pureFill n)
+  (secureRandomBytes n))
 
 ;@axiom:restrict(no-unsafe)
-(:: noUnsafe (-> Int (Result Int Error)))
+(:: noUnsafe (-> Int (Result String Error)))
 ;@axiom:effect(io)
 ;@axiom:effect(entropy)
-(fn (noUnsafe buf)
-  (sysRandomBytes buf 64))
+(fn (noUnsafe n)
+  (secureRandomBytes n))
 
 ;@axiom:restrict(no-unsafe)
 (:: typed (-> String Int))
