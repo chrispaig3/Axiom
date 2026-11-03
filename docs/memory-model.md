@@ -1833,7 +1833,15 @@ constructor application.
 ### 2.3 Closures
 
 **MM-VAL-14 (H).** A `lambda` is lifted to a top-level function
-`_lam_N` whose hidden first parameter is a **closure record**:
+`_lam_N` whose hidden first parameter is a **closure record**. A
+lambda with no captures builds no record on the heap: its value is
+a static descriptor with the ordinary two-word header (count `-1`,
+then shape `2` for its one payload word, the code pointer), so
+evaluating it allocates nothing and retains and releases leave it
+unchanged - the representation `MM-VAL-17` gives a named
+function's value. Tested by section 7 of
+`scripts/check-unboxed-sums.sh`. The checker still charges `Alloc`
+for any lambda, so `restrict(no-alloc)` still refuses one:
 
 | Word | Contents |
 |---|---|
@@ -2264,8 +2272,9 @@ Tested by `tests/stdlib/1002-vec-in-place-growth.ax` and
 
 ### 3.2 What allocates
 
-A bare named function value uses static storage (`MM-VAL-17`). Lambdas
-and their partial applications allocate closure records.
+A bare named function value uses static storage (`MM-VAL-17`). So
+does a lambda that captures nothing (`MM-VAL-14`). Capturing lambdas
+and partial applications allocate closure records.
 
 **MM-ALLOC-9 (H).** These, and only these, allocate:
 
@@ -2274,7 +2283,7 @@ and their partial applications allocate closure records.
 | a constructor with fields | `(1 + arity) * 8` bytes under representation 0/2 |
 | `(P ...)` for a struct | naturally aligned fields under `MM-VAL-10`, no tag |
 | `Str` construction, `strDup`, `concat`, `strAlloc` | 2-word header, plus bytes where not shared |
-| a `lambda` that is evaluated | closure record, `(1 + captures) * 8` bytes |
+| a capturing `lambda` that is evaluated | closure record, `(1 + captures) * 8` bytes. A lambda with no captures allocates nothing: its value is a static descriptor (`MM-VAL-14`) |
 | `Vec`, `Map`, `Intern` operations | library-level, over `rawAlloc` |
 | a `match`'s result | one scratch `alloca` per function, shared by every merge. A cell lives from the store at an arm's end to the load at the merge, with nothing between, so one slot serves nested and tail shapes alike |
 | a mixed-representation tag read | the same shared scratch `alloca` (`emitCondTagRead`), with its fall-through zero stored explicitly |
