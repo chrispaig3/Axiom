@@ -32,6 +32,10 @@
 #      (AX3049) on a caller that boxes.
 #   6. The checker's unboxing test agrees with the emitter's over the
 #      compiler itself.
+#   7. A lambda that captures nothing builds no heap record: it is a
+#      static descriptor with an immortal header, like a named
+#      function's value. A capturing neighbour in the same fixture
+#      must still allocate, so the zero is read against a one.
 #
 # The fixtures live here in heredocs, not under `tests/`. Several gates
 # carry population counts over `tests/selfhost/`, so a fixture only this
@@ -654,6 +658,62 @@ if "$axc" emit-llvm --input "$repo_root/core/main.ax" -o "$work/us/self.ll" > "$
   fi
 else
   bad "could not emit IR and rows for core/main.ax"
+fi
+
+# ------------------------------------------------------------------
+echo
+echo "== 7. a captureless lambda builds no heap record =="
+# ------------------------------------------------------------------
+# Rust's captureless closures are zero-sized and their calls inline;
+# the Axiom shape of the same principle is that a lambda with no
+# captures needs no heap record at all. `spinCap` captures `k`, so
+# its one allocation site is the control proving the zero is read.
+cat > "$work/us/lam.ax" <<'AX'
+(import IO)
+
+(:: spin (-> Int Int Int))
+(fn (spin i acc)
+  (if (>= i 1000)
+    acc
+    (spin (+ i 1) (+ acc ((lambda (x) (* x 2)) i)))))
+
+(:: spinCap (-> Int Int Int Int))
+(fn (spinCap k i acc)
+  (if (>= i 1000)
+    acc
+    (spinCap k (+ i 1) (+ acc ((lambda (x) (+ x k)) i)))))
+
+(:: main ())
+;@axiom:effect(io)
+(fn (main)
+  {
+    (println (spin 0 0))
+    (println (spinCap 1 0 0))
+  })
+AX
+if "$axc" build --input "$work/us/lam.ax" --output "$work/us/lam" > "$work/us/lam.log" 2>&1 \
+   && "$axc" emit-llvm --input "$work/us/lam.ax" -o "$work/us/lam.ll" >> "$work/us/lam.log" 2>&1; then
+  got="$("$work/us/lam" 2>&1 || true)"
+  if [[ "$got" == $'999000\n500500' ]]; then
+    ok "captureless and capturing lambdas answer 999000 and 500500"
+  else
+    bad "lambda fixture answers '$got', wanted 999000 then 500500"
+  fi
+  la="$(calls_in "$work/us/lam.ll" spin axiom_alloc)"
+  lc="$(calls_in "$work/us/lam.ll" spinCap axiom_alloc)"
+  if [[ "$la" == "0" && "$lc" == "1" ]]; then
+    ok "the captureless lambda builds $la heap blocks; its capturing neighbour builds $lc"
+  else
+    bad "lambda records: captureless builds $la block(s), capturing builds $lc, wanted 0 and 1"
+  fi
+  if grep -q '@\.lamval\.' "$work/us/lam.ll"; then
+    ok "the captureless lambda's value is a static descriptor (@.lamval.)"
+  else
+    bad "no @.lamval. descriptor in the module - the zero above would be vacuous"
+  fi
+else
+  bad "the lambda fixture did not build or emit"
+  sed 's/^/     /' "$work/us/lam.log" | head -10
 fi
 
 echo
