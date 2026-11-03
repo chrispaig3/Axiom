@@ -6297,7 +6297,7 @@
                   "hoverProvider" (jsonBool 1))
                 "completionProvider" (lspCompletionOptions deferred)))))))
     "serverInfo"
-    (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.8.0"))))
+    (jsonObjPut (jsonObjPut jsonObj "name" (jsonStr "axiom")) "version" (jsonStr "0.8.1"))))
 
 ; `definitionProvider` and `hoverProvider` describe the macro
 ; navigation of MAC-TOOL-2. Both are answered from the raw parse tree,

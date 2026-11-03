@@ -42,7 +42,7 @@
 ; `scripts/check-version.sh` holds that place to `VERSION`.
 (pub :: axiomVersion String)
 (pub fn (axiomVersion)
-  "0.8.0")
+  "0.8.1")
 
 (pub :: axiomBuildId String)
 (pub fn (axiomBuildId)

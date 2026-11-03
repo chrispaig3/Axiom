@@ -16,6 +16,17 @@ its changelog too.
 
 ## Unreleased
 
+## 0.8.1 — 2026-11-03
+
+Named-field patterns take the labelled spelling of struct
+construction, so one field syntax serves building and matching.
+This removes the braced spelling; the diagnostic names its
+replacement.
+
+Full Windows support, planned for this release in the 0.8.0 notes,
+is deferred until further notice. Windows remains experimental,
+with the preview limits 0.8.0 documented.
+
 - Named-field patterns take the labelled spelling of struct
   construction: `(Rect :w w :h h)`, with `:w` alone binding `w`.
   One field syntax now serves building and matching. The braced

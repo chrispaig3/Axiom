@@ -47,7 +47,7 @@
 
 export const BENCH_ENV = {
   machine: 'Apple M1, macOS 27.0.1, darwin-aarch64',
-  axiom: 'Axiom 0.8.0 (build f75536bfbee8 2582b9ae2212)',
+  axiom: 'Axiom 0.8.1 (build f75536bfbee8 2582b9ae2212)',
   rust: 'rustc 1.99.1',
   c: 'clang 23.1.3',
   answer: '428343467',

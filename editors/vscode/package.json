@@ -2,7 +2,7 @@
   "name": "axiom-language",
   "displayName": "Axiom",
   "description": "Axiom language support: highlighting, diagnostics, hover, completion and the other language-server features.",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "publisher": "axiom-lang",
   "license": "MIT",
   "icon": "icon.png",

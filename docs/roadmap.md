@@ -297,7 +297,7 @@ a runner stays labelled with the evidence it has. Promotion requires an
 owner and a reproducible configuration; hardware evidence cannot be
 inferred from another board or LLVM backend availability.
 
-Full Windows support is a prospective v0.8.1 goal. Preview limitations
+Full Windows support is deferred until further notice. Preview limitations
 remain in the table above, including terminal input after mode
 cancellation and guarded executable-worker stack budgets. Arbitrary
 captured-closure tasks remain outside the encoded-worker design.

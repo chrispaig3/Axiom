@@ -17,6 +17,8 @@
 # S struct, T trait, M macro. `docs/compatibility.md` is the policy
 # this file implements.
 
+0.8.1  L  braced-named-pattern  (Rect {w = w, h = h}) no longer parses; write (Rect :w w :h h), the labelled spelling of struct construction
+
 0.8.0  F  fallibleDefault  Alloc includes construction of the captured fallback handler
 0.8.0  F  fallibleCounting  Alloc includes construction of the captured counting handler
 0.8.0  F  vecSortBy  Alloc includes construction of the guarded comparator closure
