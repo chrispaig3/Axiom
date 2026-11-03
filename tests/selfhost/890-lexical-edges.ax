@@ -21,7 +21,7 @@
 (:: area (-> Shape Int))
 (fn (area s)
   (match s
-    ((Rect {w = w, h = h}) (* w h))))
+    ((Rect :w w :h h) (* w h))))
 
 (:: main Int)
 (fn (main)

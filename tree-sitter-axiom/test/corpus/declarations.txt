@@ -209,7 +209,7 @@ struct variant: named constructor fields and a punned pattern
 
 (data Shape (Circle { r : Int }))
 (:: f (-> Shape Int))
-(fn (f s) (match s ((Circle { r }) r)))
+(fn (f s) (match s ((Circle :r) r)))
 
 ----------------------------------------------------------------
 

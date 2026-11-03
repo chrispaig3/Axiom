@@ -670,7 +670,7 @@
       }
     },
     "field": {
-      "comment": "`{ r : Float }` in a constructor, and `w = pat` in a pattern.",
+      "comment": "`{ r : Float }` in a constructor declaration.",
       "match": "(?<![A-Za-z0-9_'!*+/<>=%&|^.@-])([a-z_][A-Za-z0-9_']*)(?=\\s*(?::(?!:)|=(?!=)))",
       "captures": {
         "1": {

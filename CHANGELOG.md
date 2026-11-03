@@ -16,6 +16,14 @@ its changelog too.
 
 ## Unreleased
 
+- Named-field patterns take the labelled spelling of struct
+  construction: `(Rect :w w :h h)`, with `:w` alone binding `w`.
+  One field syntax now serves building and matching. The braced
+  spelling it replaces, `(Rect {w = w, h = h})`, is refused with the
+  new form named. Construction of `data` values stays positional,
+  as before. Tested by `tests/stdlib/210-struct-variants.ax`,
+  `tests/fmt/syntax-zoo.ax` and
+  `tests/diagnostics/1538-named-pattern-colon.axbad`.
 - CI plans each run instead of following a hand-written step list.
   `scripts/ci-plan.py` discovers every gate, selects the ones a
   change can affect, and shards them longest first over six shards

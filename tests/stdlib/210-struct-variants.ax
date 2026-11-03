@@ -6,13 +6,19 @@
 ; matching *safer* than positional matching rather than merely
 ; different - none of which a positional pattern can offer:
 ;
-;   - order independence: `{ h = h, w = w }` binds the same values as
-;     `{ w = w, h = h }`, so reordering a declaration cannot silently
+;   - order independence: `:h h :w w` binds the same values as
+;     `:w w :h h`, so reordering a declaration cannot silently
 ;     swap two same-typed fields at every match site;
 ;   - partiality: a field the arm does not name is not bound, rather
 ;     than forcing a `_` placeholder that has to be kept in step with
 ;     the declaration's arity;
-;   - punning: `{ w, h }` means `{ w = w, h = h }`.
+;   - punning: `:w :h` means `:w w :h h`.
+;
+; Named fields are spelled as in struct construction - `(Rect :w w
+; :h h)` against `(Point :x 1 :y 2)` - so one field syntax serves
+; both. The braced spelling this replaced, `{w = w}`, is refused
+; with this form named in the diagnostic
+; (tests/diagnostics/1538-named-pattern-colon.axbad).
 ;
 ; The values are chosen so a swap is visible: `(Rect 3 4)` has
 ; `w * h = 12` either way, so the fields are combined asymmetrically as
@@ -38,8 +44,8 @@
 (pub :: byName (-> Shape Int))
 (pub fn (byName s)
   (match s
-    ((Circle {r = r}) r)
-    ((Rect {w = w, h = h}) (+ (* w 10) h))
+    ((Circle :r r) r)
+    ((Rect :w w :h h) (+ (* w 10) h))
     ((Point) 0)))
 
 ; Named, in the *opposite* order to the declaration. Must agree with
@@ -48,16 +54,20 @@
 (pub :: byNameReversed (-> Shape Int))
 (pub fn (byNameReversed s)
   (match s
-    ((Circle {r = r}) r)
-    ((Rect {h = h, w = w}) (+ (* w 10) h))
+    ((Circle :r r) r)
+    ((Rect :h h :w w) (+ (* w 10) h))
     ((Point) 0)))
 
-; Punned. Must agree with both of the above.
+; Punned in the spelling this was written in - `:w :h` for `:w w
+; :h h` - which the formatter expands to the explicit form below,
+; so the two spellings are one pattern. Must agree with both of
+; the above. The punned spelling itself is pinned by
+; tests/fmt/syntax-zoo.ax, the formatter's unformatted input.
 (pub :: byPun (-> Shape Int))
 (pub fn (byPun s)
   (match s
-    ((Circle {r = r}) r)
-    ((Rect {w = w, h = h}) (+ (* w 10) h))
+    ((Circle :r r) r)
+    ((Rect :w w :h h) (+ (* w 10) h))
     ((Point) 0)))
 
 ; Punning and explicit binding, mixed in one pattern, with the explicit
@@ -65,8 +75,8 @@
 (pub :: byMixed (-> Shape Int))
 (pub fn (byMixed s)
   (match s
-    ((Circle {r = r}) r)
-    ((Rect {w = w, h = tall}) (+ (* w 10) tall))
+    ((Circle :r r) r)
+    ((Rect :w w :h tall) (+ (* w 10) tall))
     ((Point) 0)))
 
 ; Only one field named. The other is simply not bound, which a
@@ -74,7 +84,7 @@
 (pub :: widthOnly (-> Shape Int))
 (pub fn (widthOnly s)
   (match s
-    ((Rect {w = w}) w)
+    ((Rect :w w) w)
     (_ (- 0 1))))
 
 ; Nested: a named pattern whose field is itself matched.
@@ -84,9 +94,9 @@
 (pub :: unwrapArea (-> Wrapped Int))
 (pub fn (unwrapArea x)
   (match x
-    ((Wrap {inner = (Rect {w = w, h = h}), tag = t}) (+ (* w h) t))
-    ((Wrap {inner = (Circle {r = r}), tag = t}) (+ r t))
-    ((Wrap {tag = t}) t)))
+    ((Wrap :inner (Rect :w w :h h) :tag t) (+ (* w h) t))
+    ((Wrap :inner (Circle :r r) :tag t) (+ r t))
+    ((Wrap :tag t) t)))
 
 ; Field access by name on a DATA value is legal only when every
 ; constructor is fieldful: no value can be an immediate tag, so the
@@ -108,7 +118,7 @@
 (pub :: radius (-> Shape Int))
 (pub fn (radius s)
   (match s
-    ((Circle {r = r}) r)
+    ((Circle :r r) r)
     (_ (- 0 1))))
 
 (pub :: main Int)

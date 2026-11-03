@@ -4009,14 +4009,15 @@
 ; ------------------------------------------------------------------
 ; Typed lists share the call layout: keep complete items on a row,
 ; reserve the enclosing suffix and place comments by source ownership.
-; Modes: 0 type, 1 pattern, 2 name, 3 pattern field, 4 type field.
+; Modes: 0 type, 1 pattern, 2 name, 4 type field, 5 labelled
+; pattern field. (Mode 3 was the braced pattern field, `{w = p}`.)
 (:: fpListItem (-> FPr FNode Int ()))
 (fn (fpListItem p n mode)
   (if (== mode 0)
     (fpType p n)
     (if (== mode 1)
       (fpPat p n)
-      (if (|| (== mode 3) (== mode 4))
+      (if (|| (== mode 4) (== mode 5))
         (fpFieldItem p n mode)
         (if (fpIsIdentAtom n)
           (fpP p (ftText p.src (fnTok n)))
@@ -4071,7 +4072,7 @@
           (if (> i 0)
             (fpP p " "))
           (fpListItemEnd p (vecGet elems i) mode 0
-            (if (&& (>= mode 3) (< (+ i 1) (vecLen elems)))
+            (if (&& (== mode 4) (< (+ i 1) (vecLen elems)))
               1
               0))
           (set i (+ i 1))
@@ -4132,7 +4133,7 @@
         {
           (let item (vecGet elems i))
           (let comma
-            (if (&& (>= mode 3) (< (+ i 1) (vecLen elems)))
+            (if (&& (== mode 4) (< (+ i 1) (vecLen elems)))
               1
               0))
           (let suffix
@@ -4539,11 +4540,52 @@
     (+ i (fpPatWidth p.src v i))
   })
 
-; A named-field pattern group's fields: `(Name { w = p, h })`.
-(:: fpPatNamed (-> FPr FNode FNode ()))
-(fn (fpPatNamed p name brace)
-  (fpList p brace (fpNamedFields p brace 1) 3
-    (concat (concat "(" (ftText p.src (fnTok name))) " {") "})"))
+; A named-field pattern: `(Name :w p :h)`, the labelled spelling
+; struct construction uses. Fields print in source order, each
+; `:name pattern`; a pun (`:h` in the source) prints expanded, as
+; `:h h`, so the canonical text always shows what binds.
+(:: fpPatNamed (-> FPr FNode ()))
+(fn (fpPatNamed p n)
+  (fpList p n (fpNamedPatFields p n) 5 (concat (concat "(" (ftText p.src (fnTok (fnKid n 0)))) " ")
+    ")"))
+
+; The (name pattern) items of a labelled constructor pattern, from
+; the parens' kids after the head: colon, name, and a sub-pattern
+; unless the next kid is another label or the list ends (a pun,
+; whose pattern is the name itself).
+(:: fpNamedPatFields (-> FPr FNode (Vec FNode)))
+(fn (fpNamedPatFields p n)
+  {
+    (let kids (fnKids n))
+    (let items vecNew)
+    (let mut i 1)
+    {
+      (while (< i (vecLen kids))
+        (if (|| (! (fpIsColonAtom (vecGet kids i)))
+              (|| (>= (+ i 1) (vecLen kids)) (! (fpIsIdentAtom (vecGet kids (+ i 1))))))
+          {
+            (fpBad p)
+            (set i (vecLen kids))
+          }
+          {
+            (let name (vecGet kids (+ i 1)))
+            (let pun (|| (>= (+ i 2) (vecLen kids)) (fpIsColonAtom (vecGet kids (+ i 2)))))
+            (let pattern
+              (if pun
+                name
+                (fpPatItem p kids (+ i 2))))
+            {
+              (vecPush items
+                (mkFNode FN_PAREN (fnTok name) (vecPush (vecPush vecNew name) pattern)
+                  (fnStart (vecGet kids i)) (fnEnd pattern)))
+              (set i (if pun
+                (+ i 2)
+                (+ (+ i 2) (fpPatWidth p.src kids (+ i 2)))))
+            }
+          }))
+      items
+    }
+  })
 
 ; Canonical field nodes keep their name and complete pattern span.
 (:: fpNamedFields (-> FPr FNode Int (Vec FNode)))
@@ -4609,11 +4651,13 @@
         0
         1))
     {
+      (if (== mode 5)
+        (fpP p ":"))
       (fpP p (ftText p.src (fnTok name)))
       (fpP p
         (if (== mode 4)
           " :"
-          " ="))
+          ""))
       (if (== out.trial 1)
         {
           (fpP p " ")
@@ -4696,8 +4740,8 @@
               ; A constructor pattern: the parens are load-bearing -
               ; `(Red)` is a tag test where `Red` alone would be a
               ; binder - so nullary constructors keep them.
-              (if (&& (== (fnLen n) 2) (== (fnKind (fnKid n 1)) FN_BRACE))
-                (fpPatNamed p (fnKid n 0) (fnKid n 1))
+              (if (&& (>= (fnLen n) 2) (fpIsColonAtom (fnKid n 1)))
+                (fpPatNamed p n)
                 (fpList p n (fpHeadPatItems p n) 1 "(" ")"))
               ; Not a constructor head: the group is a paren list of
               ; patterns - one unwraps to itself, several are a

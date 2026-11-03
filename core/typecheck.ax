@@ -22260,11 +22260,11 @@
             (patBinders (nodeBChild pat) acc)
             (patBindersHead (nodeAChild pat) acc)
           }
-          ; A named pattern, `(Wrap {tag = t})`, keeps its sub-patterns
+          ; A named pattern, `(Wrap :tag t)`, keeps its sub-patterns
           ; in word c, as `capPatBind` and `rgnBindPat` read them. This
           ; walk alone missed them, so the arm's `t` was a free name:
           ; with an entry-file function `t` performing IO, a function
-          ; matching on `{tag = t}` drew a false AX3042.
+          ; matching on `:tag t` drew a false AX3042.
           (if (== tag TAG_P_CONNAMED)
             (patBindersVec (nodeCChildren pat) 0 acc)
             0)))
