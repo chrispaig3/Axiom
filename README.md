@@ -165,9 +165,9 @@ Here is a slightly bigger program. Put it in `shapes.ax`:
 ;@axiom:restrict(no-io)
 (fn (area s)
   (match s
-    ((Circle {r = r}) (* 3.14159 (* r r)))
-    ((Rect {w = w, h = h}) (* w h))
-    ((Triangle {b = b, h = h}) (/ (* b h) 2.0))))
+    ((Circle :r r) (* 3.14159 (* r r)))
+    ((Rect :w w :h h) (* w h))
+    ((Triangle :b b :h h) (/ (* b h) 2.0))))
 
 (:: report (-> String Shape Int))
 ;@axiom:effect(io)
