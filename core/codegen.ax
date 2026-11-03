@@ -21444,67 +21444,91 @@
           {
             (let pr (regStr pn))
             (let fr (tmpStr "f" fn2))
-            {
-              (if scoped
-                {
-                  (let cell (regStr (allocReg cg)))
-                  (let base (regStr (allocReg cg)))
-                  {
-                    (emitRecoverCell cg cell (fmtInt (+ k 3)))
-                    (emitLine cg
-                      (concat "  "
-                        (concat base (concat " = ptrtoint ptr " (concat cell " to i64")))))
-                    (emitLine cg
-                      (concat "  " (concat pr (concat " = add i64 " (concat base ", 16")))))
-                  }
-                }
-                (emitLine cg
-                  (concat
-                    (concat (concat "  " pr)
-                      (concat " = call i64 @axiom_alloc(i64 " (fmtInt (* (+ k 1) 8))))
-                    ")")))
-              (emitLine cg
-                (concat (concat "  " fr)
-                  (concat " = ptrtoint ptr @" (concat (llvmSym (strDup lname)) " to i64"))))
-              (storeWordAt cg pr 0 fr)
-              ; A1: the record births owned.
-              (storeCountOneAt cg pr)
-              ; and its reference map names every capture that takes
-              ; a share below (`retainParamCaps`: the reference-class
-              ; parameters), so the record's death hands them back -
-              ; a closure per iteration of a loop chained a million
-              ; captured closures that nothing ever released
-              (storeShapeAt cg pr
+            ; A lambda with no captures is a static descriptor, not a
+            ; heap record: the same immortal-header constant a named
+            ; function's value already is (@.fnval.), emitted beside
+            ; the lifted definition in emitLamDef. Evaluating it
+            ; allocates nothing, retains and releases against its -1
+            ; count are no-ops, and LLVM can see the code pointer it
+            ; holds - the captureless-closure half of the zero-cost
+            ; rule Rust's ZST closures get from monomorphisation,
+            ; kept inside MM-VAL-1a's uniform representation. The
+            ; checker still charges Alloc for any lambda (a sound
+            ; over-claim; scripts/lib/alloc-rows.py allows that
+            ; direction), so restrict(no-alloc) still refuses one.
+            (let stat
+              (&& (== k 0)
                 (if scoped
-                  (lamShapeBits cg capNames 0)
-                  (lamShapeConst cg capNames k)))
-              ; A capture that is a REFERENCE PARAMETER of the
-              ; enclosing function takes a share, and this is the one
-              ; hole that would make event 4's boundary release
-              ; unsound rather than merely incomplete: a lambda
-              ; captures everything in scope, so a closure escaping
-              ; the loop would otherwise hold a parameter the next
-              ; boundary releases. The share is BALANCED, by the map
-              ; three lines above: `lamShapeBits` sets bit 16+1+i for
-              ; exactly the captures `retainParamCaps` retains, so the
-              ; record's death gives each of them back. (This comment
-              ; used to say the share was unbalanced and leaked "in
-              ; the safe direction". It said so from before the map
-              ; existed. Probed 2026-09-03: `emit-llvm` of a lambda
-              ; capturing one `String` parameter emits
-              ; `store i64 131076` for the record's shape word -
-              ; 0x20004, two payload words and bit 17, the map naming
-              ; word 1.)
-              ;
-              ; Counted immutable bindings also take a captured share.
-              ; Unclassified captures retain the conservative park;
-              ; their outer frame cannot prove a release safe.
-              (retainParamCaps cg capNames capRegs 0)
-              (storeCaps cg pr capRegs 0)
+                  false
+                  true)))
+            {
+              (if (! stat)
+                {
+                  (if scoped
+                    {
+                      (let cell (regStr (allocReg cg)))
+                      (let base (regStr (allocReg cg)))
+                      {
+                        (emitRecoverCell cg cell (fmtInt (+ k 3)))
+                        (emitLine cg
+                          (concat "  "
+                            (concat base (concat " = ptrtoint ptr " (concat cell " to i64")))))
+                        (emitLine cg
+                          (concat "  " (concat pr (concat " = add i64 " (concat base ", 16")))))
+                      }
+                    }
+                    (emitLine cg
+                      (concat
+                        (concat (concat "  " pr)
+                          (concat " = call i64 @axiom_alloc(i64 " (fmtInt (* (+ k 1) 8))))
+                        ")")))
+                  (emitLine cg
+                    (concat (concat "  " fr)
+                      (concat " = ptrtoint ptr @" (concat (llvmSym (strDup lname)) " to i64"))))
+                  (storeWordAt cg pr 0 fr)
+                  ; A1: the record births owned.
+                  (storeCountOneAt cg pr)
+                  ; and its reference map names every capture that takes
+                  ; a share below (`retainParamCaps`: the reference-class
+                  ; parameters), so the record's death hands them back -
+                  ; a closure per iteration of a loop chained a million
+                  ; captured closures that nothing ever released
+                  (storeShapeAt cg pr
+                    (if scoped
+                      (lamShapeBits cg capNames 0)
+                      (lamShapeConst cg capNames k)))
+                  ; A capture that is a REFERENCE PARAMETER of the
+                  ; enclosing function takes a share, and this is the one
+                  ; hole that would make event 4's boundary release
+                  ; unsound rather than merely incomplete: a lambda
+                  ; captures everything in scope, so a closure escaping
+                  ; the loop would otherwise hold a parameter the next
+                  ; boundary releases. The share is BALANCED, by the map
+                  ; three lines above: `lamShapeBits` sets bit 16+1+i for
+                  ; exactly the captures `retainParamCaps` retains, so the
+                  ; record's death gives each of them back. (This comment
+                  ; used to say the share was unbalanced and leaked "in
+                  ; the safe direction". It said so from before the map
+                  ; existed. Probed 2026-09-03: `emit-llvm` of a lambda
+                  ; capturing one `String` parameter emits
+                  ; `store i64 131076` for the record's shape word -
+                  ; 0x20004, two payload words and bit 17, the map naming
+                  ; word 1.)
+                  ;
+                  ; Counted immutable bindings also take a captured share.
+                  ; Unclassified captures retain the conservative park;
+                  ; their outer frame cannot prove a release safe.
+                  (retainParamCaps cg capNames capRegs 0)
+                  (storeCaps cg pr capRegs 0)
+                })
               (vecPush (cgPendingLams cg)
                 (mkLamDesc lname lparams body capNames capFloats
                   (cgTypeNodeOpt (nodeBinderTyChild node))))
-              (cgSetResult cg pr)
+              (cgSetResult cg
+                (if stat
+                  (concat "ptrtoint (ptr getelementptr ([3 x i64], ptr @.lamval."
+                    (concat (fmtInt n) ", i64 0, i64 2) to i64)"))
+                  pr))
               (cgSetResultFloat cg 0)
               cg
             }
@@ -21642,6 +21666,21 @@
       (let rgnSaved (cgRegionDepth cg))
       (let _6d (cgSetRegionDepth cg 0))
       {
+        ; A captureless lambda's static descriptor, beside its
+        ; definition: count -1 (immortal, so retains and releases
+        ; are no-ops), the one-word shape a named function's
+        ; descriptor carries, and the code pointer. emitLambdaAt
+        ; hands out a pointer to its payload word instead of
+        ; allocating. A scoped captureless lambda (a recovery
+        ; thunk) leaves its descriptor unused and harmless.
+        (let _v
+          (if (== (vecLen capNames) 0)
+            (emitLine cg
+              (concat "@.lamval."
+                (concat (strSlice lname 5 (- (strLen lname) 5))
+                  (concat " = private constant [3 x i64] [i64 -1, i64 2, i64 ptrtoint (ptr @"
+                    (concat (strDup lname) " to i64)], align 8")))))
+            cg))
         (let hdr
           (concat
             (concat "define i64 @"
