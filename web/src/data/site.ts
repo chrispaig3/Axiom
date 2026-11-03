@@ -59,32 +59,3 @@ export function stat(key: string): string {
   if (!found) throw new Error(`site.ts: no STATS entry keyed '${key}'`)
   return found.n
 }
-
-/**
- * README.md, "Targets", is the one copy of the supported list and of the
- * rule that defines *supported*: a CI leg executes what the compiler
- * emits there. `check-claims.mjs` holds the names below to that
- * sentence. `archive` is whether `scripts/install.sh` has a prebuilt
- * release to download; the others build from the committed seed.
- */
-export interface Target {
-  name: string
-  archive: boolean
-  note: string
-}
-
-export const TARGETS: Target[] = [
-  { name: 'darwin-aarch64', archive: true, note: 'Apple silicon. Prebuilt archive.' },
-  { name: 'linux-aarch64', archive: true, note: 'Prebuilt archive.' },
-]
-
-/** Source-only entries agree with README's target list on every build. */
-export const SOURCE_ONLY: string[] = [
-  'baremetal-aarch64',
-  'darwin-x86_64',
-  'freebsd-aarch64',
-  'freebsd-x86_64',
-  'linux-x86_64',
-  'windows-aarch64',
-  'windows-x86_64',
-]

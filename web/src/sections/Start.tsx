@@ -1,18 +1,9 @@
 import { useId, useState, type ReactNode } from 'react'
-import {
-  BOOTSTRAP_CMD,
-  CLONE_CMD,
-  DOCS,
-  INSTALL_CMD,
-  PATH_CMD,
-  REPO,
-  SOURCE_ONLY,
-  TARGETS,
-} from '../data/site.ts'
+import { BOOTSTRAP_CMD, CLONE_CMD, DOCS, INSTALL_CMD, PATH_CMD } from '../data/site.ts'
 import { SectionHead } from '../components/SectionHead.tsx'
 import { Command } from '../components/Command.tsx'
 import { CodeWindow, RunOutput } from '../components/Code.tsx'
-import { ArrowUpRight, Check } from '../components/Icons.tsx'
+import { ArrowUpRight } from '../components/Icons.tsx'
 import { NEW_PROJECT } from '../data/samples.ts'
 
 /**
@@ -192,99 +183,24 @@ export function Start() {
           </li>
         </ol>
 
-        <div className="next">
-          <div className="next__col">
-            <h3>The commands you will use most</h3>
-            <dl className="cheats">
-              {[
-                ['axiom check', 'type-check and verify every effect claim, no code generation'],
-                ['axiom build', 'a native executable, named after the project'],
-                ['axiom test', 'every function whose name starts with test'],
-                ['axiom fmt', 'the one canonical layout'],
-                ['axiom explain AX3005', 'the full explanation behind any diagnostic code'],
-                ['axiom symbols Main.ax --calls', 'declarations, effects, stable IDs and call edges in AXSYM'],
-                ['axiom emit-llvm Main.ax -o Main.ll', 'inspect the LLVM IR before assembly'],
-                ['axiom build Main.ax --obfuscate -o app', 'optional literal masking and internal symbol scrambling'],
-                ['axiom repl', 'an interactive session, compiled to native code line by line'],
-              ].map(([c, d]) => (
-                <div key={c}>
-                  <dt>
-                    <code>{c}</code>
-                  </dt>
-                  <dd>{d}</dd>
-                </div>
-              ))}
-            </dl>
-            <p className="hint">
-              <a href={`${DOCS}/lsp.md`} target="_blank" rel="noreferrer noopener">
-                Set up your editor <ArrowUpRight size={12} />
-              </a>{' '}
-              for highlighting, go-to-definition, hover and fixes.
-            </p>
-            <p className="hint">
-              Imported modules come from the entry directory, package dependencies and explicit
-              search paths. Set <code>AXIOM_PATH</code> for extra module roots and{' '}
-              <code>AXIOM_STDLIB</code> to override the installed library.{' '}
-              <a href={`${DOCS}/compiler-guide.md`} target="_blank" rel="noreferrer noopener">
-                Module search and compiler inspection <ArrowUpRight size={12} />
+        <div className="editors">
+          <div className="editors__copy">
+            <h3>Use it in your editor</h3>
+            <p>
+              VS Code has a dedicated extension. Neovim, Helix and Emacs have documented setups
+              for <code>axiom lsp</code> — the same server any editor with an LSP client can
+              run — and the tree-sitter grammar adds highlighting in Neovim, Helix, Emacs 29+
+              and Zed.{' '}
+              <a href={`${DOCS}/lsp.md#editor-setup`} target="_blank" rel="noreferrer noopener">
+                Editor setup <ArrowUpRight size={12} />
               </a>
             </p>
           </div>
-
-          <div className="next__col">
-            <h3>Where it runs</h3>
-            <div className="table-wrap" tabIndex={0} role="group" aria-label="Supported targets">
-              <table className="targets">
-                <thead>
-                  <tr>
-                    <th scope="col">Target</th>
-                    <th scope="col">Prebuilt</th>
-                    <th scope="col">Notes</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {TARGETS.map((t) => (
-                    <tr key={t.name}>
-                      <th scope="row">
-                        <code>{t.name}</code>
-                      </th>
-                      <td>
-                        {t.archive ? (
-                          <span className="yes">
-                            <Check size={13} />
-                            <span className="visually-hidden">yes</span>
-                          </span>
-                        ) : (
-                          <span className="no">source</span>
-                        )}
-                      </td>
-                      <td>{t.note}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="hint">
-              <code>--target</code> emits for any of them from any host; only the final link needs
-              that target's linker. Source-only targets:{' '}
-              {SOURCE_ONLY.map((target, i) => (
-                <span key={target}>{i > 0 ? ', ' : ''}<code>{target}</code></span>
-              ))}. <code>--target</code> emits for them, and
-              CI doesn't run the test battery there.{' '}
-              <a href={`${REPO}#targets`} target="_blank" rel="noreferrer noopener">
-                What "supported" means here
-              </a>
-              .
-            </p>
-            <p className="hint">
-              Bare-metal AArch64 uses a board-defined platform seam and an optional QEMU smoke
-              run. A compiler built for Windows x86-64 runs there and builds itself, though
-              Windows stays source-only.{' '}
-              <a href={`${DOCS}/embedded-guide.md`} target="_blank" rel="noreferrer noopener">
-                Embedded targets <ArrowUpRight size={12} />
-              </a>
-            </p>
-          </div>
+          <ul className="editors__list" aria-label="Supported editors">
+            {['VS Code', 'Neovim', 'Helix', 'Emacs', 'Zed', 'Any LSP client'].map((name) => (
+              <li key={name}>{name}</li>
+            ))}
+          </ul>
         </div>
       </div>
     </section>

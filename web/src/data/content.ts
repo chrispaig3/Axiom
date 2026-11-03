@@ -1,13 +1,11 @@
 /**
- * The page's prose that is not code: pillars, the comparison, the
- * status panel and the FAQ.
+ * The page's prose that is not code: pillars, the comparison and
+ * the FAQ.
  *
  * The same rule as everywhere else on this site: a sentence here is a
- * claim, and a claim names where it is held. The status rows are read
- * back against `docs/status.md` by `scripts/check-claims.mjs`, feature
- * name and status word both; the rest cite the document that is the
- * one copy of the fact, so a reader can check it and so can the next
- * person to edit this file.
+ * claim, and a claim names where it is held. Each entry cites the
+ * document that is the one copy of the fact, so a reader can check it
+ * and so can the next person to edit this file.
  */
 import { BLOB, DOCS, stat } from './site.ts'
 
@@ -155,52 +153,6 @@ export const COMPARE: CompareRow[] = [
     go: 'go build',
     haskell: 'cabal or stack',
   },
-]
-
-/* ------------------------------------------------------------------ *
- * Status, held to docs/status.md. `feature` is that table's first
- * column exactly, `status` its bold second column exactly;
- * `check-claims.mjs` reads the table and fails on any row that does
- * not match, so this panel cannot promote a feature the table has not.
- * ------------------------------------------------------------------ */
-
-export interface StatusRow {
-  feature: string
-  status: string
-  /** What a reader needs in one line. */
-  note: string
-}
-
-export const STATUS_SOLID: StatusRow[] = [
-  { feature: 'Functions & types', status: 'Complete', note: 'Curried calls, checked generics, aliases, fixed-width integers, word structs, `Option` and explicit `as` conversions.' },
-  { feature: 'ADTs / data types', status: 'Complete', note: 'Sums with positional or named fields.' },
-  { feature: 'Pattern matching (`match`)', status: 'Complete', note: 'Nested, exhaustive, checked in every function.' },
-  { feature: 'Structs', status: 'Complete', note: 'Named construction, per-field `mut`, generic parameters, automatic rendering.' },
-  { feature: 'Lambda / function values', status: 'Complete', note: 'Closures, partial application, `_` holes.' },
-  { feature: 'Loops', status: 'Complete', note: '`for` over ranges and containers, `while`.' },
-  { feature: 'Syscalls', status: 'Complete', note: 'No libc between your program and the kernel on any of the eight hosted targets.' },
-  { feature: 'Module visibility', status: 'Complete', note: 'Only `pub` leaves a module.' },
-  { feature: 'Self-hosting', status: 'Done', note: 'The Rust compiler it replaced has been deleted.' },
-]
-
-export const STATUS_LIMITS: StatusRow[] = [
-  { feature: 'Effects', status: 'Enforced; unresolved calls marked', note: 'Constructor allocation contributes Alloc; calls the compiler cannot resolve are marked incomplete.' },
-  { feature: 'Macros', status: 'Complete', note: 'Scope-based hygiene, binding-aware literals and repeated-binder constraints. Templates cannot generate `import` or nested `macro` declarations.' },
-  { feature: 'Concurrency', status: 'Language form, two lowerings', note: 'Processes or threads, with the same results. Channels, mutexes and bounded task pools join words in order. A `String` stays with its owner.' },
-  { feature: 'Region syntax', status: 'Checked lexical scopes and inferred escape checks', note: 'Typed regions: each reference has an origin, and an escape is refused. A scalar may leave. Promoting an owned reference out is still ahead.' },
-  { feature: 'Resource ownership', status: 'Functional', note: 'Files, sockets, terminal modes, channels and mutexes close or free themselves when their last owner lets go.' },
-  { feature: 'FFI', status: 'Functional', note: 'Rust through `extern` blocks, sealed owners and callbacks borrowed for the call.' },
-  { feature: 'Standard library', status: 'Functional', note: 'Vectors, links, cryptography, dates, JSON, networking, tasks and an embedded database.' },
-  { feature: 'Contracts', status: 'Functional', note: 'Checked preconditions and postconditions, shown in editor tooltips and the library reference.' },
-  { feature: 'Error handling', status: 'Functional; adopted at the syscall seam', note: '`Result`, the postfix `?`, and handlers that skip a bad record without unwinding.' },
-  { feature: 'Editor support', status: 'Functional', note: 'Language server, formatter, semantic highlighting, tree-sitter grammar and VS Code extension.' },
-]
-
-export const STATUS_REMOVED: StatusRow[] = [
-  { feature: 'Type classes', status: 'Replaced', note: 'By capability records: an interface is a struct of functions.' },
-  { feature: 'Lists', status: 'Removed', note: 'Sequences are `(Vec T)`.' },
-  { feature: 'Tuples', status: 'Removed', note: 'Products are `struct`, sums are `data`.' },
-  { feature: 'Linear types', status: 'Removed', note: 'Deterministic reclamation is reference counting\'s job.' },
 ]
 
 /* ------------------------------------------------------------------ *

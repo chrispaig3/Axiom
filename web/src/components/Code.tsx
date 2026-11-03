@@ -8,16 +8,14 @@ import {
   type ReactNode,
 } from 'react'
 import { highlight, type Token } from '../lib/highlight.ts'
-import { highlightRust } from '../lib/highlight-rust.ts'
 import { Check, Copy } from './Icons.tsx'
 
-export type Lang = 'axiom' | 'rust' | 'plain'
+export type Lang = 'axiom' | 'plain'
 
 const cls = (capture: Token['capture']) => `tok-${capture.replace(/\./g, '-')}`
 
 function tokensFor(code: string, lang: Lang): Token[] {
   if (lang === 'axiom') return highlight(code)
-  if (lang === 'rust') return highlightRust(code)
   return [{ text: code, capture: 'text' }]
 }
 

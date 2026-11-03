@@ -7,7 +7,6 @@ const LINKS = [
   { href: '#why', label: 'Why Axiom' },
   { href: '#tour', label: 'Tour' },
   { href: '#speed', label: 'Performance' },
-  { href: '#status', label: 'Status' },
 ]
 
 /**

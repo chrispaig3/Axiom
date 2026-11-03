@@ -14,8 +14,7 @@
  *   - every point pinned to a line names text that is on exactly one
  *     line, so a highlight cannot drift from the sentence it belongs to;
  *   - the landing demo, replayed edit by edit, prints what every one of
- *     its commands shows;
- *   - the Rust excerpt is a verbatim slice of the crate it names.
+ *     its commands shows.
  *
  *   ./scripts/bootstrap-from-seed.sh --install .axiom-bin
  *   cd web && npm run check:samples
@@ -59,19 +58,6 @@ export interface Program {
   code: string
   /** Its real stdout. */
   output: string
-  /** `run` unless stated. A `serve` program is a server: it is shown as
-   * `axiom run` and never exits on its own, so the checker drives
-   * `client`'s session against it and then stops it with Ctrl-C. */
-  mode?: 'run' | 'test' | 'serve'
-  /** A `serve` program's client: the command shown, and each line sent
-   * beside the line the server answers. Hanging up is Ctrl-D. */
-  client?: { command: string; exchange: [string, string][] }
-  /** Compiler options, placed before the input file. */
-  flags?: string[]
-  /** A Rust crate directory that `axiom-oxide prepare` builds. */
-  crate?: string
-  /** For a program that calls Rust: the crate side, quoted verbatim. */
-  rust?: { path: string; code: string }
   refusal?: Refusal
   docs?: { label: string; href: string }
 }
@@ -81,66 +67,121 @@ const REF = `${LIB}docs/reference.md`
 
 /** The shell commands that produced a program's output. */
 export function commandFor(p: Program): string {
-  const verb = p.mode === 'serve' ? 'run' : (p.mode ?? 'run')
-  const command = `axiom ${verb}${p.flags?.length ? ` ${p.flags.join(' ')}` : ''} ${p.file}`
-  if (!p.crate) return command
-  return `axiom-oxide prepare --crate ${p.crate} --release\n` +
-    `AXIOM_PATH=${p.crate}/axiom:pkg/axiom-oxide/axiom ` +
-    `AXIOM_LINK_SEARCH=pkg/axiom-oxide/target/release ${command}`
+  return `axiom run ${p.file}`
 }
 
 /**
- * The program the landing demo types first: a sum type with named
- * fields, an exhaustive match, a function that promises no I/O, and one
- * that declares it does. Checked on its own as well as in the demo.
+ * The program the landing demo types first: it writes a small folder,
+ * runs the system `ls` on it through `Sys`, and classifies what came
+ * back - a sum type, an exhaustive match, functions that promise no
+ * I/O, and ones that declare the processes they start. Checked on its
+ * own as well as in the demo.
  */
 export const HERO: Program = {
-  id: 'shapes',
-  file: 'shapes.ax',
-  tab: 'shapes.ax',
+  id: 'files',
+  file: 'files.ax',
+  tab: 'files.ax',
   title: 'A whole program',
   lede: '',
   points: [],
-  output: `circle       12.57
-rect         13.50
-triangle      6.00`,
-  code: `(import IO)
+  output: `source code.ax
+docs   notes.md
+text   readme.txt`,
+  code: `(import Err)
+(import IO)
+(import Path)
+(import Str)
+(import Sys)
+(import Vec)
 
-(data Shape
-  (Circle { r : Float })
-  (Rect { w : Float, h : Float })
-  (Triangle { b : Float, h : Float }))
+(data Kind
+  (Source)
+  (Docs)
+  (Text))
 
-(:: area (-> Shape Float))
+(:: kind (-> String Kind))
 ;@axiom:restrict(no-io)
-(fn (area s)
-  (match s
-    ((Circle {r = r}) (* 3.14159 (* r r)))
-    ((Rect {w = w, h = h}) (* w h))
-    ((Triangle {b = b, h = h}) (/ (* b h) 2.0))))
-
-(:: report (-> String Shape Int))
-;@axiom:effect(io)
-(fn (report name s)
+(fn (kind name)
   {
-    (let a (area s))
-    (println "{name:<10}{a:>8.2}")
+    (let ext (pathExt name))
+    (if (strEq ext ".ax")
+        Source
+      (strEq ext ".md")
+        Docs
+      Text)
   })
 
-(:: main ())
+(:: label (-> Kind String))
+;@axiom:restrict(no-io)
+(fn (label k)
+  (match k
+    ((Source) "source")
+    ((Docs) "docs")
+    ((Text) "text")))
+
+; A folder to look at, rebuilt the same way on every run.
+(:: setup ())
 ;@axiom:effect(io)
+(fn (setup)
+  {
+    (let _ (makeDir "crate"))
+    (let _ (writeFile "crate/code.ax" "code\\n"))
+    (let _ (writeFile "crate/notes.md" "notes\\n"))
+    (let _ (writeFile "crate/readme.txt" "readme\\n"))
+  })
+
+; Run ls on the folder and read back what it printed.
+(:: listing (Result String Error))
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
+(fn (listing)
+  {
+    (let args vecNew)
+    (vecPush args "ls")
+    (vecPush args "crate")
+    (let pid (sysSpawnOutErrTo "/bin/ls" args "ls.out" "ls.err")?)
+    (let status (sysWaitPid pid)?)
+    (if (== (sysExitCode status) 0)
+      (readFile "ls.out")
+      (Err (mkError 1 "ls failed")))
+  })
+
+(:: main Int)
+;@axiom:effect(io)
+;@axiom:effect(spawn)
+;@axiom:effect(block)
 (fn (main)
   {
-    (report "circle" (Circle 2.0))
-    (report "rect" (Rect 3.0 4.5))
-    (report "triangle" (Triangle 4.0 3.0))
+    (setup)
+    (match listing
+      ((Err e)
+        {
+          (println (errorText e))
+          1
+        }
+      )
+      ((Ok text)
+        {
+          (let names (strSplit text 10))
+          {
+            (for name in names
+              (if (! (strIsEmpty name))
+                {
+                  (let tag (label (kind name)))
+                  (println "{tag:<7}{name}")
+                }))
+            0
+          }
+        }
+      ))
   })`,
 }
 
 /**
  * The landing demo: a script, not a recording.
  *
- * The page plays it as a terminal session - `shapes.ax` typed into an
+ * The page plays it as a terminal session - `files.ax` typed into an
  * editor pane, then run, broken, refused, fixed and built in a shell
  * pane - and `check-samples.mjs` replays the same steps against the
  * compiler: it applies every edit, and at every `run` writes the
@@ -170,7 +211,7 @@ export type DemoStep =
   | { do: 'wait'; ms: number }
 
 /** The file the demo edits, runs and builds. */
-export const DEMO_FILE = 'shapes.ax'
+export const DEMO_FILE = 'files.ax'
 
 /** HERO's text, cut before each marker: the demo types it in three parts. */
 function cut(code: string, ...marks: string[]): string[] {
@@ -185,22 +226,24 @@ function cut(code: string, ...marks: string[]): string[] {
   return [...parts, rest]
 }
 
-const [TYPES, AREA, REST] = cut(HERO.code, '(:: area', '(:: report') as [string, string, string]
+const [TYPES, CLASSIFY, REST] = cut(HERO.code, '(:: kind', '(:: setup') as [string, string, string]
 
-const RAN = `circle       12.57
-rect         13.50
-triangle      6.00`
+const RAN = `source code.ax
+docs   notes.md
+text   readme.txt`
 
-const RAN_4 = `${RAN}
-hexagon      10.39`
+const RAN_4 = `source code.ax
+data   data.csv
+docs   notes.md
+text   readme.txt`
 
 export const DEMO: DemoStep[] = [
   { do: 'chapter', name: 'write' },
-  { do: 'say', text: 'A sum type: three shapes, each with named fields.' },
+  { do: 'say', text: 'A sum type: the three kinds of file a listing can hold.' },
   { do: 'type', text: TYPES },
-  { do: 'say', text: '`area` promises it performs no I/O. The compiler holds it to that.' },
-  { do: 'type', text: AREA },
-  { do: 'say', text: '`report` prints, so it says so: `effect(io)`.' },
+  { do: 'say', text: '`kind` and `label` only look at a name, so both promise no I/O - and the compiler holds them to it.' },
+  { do: 'type', text: CLASSIFY },
+  { do: 'say', text: 'The rest talks to the system: write a folder, run `ls` on it through `Sys`, and read its output back.' },
   { do: 'type', text: REST },
 
   { do: 'chapter', name: 'run' },
@@ -209,23 +252,23 @@ export const DEMO: DemoStep[] = [
   { do: 'wait', ms: 1400 },
 
   { do: 'chapter', name: 'break' },
-  { do: 'say', text: 'Add a fourth shape, and nothing else.' },
-  { do: 'after', text: '(Triangle { b : Float, h : Float })' },
-  { do: 'type', text: '\n  (Hexagon { side : Float })' },
-  { do: 'say', text: 'The `match` in `area` no longer covers every shape. The compiler names it, and the missing arm.' },
+  { do: 'say', text: 'Add a fourth kind, and nothing else.' },
+  { do: 'after', text: '  (Docs)' },
+  { do: 'type', text: '\n  (Data)' },
+  { do: 'say', text: 'The `match` in `label` no longer covers every kind. The compiler names it, and the missing arm.' },
   {
     do: 'run',
     command: `axiom check ${DEMO_FILE}`,
     argv: [['check', DEMO_FILE]],
     exit: 1,
-    output: `error[AX3005]: non-exhaustive pattern match: missing Hexagon
-  --> shapes.ax:12:10
+    output: `error[AX3005]: non-exhaustive pattern match: missing Data
+  --> files.ax:29:10
    |
-12 |   (match s
-   |          ^ this \`match\` does not cover: Hexagon
+29 |   (match k
+   |          ^ this \`match\` does not cover: Data
    |
    = help: add the missing arms, each a \`todo\` until it is written ~>
-               ((Hexagon _) (todo "Hexagon"))
+               ((Data) (todo "Data"))
    = help: run \`axiom explain AX3005\` for a full explanation
 
 compilation failed due to 1 previous error`,
@@ -233,11 +276,13 @@ compilation failed due to 1 previous error`,
   { do: 'wait', ms: 3600 },
 
   { do: 'chapter', name: 'fix' },
-  { do: 'say', text: 'Handle the hexagon, and report one.' },
-  { do: 'after', text: '((Triangle {b = b, h = h}) (/ (* b h) 2.0))' },
-  { do: 'type', text: '\n    ((Hexagon {side = a}) (* 2.598076 (* a a)))' },
-  { do: 'after', text: '(report "triangle" (Triangle 4.0 3.0))' },
-  { do: 'type', text: '\n    (report "hexagon" (Hexagon 2.0))' },
+  { do: 'say', text: 'Label the new kind, recognise `.csv`, and put one in the folder.' },
+  { do: 'after', text: '((Text) "text")' },
+  { do: 'type', text: '\n    ((Data) "data")' },
+  { do: 'after', text: '(strEq ext ".md")\n        Docs' },
+  { do: 'type', text: '\n      (strEq ext ".csv")\n        Data' },
+  { do: 'after', text: '(let _ (writeFile "crate/readme.txt" "readme\\n"))' },
+  { do: 'type', text: '\n    (let _ (writeFile "crate/data.csv" "data\\n"))' },
   { do: 'run', command: `axiom run ${DEMO_FILE}`, argv: [['run', DEMO_FILE]], output: RAN_4 },
   { do: 'wait', ms: 1400 },
 
@@ -245,11 +290,11 @@ compilation failed due to 1 previous error`,
   { do: 'say', text: 'A native executable, with its allocator and syscalls inside it.' },
   {
     do: 'run',
-    command: `axiom build ${DEMO_FILE} -o shapes`,
-    argv: [['build', DEMO_FILE, '-o', 'shapes']],
-    output: 'Build successful: shapes',
+    command: `axiom build ${DEMO_FILE} -o files`,
+    argv: [['build', DEMO_FILE, '-o', 'files']],
+    output: 'Build successful: files',
   },
-  { do: 'run', command: './shapes', argv: [['./shapes']], output: RAN_4 },
+  { do: 'run', command: './files', argv: [['./files']], output: RAN_4 },
 ]
 
 /**
@@ -268,242 +313,47 @@ export const NEW_PROJECT = {
 }
 
 /**
- * The tour: small real programs, one per idea, in the order a
- * newcomer needs them - from the thing every language has to the
- * things only this one does.
+ * The tour: five whole programs, each doing one job end to end, in
+ * the order a newcomer's questions arrive - how values, records and
+ * failures work, how the standard library carries real work, and
+ * the two things only this language does.
  */
 export const TOUR: Program[] = [
   {
-    id: "types",
-    file: "parcels.ax",
-    tab: "Types & matching",
-    title: "Shipment status report",
-    lede: "Sum types with named fields, matched exhaustively. `Option` is built in, so a missing value is a type rather than a null.",
+    id: "checkout",
+    file: "orders.ax",
+    tab: "Checkout",
+    title: "Price a basket; discount it by the first offer that applies",
+    lede: "One program doing one job end to end: parse order lines into typed records, total them in exact cents, then pick a discount. Failure is a `Result`, every conversion is written out, and the offer choice is a single `if let` chain.",
     points: [
-      { at: "(InTransit { carrier : String, days : Int })", text: "A constructor can carry named fields." },
-      { at: "(:: alert (-> Parcel (Option String)))", text: "`alert` returns `Option String`, because some parcels need no action." },
-      { at: "(let a (optUnwrapOr (alert p) \"-\"))", text: "`optUnwrapOr` supplies the default where there is no value." },
-      { at: "(println \"{id:<9}{s:<17}{a}\")", text: "One row function aligns the header and data. `{id:<9}` pads to nine columns; the status column leaves two spaces after its longest value." },
+      { at: "(let qty (number \"qty\" (vecGet parts 1))?)", text: "`?` binds each parsed number and hands the first failure back with the context that names it - the last line of output is that path." },
+      { at: "(mut qty : Quantity)", text: "`qty` is `UInt16` under the alias `Quantity`, `unit` is `Int32` cents, and `as` converts between them explicitly. `mut` is per field, so `topUp` may rewrite `qty` and nothing else." },
+      { at: "(if (let (Some pct) coupon)", text: "An `if let` chain mixing pattern tests with a plain `Bool`: a coupon first, else loyalty points, else 5% over a hundred dollars, else nothing." },
+      { at: ";@axiom:post((&& (>= result lo) (<= result hi)))", text: "Contracts on the clamp: `pre` checks the bounds before the call, `post` reads the answer as `result`. Both run at every call." },
+      { at: "(macro sum3 ((sum3 a b c) (+ a (+ b c))))", text: "Macros rewrite the program tree before type checking, so what `sum3` expands to is checked like code you wrote." },
     ],
-    docs: { label: "Pattern matching", href: `${REF}#pattern-matching` },
-    output: `parcel   status           action
-AX-1041  packing          not shipped yet
-AX-1042  DHL, 2 days out  -
-AX-1043  held at customs  call about customs
-AX-1044  delivered        -`,
-    code: `(import IO)
-(import Err)
-
-(data Parcel
-  (Ordered)
-  (InTransit { carrier : String, days : Int })
-  (Held { why : String })
-  (Delivered))
-
-(:: status (-> Parcel String))
-(fn (status p)
-  (match p
-    ((Ordered) "packing")
-    ((InTransit carrier days) (format "{carrier}, {days} days out"))
-    ((Held why) (format "held at {why}"))
-    ((Delivered) "delivered")))
-
-(:: alert (-> Parcel (Option String)))
-(fn (alert p)
-  (match p
-    ((Ordered) (Some "not shipped yet"))
-    ((InTransit _ _) None)
-    ((Held why) (Some (format "call about {why}")))
-    ((Delivered) None)))
-
-(:: printRow (-> String String String ()))
-;@axiom:effect(io)
-(fn (printRow id s a)
-  (println "{id:<9}{s:<17}{a}"))
-
-(:: row (-> String Parcel ()))
-;@axiom:effect(io)
-(fn (row id p)
-  {
-    (let s (status p))
-    (let a (optUnwrapOr (alert p) "-"))
-    (printRow id s a)
-  })
-
-(:: main ())
-;@axiom:effect(io)
-(fn (main)
-  {
-    (printRow "parcel" "status" "action")
-    (row "AX-1041" Ordered)
-    (row "AX-1042" (InTransit "DHL" 2))
-    (row "AX-1043" (Held "customs"))
-    (row "AX-1044" Delivered)
-  })`,
-  },
-  {
-    id: "numbers",
-    file: "order.ax",
-    tab: "Numbers & types",
-    title: "Choose each number's representation",
-    lede: "Fixed-width integers keep their precision. `as` makes conversions explicit, `type` gives an existing type a useful name, and `|>` reads a sequence of calls from left to right.",
-    points: [
-      { at: "(type Cents Int32)", text: "An alias is another name for its underlying type; it adds no conversion or new type." },
-      { at: "(quantity : Quantity)", text: "This struct field uses UInt16's two bytes. Calls and container elements still use one machine word." },
-      { at: "(* (as order.quantity Int32) order.unitPrice)", text: "Both operands must be Int32. The widening conversion is written explicitly." },
-      { at: "(let amount (|> order total dollars))", text: "Each stage receives the previous result once. These unary stages are ordinary function calls." },
-    ],
-    docs: { label: "Fixed-width integers", href: `${REF}#fixed-width-integers` },
-    output: "total: 37.50",
-    code: `(import IO)
+    docs: { label: "if let", href: `${REF}#if-let` },
+    output: `subtotal 57.50, discount 24%, total 43.70
+subtotal 57.50, discount 10%, total 51.75
+subtotal 120.00, discount 5%, total 114.00
+two is not a number while reading qty`,
+    code: `(import Err)
+(import IO)
+(import Str)
+(import Vec)
 
 (type Quantity UInt16)
 
 (type Cents Int32)
 
-(struct Order
-  (quantity : Quantity)
-  (unitPrice : Cents))
-
-(:: total (-> Order Cents))
-(fn (total order)
-  (* (as order.quantity Int32) order.unitPrice))
-
-(:: dollars (-> Cents Float))
-(fn (dollars cents)
-  (/ (as cents Float) 100.0))
-
-(:: main ())
-;@axiom:effect(io)
-(fn (main)
-  {
-    (let order (Order :quantity (as 3 Quantity) :unitPrice (as 1250 Cents)))
-    (let amount (|> order total dollars))
-    (println "total: {amount:.2}")
-  })`,
-  },
-  {
-    id: "records",
-    file: "stock.ax",
-    tab: "Records",
-    title: "Restock the shelf",
-    lede: "Structs are built and read by field name. A field is immutable unless it is declared `mut`, and any record prints without formatting code.",
-    points: [
-      { at: "(mut qty : Int)", text: "Mutability is declared per field." },
-      { at: "(set item.qty (+ item.qty order))", text: "`set` writes a `mut` field in place." },
-      { at: "(println \"{ordered:>4} ordered  {item}\")", text: "`{item}` prints the whole record." },
-    ],
-    docs: { label: "Structs", href: `${REF}#structs` },
-    output: `   0 ordered  {sku = "bolt-m4", qty = 120, min = 50}
-  88 ordered  {sku = "nut-m4", qty = 100, min = 50}
- 400 ordered  {sku = "washer", qty = 400, min = 200}`,
-    code: `(import IO)
-(import Vec)
-
-(struct Item
+(struct Line
   (sku : String)
-  (mut qty : Int)
-  (min : Int))
+  (mut qty : Quantity)
+  (unit : Cents))
 
-(:: restock (-> Item Int))
-(fn (restock item)
-  (if (< item.qty item.min)
-    {
-      (let order (- (* 2 item.min) item.qty))
-      {
-        (set item.qty (+ item.qty order))
-        order
-      }
-    }
-    0))
-
-(:: main ())
-;@axiom:effect(io)
-(fn (main)
-  {
-    (let shelf vecNew)
-    {
-      (vecPush shelf (Item :sku "bolt-m4" :qty 120 :min 50))
-      (vecPush shelf (Item :sku "nut-m4" :qty 12 :min 50))
-      (vecPush shelf (Item :sku "washer" :qty 0 :min 200))
-      (for item in shelf
-        {
-          (let ordered (restock item))
-          (println "{ordered:>4} ordered  {item}")
-        })
-    }
-  })`,
-    refusal: {
-      label: "Write a field that is not mut",
-      note: "`min` was never declared `mut`, so writing it is refused, and the help says exactly where the declaration would change.",
-      code: `(import IO)
-(import Vec)
-
-(struct Item
-  (sku : String)
-  (mut qty : Int)
-  (min : Int))
-
-(:: restock (-> Item Int))
-(fn (restock item)
-  (if (< item.qty item.min)
-    {
-      (let order (- (* 2 item.min) item.qty))
-      {
-        (set item.qty (+ item.qty order))
-        (set item.min (+ item.min 10))
-        order
-      }
-    }
-    0))
-
-(:: main ())
-;@axiom:effect(io)
-(fn (main)
-  {
-    (let shelf vecNew)
-    {
-      (vecPush shelf (Item :sku "bolt-m4" :qty 120 :min 50))
-      (vecPush shelf (Item :sku "nut-m4" :qty 12 :min 50))
-      (vecPush shelf (Item :sku "washer" :qty 0 :min 200))
-      (for item in shelf
-        {
-          (let ordered (restock item))
-          (println "{ordered:>4} ordered  {item}")
-        })
-    }
-  })`,
-      human: `error[AX3012]: cannot assign to field \`min\` of \`Item\`: the field is not declared \`mut\`
-  --> stock.ax:16:19
-   |
-16 |         (set item.min (+ item.min 10))
-   |                   ^^^ \`min\` is not a \`mut\` field
-   |
-   = note: a struct field is immutable unless its declaration marks it \`mut\`, the rule \`let\` already follows; until 0.6.0 the marker was parsed and discarded and this store compiled in silence
-   = help: declare it mutable where \`Item\` is defined: \`(mut min : Int)\`
-   = help: run \`axiom explain AX3012\` for a full explanation
-
-compilation failed due to 1 previous error`,
-    },
-  },
-  {
-    id: "failure",
-    file: "settings.ax",
-    tab: "Errors",
-    title: "Three steps, one error path",
-    lede: "Failure is a value. `Result` carries it, `?` hands it back, and `withContext` records which step failed.",
-    points: [
-      { at: "(withContext (okOr (strParseInt text) bad) (concat \"reading \" name))", text: "`okOr` turns a missing number into an error with a message." },
-      { at: "(withContext (mulChecked chunk parts) \"sizing the upload\"))", text: "`mulChecked` fails where `*` would wrap around." },
-      { at: "(let size (number \"chunk\" chunk)?)", text: "`?` binds each success and stops at the first failure." },
-    ],
-    docs: { label: "The error model", href: `${LIB}docs/error-model.md` },
-    output: `4096 x 256 = 1048576 bytes
-4 KiB is not a number while reading chunk
-product is not representable while sizing the upload`,
-    code: `(import Err)
-(import IO)
-(import Str)
+; An expression macro: it rewrites the call into two additions
+; before type checking, so the sum is checked like handwritten code.
+(macro sum3 ((sum3 a b c) (+ a (+ b c))))
 
 (:: number (-> String String (Result Int Error)))
 (fn (number name text)
@@ -512,34 +362,438 @@ product is not representable while sizing the upload`,
     (withContext (okOr (strParseInt text) bad) (concat "reading " name))
   })
 
-; \`*\` wraps silently on overflow; this is the one that can say no.
-(:: upload (-> Int Int (Result Int Error)))
-(fn (upload chunk parts)
-  (withContext (mulChecked chunk parts) "sizing the upload"))
-
-(:: sized (-> String String (Result Int Error)))
-(fn (sized chunk parts)
+; Lines arrive as "sku qty unit-cents". \`?\` binds each number and
+; stops at the first one that is not there.
+(:: parseLine (-> String (Result Line Error)))
+(fn (parseLine text)
   {
-    (let size (number "chunk" chunk)?)
-    (let n (number "parts" parts)?)
-    (upload size n)
+    (let parts (strSplit text 32))
+    (let qty (number "qty" (vecGet parts 1))?)
+    (let unit (number "price" (vecGet parts 2))?)
+    (Ok (Line :sku (vecGet parts 0) :qty (as qty Quantity) :unit (as unit Cents)))
   })
 
-(:: report (-> String String Int))
+; Nothing ships singly: a line for one becomes a line for two.
+; \`set\` can write qty because the field is declared \`mut\`.
+(:: topUp (-> Line ()))
+(fn (topUp line)
+  (if (< (as line.qty Int) 2)
+    (set line.qty (as 2 Quantity))))
+
+(:: lineTotal (-> Line Cents))
+(fn (lineTotal line)
+  (* (as line.qty Int32) line.unit))
+
+;@axiom:pre((<= lo hi))
+;@axiom:post((&& (>= result lo) (<= result hi)))
+(:: clampPct (-> Int Int Int Int))
+(fn (clampPct pct lo hi)
+  (if (< pct lo)
+    lo
+    (if (> pct hi)
+      hi
+      pct)))
+
+; The discount, in the order offers are considered: a coupon if there
+; is one, else loyalty points (a percent per ten, capped at 30), else
+; 5% over a hundred dollars, else nothing. One \`if\` chain, mixing
+; pattern tests with an ordinary Bool test.
+(:: discount (-> (Option Int) (Option Int) Cents Int))
+(fn (discount coupon loyalty subtotal)
+  (if (let (Some pct) coupon)
+      pct
+    (let (Some points) loyalty)
+      (clampPct (/ points 10) 0 30)
+    (> subtotal (as 10000 Cents))
+      5
+    0))
+
+(:: dollars (-> Cents Float))
+(fn (dollars cents)
+  (/ (as cents Float) 100.0))
+
+(:: checkout (-> String String String (Option Int) (Option Int) (Result String Error)))
+(fn (checkout a b c coupon loyalty)
+  {
+    (let first (parseLine a)?)
+    (let second (parseLine b)?)
+    (let third (parseLine c)?)
+    {
+      (topUp first)
+      (topUp second)
+      (topUp third)
+    }
+    (let subtotal (sum3 (lineTotal first) (lineTotal second) (lineTotal third)))
+    (let pct (discount coupon loyalty subtotal))
+    (let off (/ (* subtotal (as pct Cents)) (as 100 Cents)))
+    (let due (- subtotal off))
+    (let before (dollars subtotal))
+    (let after (dollars due))
+    (Ok (format "subtotal {before:.2}, discount {pct}%, total {after:.2}"))
+  })
+
+(:: report (-> String String String (Option Int) (Option Int) ()))
 ;@axiom:effect(io)
-(fn (report chunk parts)
-  (match (sized chunk parts)
-    ((Ok total) (println "{chunk} x {parts} = {total} bytes"))
+(fn (report a b c coupon loyalty)
+  (match (checkout a b c coupon loyalty)
+    ((Ok text) (println text))
     ((Err e) (println (errorText e)))))
 
-(:: main Int)
+(:: main ())
 ;@axiom:effect(io)
 (fn (main)
   {
-    (report "4096" "256")
-    (report "4 KiB" "256")
-    (report "4096" "9007199254740993")
-    0
+    (report "bolt-m4 3 1250" "nut-m4 4 250" "washer 1 500" None (Some 240))
+    (report "bolt-m4 3 1250" "nut-m4 4 250" "washer 1 500" (Some 10) (Some 240))
+    (report "bolt-m4 8 1250" "nut-m4 4 250" "washer 1 500" None None)
+    (report "bolt-m4 3 1250" "nut-m4 two 250" "washer 1 500" None (Some 240))
+  })`,
+    refusal: {
+      label: "Rename a line's sku in place",
+      note: "`sku` was never declared `mut`, so writing it is refused, and the help names the declaration that would allow it. `qty` in the same function can be written because it was.",
+      code: `(import Err)
+(import IO)
+(import Str)
+(import Vec)
+
+(type Quantity UInt16)
+
+(type Cents Int32)
+
+(struct Line
+  (sku : String)
+  (mut qty : Quantity)
+  (unit : Cents))
+
+; An expression macro: it rewrites the call into two additions
+; before type checking, so the sum is checked like handwritten code.
+(macro sum3 ((sum3 a b c) (+ a (+ b c))))
+
+(:: number (-> String String (Result Int Error)))
+(fn (number name text)
+  {
+    (let bad (mkError 20 (concat text " is not a number")))
+    (withContext (okOr (strParseInt text) bad) (concat "reading " name))
+  })
+
+; Lines arrive as "sku qty unit-cents". \`?\` binds each number and
+; stops at the first one that is not there.
+(:: parseLine (-> String (Result Line Error)))
+(fn (parseLine text)
+  {
+    (let parts (strSplit text 32))
+    (let qty (number "qty" (vecGet parts 1))?)
+    (let unit (number "price" (vecGet parts 2))?)
+    (Ok (Line :sku (vecGet parts 0) :qty (as qty Quantity) :unit (as unit Cents)))
+  })
+
+; Nothing ships singly: a line for one becomes a line for two.
+; \`set\` can write qty because the field is declared \`mut\`.
+(:: topUp (-> Line ()))
+(fn (topUp line)
+  {
+    (set line.sku "misc")
+    (if (< (as line.qty Int) 2)
+      (set line.qty (as 2 Quantity)))
+  })
+
+(:: lineTotal (-> Line Cents))
+(fn (lineTotal line)
+  (* (as line.qty Int32) line.unit))
+
+;@axiom:pre((<= lo hi))
+;@axiom:post((&& (>= result lo) (<= result hi)))
+(:: clampPct (-> Int Int Int Int))
+(fn (clampPct pct lo hi)
+  (if (< pct lo)
+    lo
+    (if (> pct hi)
+      hi
+      pct)))
+
+; The discount, in the order offers are considered: a coupon if there
+; is one, else loyalty points (a percent per ten, capped at 30), else
+; 5% over a hundred dollars, else nothing. One \`if\` chain, mixing
+; pattern tests with an ordinary Bool test.
+(:: discount (-> (Option Int) (Option Int) Cents Int))
+(fn (discount coupon loyalty subtotal)
+  (if (let (Some pct) coupon)
+      pct
+    (let (Some points) loyalty)
+      (clampPct (/ points 10) 0 30)
+    (> subtotal (as 10000 Cents))
+      5
+    0))
+
+(:: dollars (-> Cents Float))
+(fn (dollars cents)
+  (/ (as cents Float) 100.0))
+
+(:: checkout (-> String String String (Option Int) (Option Int) (Result String Error)))
+(fn (checkout a b c coupon loyalty)
+  {
+    (let first (parseLine a)?)
+    (let second (parseLine b)?)
+    (let third (parseLine c)?)
+    {
+      (topUp first)
+      (topUp second)
+      (topUp third)
+    }
+    (let subtotal (sum3 (lineTotal first) (lineTotal second) (lineTotal third)))
+    (let pct (discount coupon loyalty subtotal))
+    (let off (/ (* subtotal (as pct Cents)) (as 100 Cents)))
+    (let due (- subtotal off))
+    (let before (dollars subtotal))
+    (let after (dollars due))
+    (Ok (format "subtotal {before:.2}, discount {pct}%, total {after:.2}"))
+  })
+
+(:: report (-> String String String (Option Int) (Option Int) ()))
+;@axiom:effect(io)
+(fn (report a b c coupon loyalty)
+  (match (checkout a b c coupon loyalty)
+    ((Ok text) (println text))
+    ((Err e) (println (errorText e)))))
+
+(:: main ())
+;@axiom:effect(io)
+(fn (main)
+  {
+    (report "bolt-m4 3 1250" "nut-m4 4 250" "washer 1 500" None (Some 240))
+    (report "bolt-m4 3 1250" "nut-m4 4 250" "washer 1 500" (Some 10) (Some 240))
+    (report "bolt-m4 8 1250" "nut-m4 4 250" "washer 1 500" None None)
+    (report "bolt-m4 3 1250" "nut-m4 two 250" "washer 1 500" None (Some 240))
+  })`,
+      human: `error[AX3012]: cannot assign to field \`sku\` of \`Line\`: the field is not declared \`mut\`
+  --> orders.ax:42:15
+   |
+42 |     (set line.sku "misc")
+   |               ^^^ \`sku\` is not a \`mut\` field
+   |
+   = note: a struct field is immutable unless its declaration marks it \`mut\`, the rule \`let\` already follows; until 0.6.0 the marker was parsed and discarded and this store compiled in silence
+   = help: declare it mutable where \`Line\` is defined: \`(mut sku : String)\`
+   = help: run \`axiom explain AX3012\` for a full explanation
+
+compilation failed due to 1 previous error`,
+    },
+  },
+  {
+    id: "links",
+    file: "tree.ax",
+    tab: "Links & trees",
+    title: "A category tree held together by links",
+    lede: "Every node lives in one `Vec`, joined by `Link`s: typed indexes that take no share and cost two bytes in a field. Parent links form a cycle that shared references could not free; the vector frees the whole tree at once.",
+    points: [
+      { at: "(mut parent : (Link Node UInt16))", text: "A `(Link Node UInt16)` names one element of a `(Vec Node)`. Three links cost six bytes per node, where three references would cost twenty-four and three shares to manage." },
+      { at: "(let fresh (linkTo nodes (- (vecLen nodes) 1)))", text: "`linkTo` mints the link to the node just pushed. `linkGet` follows one with the same bounds check as `vecGet`; `linkNone` names nothing." },
+      { at: "(if (let (Some at) (find nodes name))", text: "The lookup answers `(Option (Link Node UInt16))`, and one `if let` chain handles found, found under its old name, and not stocked." },
+      { at: "(region scratch", text: "A link is an index, so the one computed over this scratch copy may leave the region as an `Int` while the copy itself is reclaimed whole." },
+    ],
+    docs: { label: "Link the elements of a vector", href: `${REF}#link-the-elements-of-a-vector` },
+    output: `categories:
+shop
+  tools
+    drills
+      cordless
+    saws
+  garden
+    seeds
+cordless: shop / tools / drills / cordless
+drills (sold as power drills): shop / tools / drills
+paint: not stocked
+7 categories, last added at index 6`,
+    code: `(import IO)
+(import Link)
+(import Str)
+(import Vec)
+
+; A shop's categories. Every node lives in one Vec, and links join
+; them: down to the first child, across to the next sibling, and back
+; up to the parent. The vector owns each node once, so the cycle the
+; parent links form costs nothing to free.
+(struct Node
+  (name : String)
+  (mut parent : (Link Node UInt16))
+  (mut child : (Link Node UInt16))
+  (mut sibling : (Link Node UInt16)))
+
+(:: attach (-> (Vec Node) (Link Node UInt16) (Link Node UInt16) ()))
+(fn (attach nodes at fresh)
+  {
+    (let n (linkGet nodes at))
+    (if (linkIsSome n.sibling)
+      (attach nodes n.sibling fresh)
+      (set n.sibling fresh))
+  })
+
+(:: add (-> (Vec Node) String (Link Node UInt16) (Link Node UInt16)))
+(fn (add nodes name parent)
+  {
+    (vecPush nodes (Node :name name :parent parent :child linkNone :sibling linkNone))
+    (let fresh (linkTo nodes (- (vecLen nodes) 1)))
+    {
+      (if (linkIsSome parent)
+        {
+          (let p (linkGet nodes parent))
+          (if (linkIsSome p.child)
+            (attach nodes p.child fresh)
+            (set p.child fresh))
+        })
+      fresh
+    }
+  })
+
+(:: find (-> (Vec Node) String (Option (Link Node UInt16))))
+(fn (find nodes name)
+  {
+    (let mut hit (:: None (Option (Link Node UInt16))))
+    {
+      (for i in 0..(vecLen nodes)
+        {
+          (let n (vecGet nodes i))
+          (if (strEq n.name name)
+            (set hit (Some (linkTo nodes i))))
+        })
+      hit
+    }
+  })
+
+; Root first, by following parent links up and naming each node
+; on the way back down.
+(:: path (-> (Vec Node) (Link Node UInt16) String))
+(fn (path nodes at)
+  {
+    (let n (linkGet nodes at))
+    (if (linkIsSome n.parent)
+      (concat (concat (path nodes n.parent) " / ") n.name)
+      n.name)
+  })
+
+(:: printTree (-> (Vec Node) (Link Node UInt16) String ()))
+;@axiom:effect(io)
+(fn (printTree nodes at indent)
+  (if (linkIsSome at)
+    {
+      (let n (linkGet nodes at))
+      (let label n.name)
+      {
+        (println "{indent}{label}")
+        (printTree nodes n.child (concat indent "  "))
+        (printTree nodes n.sibling indent)
+      }
+    }))
+
+; One chain answers all three: found by its name, found by the name
+; it used to be sold under, or not stocked at all.
+(:: report (-> (Vec Node) String String ()))
+;@axiom:effect(io)
+(fn (report nodes name alias)
+  (if (let (Some at) (find nodes name))
+      {
+        (let where (path nodes at))
+        (println "{name}: {where}")
+      }
+    (let (Some at) (find nodes alias))
+      {
+        (let where (path nodes at))
+        (println "{alias} (sold as {name}): {where}")
+      }
+    (println "{name}: not stocked")))
+
+; A link is an index, not an address, so one computed over a scratch
+; copy inside a region still names the right element outside it.
+; The copy is reclaimed when the region ends; the index may leave.
+(:: lastAdded (-> (Vec Node) Int))
+(fn (lastAdded nodes)
+  (region scratch
+    {
+      (let copy (:: vecNew (Vec Node)))
+      (for n in nodes
+        (vecPush copy n))
+      (linkIndex (linkTo copy (- (vecLen copy) 1)))
+    }))
+
+(:: main ())
+;@axiom:effect(io)
+(fn (main)
+  {
+    (let nodes (:: vecNew (Vec Node)))
+    (let root (add nodes "shop" linkNone))
+    (let tools (add nodes "tools" root))
+    (let garden (add nodes "garden" root))
+    (let drills (add nodes "drills" tools))
+    {
+      (add nodes "saws" tools)
+      (add nodes "seeds" garden)
+      (add nodes "cordless" drills)
+      (println "categories:")
+      (printTree nodes root "")
+      (report nodes "cordless" "cordless")
+      (report nodes "power drills" "drills")
+      (report nodes "paint" "paint")
+      (let total (vecLen nodes))
+      (let last (lastAdded nodes))
+      (println "{total} categories, last added at index {last}")
+    }
+  })`,
+  },
+  {
+    id: "digest",
+    file: "digest.ax",
+    tab: "Stdlib pipeline",
+    title: "Read TOML, ship on UTC, fingerprint as JSON",
+    lede: "Four standard-library modules in one pipeline - `Cereal`, `Chrono` and `Crypto` over `Err` - all of them written in Axiom and calling no C.",
+    points: [
+      { at: "(let note (cerealDecode CerealToml toml)?)", text: "`Cereal` decodes TOML, JSON and YAML into one typed value. This one is written back out as JSON below." },
+      { at: "(let version (cerealField cerealTextCodec note \"version\")?)", text: "A codec reads each field, and a missing or mistyped one is an error that names it - the second note in the output has no version." },
+      { at: "(let start (datetimeParseUtc at)?)", text: "`Chrono` applies the +02:00 offset and answers a UTC date-time; adding the parsed duration refuses results outside the supported range." },
+      { at: "(let digest (hexEncode (sha256 json)))", text: "`Crypto.Sha2` digests the JSON bytes and `Crypto.Bytes` spells the digest in hex." },
+    ],
+    docs: { label: "Cereal", href: `${LIB}docs/stdlib.md#cereal` },
+    output: `axiom 0.8.0 ships 2024-02-29T23:00:00 UTC
+{"name":"axiom","version":"0.8.0","at":"2024-02-29T23:30:00+02:00"}
+sha256 f5a23d53a39b761dd4c6ec4e176e3b2e5d10b1d93db63961fa1d4a3c6c112f9d
+Cereal: missing field: version while version`,
+    code: `(import Cereal)
+(import Chrono)
+(import Crypto.Bytes)
+(import Crypto.Sha2)
+(import Err)
+(import IO)
+
+; Read a release note written as TOML, say when it ships in UTC,
+; and fingerprint the same note written as JSON. Every step that can
+; fail returns a Result, and \`?\` hands the first failure back.
+(:: announce (-> String (Result String Error)))
+(fn (announce toml)
+  {
+    (let note (cerealDecode CerealToml toml)?)
+    (let name (cerealField cerealTextCodec note "name")?)
+    (let version (cerealField cerealTextCodec note "version")?)
+    (let at (cerealField cerealTextCodec note "at")?)
+    (let start (datetimeParseUtc at)?)
+    (let delay (durationParse "PT1H30M")?)
+    (let when (datetimeAdd start delay)?)
+    (let json (cerealEncode CerealJson note)?)
+    (let whenText (datetimeToString when))
+    (let digest (hexEncode (sha256 json)))
+    (Ok (format "{name} {version} ships {whenText} UTC\\n{json}\\nsha256 {digest}"))
+  })
+
+(:: report (-> String ()))
+;@axiom:effect(io)
+(fn (report toml)
+  (match (announce toml)
+    ((Ok text) (println text))
+    ((Err e) (println (errorText e)))))
+
+(:: main ())
+;@axiom:effect(io)
+(fn (main)
+  {
+    (report "name = \\"axiom\\"\\nversion = \\"0.8.0\\"\\nat = \\"2024-02-29T23:30:00+02:00\\"\\n")
+    (report "name = \\"axiom\\"\\nat = \\"2024-02-29T23:30:00+02:00\\"\\n")
   })`,
   },
   {
@@ -603,118 +857,6 @@ test: 4 pauses recorded, 0 ms slept`,
       (assertEq "doubling" 800 (vecGet seen 3))
       (println "test: 4 pauses recorded, 0 ms slept")
       0
-    }
-  })`,
-  },
-  {
-    id: 'contracts',
-    file: 'contracts.ax',
-    tab: 'Contracts',
-    title: 'Check both sides of a call',
-    lede: 'State what your function accepts and what it promises. Every call checks both clauses.',
-    points: [
-      { at: ';@axiom:pre((<= lo hi))', text: '`pre` checks the bounds before the function runs.' },
-      { at: ';@axiom:post((&& (>= result lo) (<= result hi)))', text: '`post` reads the returned value as `result`. A failed clause traps with status 80.' },
-    ],
-    code: `(import IO)
-
-;@axiom:pre((<= lo hi))
-;@axiom:post((&& (>= result lo) (<= result hi)))
-(:: clamp (-> Int Int Int Int))
-(fn (clamp n lo hi)
-  (if (< n lo)
-    lo
-    (if (> n hi)
-      hi
-      n)))
-
-(:: main ())
-;@axiom:effect(io)
-(fn (main)
-  {
-    (let below (clamp -3 0 10))
-    (let inside (clamp 7 0 10))
-    (let above (clamp 18 0 10))
-    (println "{below} {inside} {above}")
-  })`,
-    output: '0 7 10',
-    docs: { label: 'Contracts', href: `${REF}#contracts-pre-and-post` },
-  },
-  {
-    id: "collections",
-    file: "inbox.ax",
-    tab: "Collections",
-    title: "Top words in a support inbox",
-    lede: "`Vec`, `Map` and a string interner from the standard library, which is written in Axiom and calls no C.",
-    points: [
-      { at: "(for msg in inbox", text: "`for` walks a `Vec` element by element." },
-      { at: "(let id (internIntern words w))", text: "Each word becomes an id, counted in a `Map`. The interner owns its bytes; look them up while it is live." },
-      { at: "(let byCount (lambda (a b)", text: "The comparator is a lambda that closes over the map." },
-      { at: "(let ranked (vecSortBy (mapKeys count) byCount))", text: "`vecSortBy` ranks the ids by count." },
-    ],
-    docs: { label: "Standard library", href: `${REF}#standard-library` },
-    output: `   4  mobile
-   3  payment
-   3  safari
-   3  checkout
-   2  error`,
-    code: `(import IO)
-(import Intern)
-(import Map)
-(import Str)
-(import Vec)
-
-; "Safari." and "desktop," count as safari and desktop.
-(:: bare (-> String String))
-(fn (bare w)
-  {
-    (let n (strLen w))
-    (if (strIsAlpha (strByte w (- n 1)))
-      w
-      (strSlice w 0 (- n 1)))
-  })
-
-; Each message is split on byte 32 (a space); each word of four
-; letters or more is interned and counted, then the ids are ranked.
-(:: main ())
-;@axiom:effect(io)
-(fn (main)
-  {
-    (let inbox vecNew)
-    (let words internNew)
-    (let count mapNew)
-    (let byCount (lambda (a b) (- (mapGet count b 0) (mapGet count a 0))))
-    {
-      (vecPush inbox "Checkout fails on mobile Safari.")
-      (vecPush inbox "The payment sheet spins forever and never loads.")
-      (vecPush inbox "Checkout works on desktop, but payment is greyed out on mobile.")
-      (vecPush inbox "Payment declined with no error message on mobile Safari.")
-      (vecPush inbox "Safari on iOS shows the same error.")
-      (vecPush inbox "Checkout on mobile is unusable.")
-      (for msg in inbox
-        {
-          (let parts (strSplit (strLower msg) 32))
-          (for i in 0..(vecLen parts)
-            {
-              (let w (bare (vecGet parts i)))
-              (if (>= (strLen w) 4)
-                {
-                  (let id (internIntern words w))
-                  (mapInsert count id (+ 1 (mapGet count id 0)))
-                }
-                0)
-            })
-        })
-      {
-        (let ranked (vecSortBy (mapKeys count) byCount))
-        (for r in 0..5
-          {
-            (let id (vecGet ranked r))
-            (let n (mapGet count id 0))
-            (let w (internLookup words id))
-            (println "{n:>4}  {w}")
-          })
-      }
     }
   })`,
   },
@@ -795,534 +937,6 @@ test: 4 pauses recorded, 0 ms slept`,
    = help: run \`axiom explain AX3064\` for a full explanation
 
 compilation failed due to 1 previous error`,
-    },
-  },
-  {
-    id: "regions",
-    file: "requests.ax",
-    tab: "Regions",
-    title: "A million requests, one pointer move each",
-    lede: "`(region r body)` resets the allocator when `body` ends, so everything a request built is reclaimed in one step. Only scalars may leave a region, and the compiler checks that.",
-    points: [
-      { at: "(region req", text: "Each request runs in its own region." },
-      { at: "(set bytes (+ bytes (strLen (render id))))))", text: "The `Int` total leaves the region; the strings stay inside it." },
-      { at: "(for id in 0..1000000", text: "A million requests, and the heap ends where it began." },
-    ],
-    docs: { label: "Regions", href: `${REF}#regions` },
-    output: `1000000 requests, 27818986 bytes rendered`,
-    code: `(import IO)
-(import Str)
-
-; Stands in for real work: every call builds a fresh String.
-(:: render (-> Int String))
-(fn (render id)
-  (format "GET /orders/{id} 200 {id:x}"))
-
-(:: main ())
-;@axiom:effect(io)
-(fn (main)
-  {
-    (let mut bytes 0)
-    {
-      (for id in 0..1000000
-        (region req
-          (set bytes (+ bytes (strLen (render id))))))
-      (println "1000000 requests, {bytes} bytes rendered")
-    }
-  })`,
-    refusal: {
-      label: "Keep a string past its region",
-      note: "Storing the rendered `String` in a variable outside the region would leave it pointing at reclaimed memory. The compiler refuses the store and the region answering it.",
-      code: `(import IO)
-(import Str)
-
-; Stands in for real work: every call builds a fresh String.
-(:: render (-> Int String))
-(fn (render id)
-  (format "GET /orders/{id} 200 {id:x}"))
-
-(:: main ())
-;@axiom:effect(io)
-(fn (main)
-  {
-    (let mut last "")
-    {
-      (for id in 0..1000000
-        (region req
-          (set last (render id))))
-      (println "last request: {last}")
-    }
-  })`,
-      human: `error[AX3059]: \`last\` is bound outside region \`req\`, and the value stored into it has type \`String\`
-  --> requests.ax:17:16
-   |
-16 |         (region req
-   |                 --- this region ends before the outer binding is used
-17 |           (set last (render id))))
-   |                ^^^^ this store leaves the region
-   |
-   = note: a store is the one escape channel a scope check can see; a call that stores the value for you is refused too, where the facts walk sees it
-   = help: move the reference allocation and this store outside the region, or bind the destination inside it; an outer binding may receive a scalar computed inside the region
-   = help: run \`axiom explain AX3059\` for a full explanation
-
-error[AX3059]: region \`req\` answers a value of type \`String\`, which may point into the memory the region reclaims
-  --> requests.ax:17:16
-   |
-16 |         (region req
-   |                 --- this region reclaims the result's allocation when its body ends
-17 |           (set last (render id))))
-   |                ^^^^ this has type \`String\`
-   |
-   = note: a \`String\` is a descriptor over a second block, a struct is a block and a closure is a record; every one of them would point at reclaimed memory
-   = help: compute a scalar such as (strLen value) inside the region and return it; if you need a reference result, allocate it outside the region
-   = help: run \`axiom explain AX3059\` for a full explanation
-
-compilation failed due to 2 previous errors`,
-    },
-  },
-  {
-    id: "macros",
-    file: "quota.ax",
-    tab: "Macros",
-    title: "Storage quotas by plan",
-    lede: "Macros rewrite the program tree before type checking, so what they generate is checked like code you wrote.",
-    points: [
-      { at: "(macro defUnit ((defUnit name factor)", text: "`defUnit` writes a signature and a function each time it is used." },
-      { at: "((total x rest ...) (+ x (total rest ...))))", text: "`total` takes any number of terms, recursively." },
-      { at: "(deriveEq Plan)", text: "`deriveEq` reads `Plan`'s constructors and writes `eqPlan`. No user code runs at compile time." },
-    ],
-    docs: { label: "Macros", href: `${REF}#macros` },
-    output: `Free       536870912 bytes
-Pro      21474836480 bytes
-Team    129385889792 bytes  <- shared`,
-    code: `(import IO)
-(import Pre)
-
-; A declaration macro: one line per unit writes a typed function.
-(macro defUnit ((defUnit name factor)
-   (:: name (-> Int Int))
-   (fn (name n) (* n factor))))
-
-(defUnit kib 1024)
-
-(defUnit mib (kib 1024))
-
-(defUnit gib (mib 1024))
-
-; An expression macro whose last rule repeats: any number of terms.
-(macro total ((total x) x)
-  ((total x rest ...) (+ x (total rest ...))))
-
-(data Plan
-  (Free)
-  (Pro)
-  (Team))
-
-; Reads Plan's constructors at compile time and writes eqPlan.
-(deriveEq Plan)
-
-(:: quota (-> Plan Int))
-(fn (quota p)
-  (match p
-    ((Free) (mib 512))
-    ((Pro) (gib 20))
-    ((Team) (total (gib 100) (gib 20) (mib 512)))))
-
-(:: row (-> Plan Int))
-;@axiom:effect(io)
-(fn (row p)
-  {
-    (let bytes (quota p))
-    (let mark
-      (if (eqPlan p Team)
-        "  <- shared"
-        ""))
-    (println "{p:<6}{bytes:>14} bytes{mark}")
-  })
-
-(:: main ())
-;@axiom:effect(io)
-(fn (main)
-  {
-    (row Free)
-    (row Pro)
-    (row Team)
-  })`,
-  },
-  {
-    id: "testing",
-    file: "version.ax",
-    tab: "Testing",
-    title: "Version numbers, compared correctly",
-    lede: "A test is a function whose name starts with `test`. `axiom test` finds them without registration, and a failed assertion ends only its own test.",
-    points: [
-      { at: "(fn (testComparesNumerically)", text: "The name is the registration." },
-      { at: "(assertEq \"0.10.0 is newer\" 1 (versionCmp \"0.10.0\" \"0.9.4\")))", text: "Every assertion takes a label, so a failure says what it meant." },
-    ],
-    mode: 'test',
-    docs: { label: "Testing", href: `${REF}#testing` },
-    output: `ok   testComparesNumerically
-ok   testEqualVersions
-ok   testMissingPartIsZero
-ok   testOlder
-
-4 test(s), 0 failed`,
-    code: `(import Str)
-(import Test)
-(import Vec)
-
-; The i-th dotted part as a number; a missing part counts as 0.
-(:: part (-> (Vec String) Int Int))
-(fn (part parts i)
-  (if (< i (vecLen parts))
-    (optUnwrapOr (strParseInt (vecGet parts i)) 0)
-    0))
-
-; -1, 0 or 1. Numeric per part, so 0.10.0 is newer than 0.9.4,
-; which comparing the strings would get backwards.
-(:: versionCmp (-> String String Int))
-(fn (versionCmp a b)
-  {
-    (let pa (strSplit a 46))
-    (let pb (strSplit b 46))
-    (let mut i 0)
-    (let mut d 0)
-    {
-      (while (&& (== d 0) (< i 3))
-        {
-          (set d (- (part pa i) (part pb i)))
-          (set i (+ i 1))
-        })
-      (if (< d 0)
-        -1
-        (if (> d 0)
-          1
-          0))
-    }
-  })
-
-(:: testComparesNumerically Int)
-;@axiom:effect(io)
-(fn (testComparesNumerically)
-  (assertEq "0.10.0 is newer" 1 (versionCmp "0.10.0" "0.9.4")))
-
-(:: testEqualVersions Int)
-;@axiom:effect(io)
-(fn (testEqualVersions)
-  (assertEq "same version" 0 (versionCmp "0.7.6" "0.7.6")))
-
-(:: testMissingPartIsZero Int)
-;@axiom:effect(io)
-(fn (testMissingPartIsZero)
-  (assertEq "1.2 is 1.2.0" 0 (versionCmp "1.2" "1.2.0")))
-
-(:: testOlder Int)
-;@axiom:effect(io)
-(fn (testOlder)
-  (assertEq "older" -1 (versionCmp "1.9.9" "2.0.0")))`,
-  },
-  {
-    id: 'json',
-    file: 'payload.ax',
-    tab: 'Cereal',
-    title: 'Read TOML, check a field, write JSON',
-    lede: '`Cereal` decodes JSON, TOML and YAML into one typed value. A codec reads each field, and a missing or mistyped one is an error that names it.',
-    points: [
-      { at: '(cerealDecode CerealToml toml)', text: 'Decoding returns a Result, and `?` hands an error straight back.' },
-      { at: '(cerealField cerealIntCodec config "replicas")', text: 'A missing or non-integer field is an Error naming replicas.' },
-      { at: '(cerealEncode CerealJson config)', text: 'The same value writes out as JSON, TOML or YAML.' },
-    ],
-    docs: { label: 'Cereal and RPC framing', href: `${LIB}docs/stdlib.md#cereal` },
-    output: `{"name":"payments","replicas":3}`,
-    code: `(import IO)
-(import Err)
-(import Cereal)
-
-(:: toJson (-> String (Result String Error)))
-(fn (toJson toml)
-  {
-    (let config (cerealDecode CerealToml toml)?)
-    (let replicas (cerealField cerealIntCodec config "replicas")?)
-    (if (< replicas 1)
-      (Err (mkError 22 "replicas must be at least 1"))
-      (cerealEncode CerealJson config))
-  })
-
-(:: main Int)
-;@axiom:effect(io)
-(fn (main)
-  (match (toJson "name = \\"payments\\"\\nreplicas = 3\\n")
-    ((Err e) (die (errorText e) 1))
-    ((Ok json)
-      {
-        (println json)
-        0
-      }
-    )))`,
-  },
-  {
-    id: 'tcp',
-    file: 'echo.ax',
-    tab: 'TCP',
-    title: 'An echo server that runs until you stop it',
-    lede: '`Net` is TCP the way Rust\'s `std::net` has it. This server answers each line a client sends with the same line, serves one client after another, and runs until you press Ctrl-C. Try it with `nc` in a second terminal.',
-    points: [
-      { at: '(match (tcpReadLine conn 4096)', text: 'One line without its newline, capped at 4 KiB so a client cannot grow your memory without bound.' },
-      { at: '((Ok (None)) 0)', text: 'None means the client hung up. When serve returns, the connection closes itself and the loop takes the next client.' },
-      { at: '(while true', text: 'The accept loop never returns: the server runs until you stop it.' },
-    ],
-    docs: { label: 'TCP with Net', href: `${LIB}docs/stdlib.md#net` },
-    mode: 'serve',
-    client: {
-      command: 'nc 127.0.0.1 7878',
-      exchange: [
-        ['hello', 'hello'],
-        ['still here?', 'still here?'],
-      ],
-    },
-    output: 'listening on 127.0.0.1:7878',
-    code: `(import Err)
-(import IO)
-(import Net)
-(import Str)
-
-(:: report (-> String Error Int))
-;@axiom:effect(io)
-(fn (report what e)
-  {
-    (let why (errorText e))
-    (eprintln "{what}: {why}")
-  })
-
-; Echo each line back until the client hangs up.
-(:: serve (-> TcpStream Int))
-;@axiom:effect(io)
-(fn (serve conn)
-  (match (tcpReadLine conn 4096)
-    ((Ok (Some line))
-      (match (tcpWrite conn (concat line "\\n"))
-        ((Ok _) (serve conn))
-        ((Err e) (report "write" e)))
-    )
-    ((Ok (None)) 0)
-    ((Err e) (report "read" e))))
-
-(:: main Int)
-;@axiom:effect(io)
-(fn (main)
-  (match (tcpListen "127.0.0.1:7878")
-    ((Err e) (report "listen" e))
-    ((Ok lsn)
-      {
-        (println "listening on 127.0.0.1:7878")
-        (while true
-          (match (tcpAccept lsn)
-            ((Ok conn) (serve conn))
-            ((Err e) (report "accept" e))))
-        0
-      }
-    )))`,
-  },
-  {
-    id: 'chrono',
-    file: 'schedule.ax',
-    tab: 'Dates & times',
-    title: 'Normalise a timestamp, then add a duration',
-    lede: '`Chrono` validates calendar values and returns a Result for parsing and arithmetic. An offset-bearing timestamp can be normalised to UTC; the returned date-time holds no zone field.',
-    points: [
-      { at: '(let start (datetimeParseUtc "2024-02-29T23:30:00+02:00")?)', text: 'The +02:00 offset is applied before the naive UTC date-time is returned.' },
-      { at: '(let delay (durationParse "PT1H30M")?)', text: '`?` binds each success and propagates an error at either step.' },
-      { at: '(datetimeAdd start delay)', text: 'Duration arithmetic refuses results outside the supported range.' },
-    ],
-    docs: { label: 'Dates and times', href: `${LIB}docs/chrono.md` },
-    output: '2024-02-29T23:00:00',
-    code: `(import Chrono)
-(import Err)
-(import IO)
-
-(:: arrival (Result NaiveDateTime Error))
-(fn (arrival)
-  {
-    (let start (datetimeParseUtc "2024-02-29T23:30:00+02:00")?)
-    (let delay (durationParse "PT1H30M")?)
-    (datetimeAdd start delay)
-  })
-
-(:: main ())
-;@axiom:effect(io)
-(fn (main)
-  (match arrival
-    ((Err e) (die (errorText e) 1))
-    ((Ok end) (println (datetimeToString end)))))`,
-  },
-  {
-    id: 'tasks',
-    file: 'jobs.ax',
-    tab: 'Task pools',
-    title: 'Bound the workers, keep submit order',
-    lede: '`Task` runs jobs in forked children, limits concurrency and answer size, then returns one Result per job in submit order. Options add deadlines, cancellation and fail-fast behaviour.',
-    points: [
-      { at: '(let answers (taskMap job 4 2 64))', text: 'Four jobs, at most two running at once, with at most 64 bytes in each answer.' },
-      { at: '(for answer in answers', text: 'Answers keep submit order even when workers finish in a different order.' },
-      { at: '((Err e) (println (errorText e)))', text: 'A failed job has an error value in its own slot.' },
-    ],
-    docs: { label: 'Task pools and streaming folds', href: `${REF}#run-tasks-that-answer-values-with-task` },
-    output: `job 0: 0
-job 1: 1
-job 2: 4
-job 3: 9`,
-    code: `(import Err)
-(import IO)
-(import Task)
-(import Vec)
-
-(:: job (-> Int String))
-(fn (job i)
-  {
-    (let square (* i i))
-    (format "job {i}: {square}")
-  })
-
-(:: main ())
-;@axiom:effect(io)
-;@axiom:effect(spawn)
-;@axiom:effect(block)
-(fn (main)
-  {
-    (let answers (taskMap job 4 2 64))
-    (for answer in answers
-      (match answer
-        ((Ok text) (println text))
-        ((Err e) (println (errorText e)))))
-  })`,
-  },
-  {
-    id: 'obfuscation',
-    file: 'asset.ax',
-    tab: 'Asset protection',
-    flags: ['--obfuscate'],
-    title: 'Authenticate an embedded asset',
-    lede: '`Crypto.Obfuscate` seals bytes with a fresh nonce and a context-bound key. Use the packing tool before compilation, and optional --obfuscate for literal masking and internal symbols. Running-process inspection can still recover embedded data.',
-    points: [
-      { at: '(let envelope (obfuscationSeal key "demo/message/v1" "asset opened")?)', text: 'A context identifies the asset purpose and is authenticated with its bytes.' },
-      { at: '(obfuscationOpen key "demo/message/v1" envelope)', text: 'Open verifies the tag before returning plaintext.' },
-      { at: '(obfuscationKeyWipe key)', text: 'Erase the key on both success and error before examining the Result.' },
-    ],
-    docs: { label: 'Pack assets and obfuscate executables', href: `${LIB}docs/obfuscation.md` },
-    output: 'asset opened',
-    code: `(import Crypto.Obfuscate)
-(import Err)
-(import IO)
-
-(:: roundTrip (-> ObfuscationKey (Result String Error)))
-;@axiom:effect(io)
-;@axiom:effect(entropy)
-(fn (roundTrip key)
-  {
-    (let envelope (obfuscationSeal key "demo/message/v1" "asset opened")?)
-    (obfuscationOpen key "demo/message/v1" envelope)
-  })
-
-(:: main ())
-;@axiom:effect(io)
-;@axiom:effect(entropy)
-(fn (main)
-  (match obfuscationKeyGenerate
-    ((Err e) (die (errorText e) 1))
-    ((Ok key)
-      {
-        (let opened (roundTrip key))
-        {
-          (obfuscationKeyWipe key)
-          (match opened
-            ((Err e) (die (errorText e) 1))
-            ((Ok text) (println text)))
-        }
-      }
-    )))`,
-  },
-  {
-    id: "rust",
-    file: "rusty.ax",
-    tab: "Calling Rust",
-    title: "Rust, one extern away",
-    lede: "Mark Rust functions `#[axiom_export]` and `axiom-oxide prepare` writes their Axiom module and builds the archive. This caller vouches for the direct scalar extern call with `effect(unsafe)`.",
-    points: [
-      { at: "(let loud (shout \"ships a binary\"))", text: "`shout` takes a borrowed string and returns an owned one." },
-      { at: "(let c (counterNew 40))", text: "`Counter` is an opaque Rust value behind a counted handle, dropped with its last reference." },
-      { at: "(match (parseInt \"12x\")", text: "`parseInt` returns a Rust `Result`, matched like any Axiom one." },
-    ],
-    crate: "pkg/axiom-oxide/examples/demo",
-    docs: { label: "The FFI guide", href: `${LIB}docs/ffi.md` },
-    output: `shout:   SHIPS A BINARY!
-hypot:   5.0
-counter: 42
-Err:     invalid digit found in string`,
-    code: `(import IO)
-(import Demo)
-
-; Demo is the module axiom-bindgen writes from the crate's
-; #[axiom_export] functions; axiom-oxide prepare builds its archive.
-(:: main ())
-;@axiom:effect(io)
-;@axiom:effect(unsafe)
-(fn (main)
-  {
-    (let loud (shout "ships a binary"))
-    (let h (hypot 3.0 4.0))
-    (let c (counterNew 40))
-    {
-      (println "shout:   {loud}")
-      (println "hypot:   {h:.1}")
-      (counterAdd c 2)
-      {
-        (let n (counterValue c))
-        (println "counter: {n}")
-      }
-      (match (parseInt "12x")
-        ((Ok n) (println "parsed:  {n}"))
-        ((Err why) (println "Err:     {why}")))
-    }
-  })`,
-    rust: {
-      path: 'pkg/axiom-oxide/examples/demo/src/lib.rs',
-      code: `#[axiom_export]
-pub fn hypot(x: f64, y: f64) -> f64 {
-    (x * x + y * y).sqrt()
-}
-
-#[axiom_export]
-pub fn shout(text: &str) -> String {
-    let mut s = text.to_uppercase();
-    s.push('!');
-    s
-}
-
-#[axiom_export]
-pub fn parse_int(text: &str) -> Result<i64, std::num::ParseIntError> {
-    text.trim().parse::<i64>()
-}
-
-#[axiom_opaque]
-pub struct Counter {
-    n: i64,
-}
-
-#[axiom_export]
-pub fn counter_new(start: i64) -> Counter {
-    Counter { n: start }
-}
-
-#[axiom_export]
-pub fn counter_value(c: &Counter) -> i64 {
-    c.n
-}
-
-#[axiom_export]
-pub fn counter_add(c: &mut Counter, by: i64) -> i64 {
-    c.n = c.n.wrapping_add(by);
-    c.n
-}`,
     },
   },
 ]

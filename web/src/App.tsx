@@ -5,7 +5,6 @@ import { Tour } from './sections/Tour.tsx'
 import { Benchmark } from './sections/Benchmark.tsx'
 import { Compare } from './sections/Compare.tsx'
 import { Start } from './sections/Start.tsx'
-import { Status } from './sections/Status.tsx'
 import { Faq } from './sections/Faq.tsx'
 import { Closing } from './sections/Closing.tsx'
 import { Footer } from './sections/Footer.tsx'
@@ -14,7 +13,7 @@ import { useTheme } from './lib/theme.ts'
 /**
  * The page, in the order a newcomer's questions arrive: show me, why
  * would I want it, teach me, is it fast, how does it compare, how do I
- * start, what is missing, and the questions left over. Each question is
+ * start, and the questions left over. Each question is
  * answered once; the footer carries the links to everything else.
  */
 export default function App() {
@@ -36,7 +35,6 @@ export default function App() {
         <Benchmark />
         <Compare />
         <Start />
-        <Status />
         <Faq />
         <Closing />
       </main>

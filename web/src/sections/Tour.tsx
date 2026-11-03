@@ -11,7 +11,7 @@ import { inline } from '../lib/inline.tsx'
 const FOLD_AT = 36
 
 /**
- * Small real programs, one idea each, as a tabbed chapter list.
+ * Five whole programs, one job each, as a tabbed chapter list.
  *
  * Each point beside a program names the line it is about, and hovering
  * or focusing it lights that line. A chapter with a refusal can be
@@ -75,8 +75,9 @@ export function Tour() {
       <div className="container">
         <SectionHead id="tour-h" eyebrow="The tour" title="Get a feel for the language.">
           <p>
-            Working programs, from your first data type to calling Rust. Explore the code,
-            follow the annotations, and see exactly what each program prints.
+            Five working programs, each doing one whole job - a checkout, a tree, a release
+            note, testable back-off, sharded work. Follow the annotations, see exactly what
+            each program prints, and break one to watch the compiler answer.
           </p>
         </SectionHead>
 
@@ -137,47 +138,17 @@ export function Tour() {
               </ul>
             </header>
 
-            {p.rust && (
-              <CodeWindow
-                name={p.rust.path.split('/').pop() ?? 'lib.rs'}
-                code={p.rust.code}
-                lang="rust"
-                badge={<span className="badge">the crate, Rust</span>}
-                foldAt={18}
-                className="win--rust"
-              />
-            )}
-
             <CodeWindow
               name={p.file}
               code={showBroken ? p.refusal!.code : p.code}
               marks={marks}
               foldAt={FOLD_AT}
-              badge={
-                showBroken ? (
-                  <span className="badge badge--err">refused</span>
-                ) : p.rust ? (
-                  <span className="badge">the program, Axiom</span>
-                ) : undefined
-              }
+              badge={showBroken ? <span className="badge badge--err">refused</span> : undefined}
             >
               {showBroken ? (
                 <Report text={p.refusal!.human} command={`axiom check ${p.file}`} />
               ) : (
-                <>
-                  <RunOutput
-                    command={commandFor(p)}
-                    output={p.mode === 'serve' ? `${p.output}\n^C` : p.output}
-                    replay={p.id}
-                  />
-                  {p.client && (
-                    <RunOutput
-                      command={p.client.command}
-                      output={[...p.client.exchange.flat(), '^D'].join('\n')}
-                      replay={p.id}
-                    />
-                  )}
-                </>
+                <RunOutput command={commandFor(p)} output={p.output} replay={p.id} />
               )}
             </CodeWindow>
 

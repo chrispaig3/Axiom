@@ -3,7 +3,7 @@
  * so a wrong role is visible without a browser. Trivia is elided.
  *
  *   node scripts/tokens.mjs           # all samples
- *   node scripts/tokens.mjs shapes    # one, by id (the hero, or a tour chapter)
+ *   node scripts/tokens.mjs files    # one, by id (the hero, or a tour chapter)
  */
 import { build } from 'esbuild'
 import { rmSync, writeFileSync } from 'node:fs'

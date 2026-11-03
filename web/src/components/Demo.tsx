@@ -9,7 +9,7 @@ import { paintReport } from './Terminal.tsx'
 /**
  * The landing demo: a terminal session that plays like a video.
  *
- * `shapes.ax` is typed into an editor pane, run, broken, refused, fixed
+ * `files.ax` is typed into an editor pane, run, broken, refused, fixed
  * and built in a shell pane beside it. Every keystroke, command and line
  * of output comes from the script in `samples.ts`, which
  * `check-samples.mjs` replays against the compiler.
@@ -163,7 +163,7 @@ export function Demo() {
             <i />
           </span>
           <span className="demo__title" id="demo-title">
-            shapes.ax — from source to executable
+            {DEMO_FILE} — from source to executable
           </span>
           <span className="demo__rec" data-on={playing} aria-hidden>
             {playing ? 'PLAY' : 'PAUSE'}

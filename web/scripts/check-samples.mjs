@@ -11,8 +11,8 @@
  * So, against a real compiler, for every entry in `src/data/samples.ts`:
  *
  *   PROGRAMS   `axiom fmt --check` passes (what is shown IS the
- *              formatter's normal form), then `axiom run` (or
- *              `axiom test`) exits 0 and prints exactly `output`; a
+ *              formatter's normal form), then `axiom run`
+ *              exits 0 and prints exactly `output`; a
  *              refusal fails `axiom check` with exactly its report.
  *   POINTS     every note pinned to a line names text on exactly one
  *              line of its program.
@@ -33,8 +33,7 @@
  * success without having looked is worse than none.
  */
 import { build } from 'esbuild'
-import { spawn, spawnSync } from 'node:child_process'
-import { createConnection } from 'node:net'
+import { spawnSync } from 'node:child_process'
 import {
   existsSync,
   mkdtempSync,
@@ -131,86 +130,6 @@ function differs(what, label, want, got) {
   return false
 }
 
-/**
- * A `serve` program is a server: built and started, it prints the line
- * the page shows and waits for clients. Its client's exchange runs
- * twice, over two connections, so the second shows the server outlived
- * the first client hanging up; then Ctrl-C stops it, and what it printed
- * must be the page's output. The page shows `axiom run`, which is this
- * build and this run.
- */
-async function serveCheck(p, what) {
-  const base = p.file.replace(/\.ax$/, '')
-  const b = ax(p.file, p.code, ['build', '--input', p.file, '--output', base])
-  if (b.status !== 0) {
-    fail(what, `axiom build exited ${b.status}\n${trimEnd(plain(b.stderr))}`)
-    return false
-  }
-  const m = /^nc (\S+) (\d+)$/.exec(p.client?.command ?? '')
-  if (!m) {
-    fail(what, 'a serve program needs a client whose command is `nc HOST PORT`')
-    return false
-  }
-  const [, host, port] = m
-  const server = spawn(join(work, base), [], { cwd: work, env })
-  let out = ''
-  server.stdout.setEncoding('utf8')
-  server.stdout.on('data', (d) => (out += d))
-  const exited = new Promise((res) => server.on('exit', res))
-  const within = (ms, promise, label) =>
-    Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(label)), ms))])
-  try {
-    const first = trimEnd(p.output).split('\n')[0]
-    await within(20_000, (async () => {
-      while (!out.includes(first)) await new Promise((r) => setTimeout(r, 25))
-    })(), `the server never printed ${JSON.stringify(first)}`)
-    for (let round = 1; round <= 2; round++) {
-      const got = await within(10_000, new Promise((res, rej) => {
-        const sock = createConnection({ host, port: Number(port) })
-        sock.setEncoding('utf8')
-        let buf = ''
-        const replies = []
-        let i = 0
-        const sendNext = () => {
-          if (i < p.client.exchange.length) sock.write(`${p.client.exchange[i][0]}\n`)
-          else sock.end()
-        }
-        sock.on('connect', sendNext)
-        sock.on('data', (d) => {
-          buf += d
-          let nl
-          while ((nl = buf.indexOf('\n')) >= 0) {
-            replies.push(buf.slice(0, nl))
-            buf = buf.slice(nl + 1)
-            i++
-            sendNext()
-          }
-        })
-        sock.on('close', () => res(replies))
-        sock.on('error', rej)
-      }), `client session ${round} did not finish`)
-      const want = p.client.exchange.map(([, r]) => r)
-      if (differs(what, `client session ${round}`, want.join('\n'), got.join('\n'))) {
-        server.kill('SIGKILL')
-        return false
-      }
-    }
-  } catch (e) {
-    fail(what, e.message)
-    server.kill('SIGKILL')
-    return false
-  }
-  server.kill('SIGINT')
-  try {
-    await within(5_000, exited, 'the server did not stop on Ctrl-C')
-  } catch (e) {
-    fail(what, e.message)
-    server.kill('SIGKILL')
-    return false
-  }
-  return !differs(what, 'stdout', p.output, out)
-}
-
 // --- 1. programs -----------------------------------------------------
 const programs = [data.HERO, ...data.TOUR]
 for (const p of programs) {
@@ -223,56 +142,12 @@ for (const p of programs) {
     continue
   }
 
-  const mode = p.mode ?? 'run'
-  if (mode === 'serve') {
-    if (await serveCheck(p, what)) {
-      console.log(`ok   ${what}: formatted, serves its client twice, stops on Ctrl-C, prints what the page says`)
-    }
-    continue
-  }
-  let sampleEnv = env
-  if (p.crate) {
-    const crate = join(repo, p.crate)
-    const manifest = join(repo, 'pkg/axiom-oxide/Cargo.toml')
-    const tools = spawnSync('cargo', [
-      'build', '--quiet', '--manifest-path', manifest,
-      '-p', 'axiom-oxide', '-p', 'axiom-bindgen',
-    ], { cwd: repo, encoding: 'utf8', timeout: 120_000 })
-    if (tools.status !== 0) {
-      fail(what, `building axiom-oxide exited ${tools.status}\n${trimEnd(tools.stderr)}`)
-      continue
-    }
-    const prepared = spawnSync('cargo', [
-      'run', '--quiet', '--manifest-path', manifest, '-p', 'axiom-oxide', '--',
-      'prepare', '--crate', crate, '--release',
-    ], { cwd: repo, encoding: 'utf8', timeout: 120_000 })
-    if (prepared.status !== 0) {
-      fail(what, `axiom-oxide prepare exited ${prepared.status}\n${trimEnd(prepared.stderr)}`)
-      continue
-    }
-    sampleEnv = {
-      ...env,
-      AXIOM_PATH: `${join(crate, 'axiom')}:${join(repo, 'pkg/axiom-oxide/axiom')}`,
-      AXIOM_LINK_SEARCH: join(repo, 'pkg/axiom-oxide/target/release'),
-    }
-  }
-  const r = ax(p.file, p.code, [mode, ...(p.flags ?? []), p.file], sampleEnv)
+  const r = ax(p.file, p.code, ['run', p.file])
   if (r.status !== 0) {
-    fail(what, `axiom ${mode} exited ${r.status}\n${trimEnd(plain(r.stderr))}`)
+    fail(what, `axiom run exited ${r.status}\n${trimEnd(plain(r.stderr))}`)
     continue
   }
   if (differs(what, 'stdout', p.output, r.stdout)) continue
-
-  // The Rust half of an FFI sample is QUOTED, so every blank-separated
-  // item of it must be a verbatim slice of the file it names.
-  if (p.rust) {
-    const src = readFileSync(join(repo, p.rust.path), 'utf8')
-    const missing = p.rust.code.split('\n\n').filter((item) => !src.includes(item))
-    if (missing.length) {
-      fail(what, `${missing.length} Rust item(s) are not in ${p.rust.path}:\n${missing[0]}`)
-      continue
-    }
-  }
 
   // The refusal: a real compile of the changed program, under the SAME
   // file name, so every path in the report is the one the page shows.
@@ -291,9 +166,8 @@ for (const p of programs) {
   }
 
   console.log(
-    `ok   ${what}: formatted, ${mode === 'test' ? 'tests pass' : 'runs'}, prints what the page says` +
-      (p.refusal ? ', refusal matches' : '') +
-      (p.rust ? ', Rust quoted verbatim' : ''),
+    `ok   ${what}: formatted, runs, prints what the page says` +
+      (p.refusal ? ', refusal matches' : ''),
   )
 }
 
@@ -408,7 +282,7 @@ for (const p of programs) {
 }
 
 // A floor: a data module that silently exported nothing would pass.
-if (checked < 15) {
+if (checked < 12) {
   fail('floor', `only ${checked} item(s) were checked; the site carries more than that`)
 }
 

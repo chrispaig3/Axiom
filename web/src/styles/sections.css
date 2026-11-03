@@ -1254,192 +1254,54 @@
   font-weight: 560;
 }
 
-.next {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--s-6);
-  margin-top: var(--s-7);
-}
+/* ---- the editors banner, closing Get started ---------------------- */
 
-@media (max-width: 900px) {
-  .next {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.next__col h3 {
-  margin-bottom: var(--s-4);
-  font-size: var(--t-1);
-}
-
-.cheats {
-  display: grid;
-  gap: 0;
-  margin: 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  overflow: hidden;
-}
-
-.cheats > div {
-  display: grid;
-  grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
-  gap: var(--s-4);
-  padding: 10px var(--s-4);
-  border-top: 1px solid var(--border);
-}
-
-.cheats > div:first-child {
-  border-top: 0;
-}
-
-.cheats dt code {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--accent);
-  font-size: var(--t--1);
-}
-
-.cheats dd {
-  margin: 0;
-  color: var(--text-2);
-  font-size: var(--t--1);
-}
-
-@media (max-width: 560px) {
-  .cheats > div {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 2px;
-  }
-}
-
-.targets {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-  min-width: 24rem;
-}
-
-.table-wrap:has(.targets) {
-  border-radius: var(--radius-lg);
-}
-
-.targets th,
-.targets td {
-  padding: 10px var(--s-4);
-  border-top: 1px solid var(--border);
-  color: var(--text-2);
-  font-size: var(--t--1);
-  text-align: left;
-  vertical-align: top;
-}
-
-.targets thead th {
-  border-top: 0;
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  font-size: var(--t--2);
-  font-weight: 500;
-}
-
-.targets tbody th code {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text);
-  white-space: nowrap;
-}
-
-.targets .yes {
-  display: inline-flex;
-  color: var(--ok);
-}
-
-.targets .no {
-  color: var(--text-3);
-  font-size: var(--t--2);
-}
-
-/* ================================================================ *
- * Status
- * ================================================================ */
-
-.status {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--s-4);
-}
-
-@media (max-width: 960px) {
-  .status {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.status__col {
-  --tone: var(--ok);
-  padding: var(--s-5);
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--tone);
-  border-radius: var(--radius-lg);
-  background: var(--surface);
-}
-
-.status__col[data-tone='warn'] {
-  --tone: var(--warn);
-}
-
-.status__col[data-tone='muted'] {
-  --tone: var(--text-3);
-}
-
-.status__col h3 {
-  margin-bottom: var(--s-4);
-  font-size: var(--t-1);
-}
-
-.status__col ul {
-  display: grid;
-  gap: var(--s-3);
-}
-
-.status__col li {
-  display: grid;
-  gap: 2px;
-  padding-top: var(--s-3);
-  border-top: 1px solid var(--border);
-}
-
-.status__col li:first-child {
-  padding-top: 0;
-  border-top: 0;
-}
-
-.status__top {
+.editors {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--s-1) var(--s-3);
+  gap: var(--s-4) var(--s-6);
+  margin-top: var(--s-7);
+  padding: var(--s-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
 }
 
-.status__top b {
+.editors__copy {
+  max-width: 38rem;
+}
+
+.editors__copy h3 {
+  margin-bottom: var(--s-2);
+  font-size: var(--t-1);
+}
+
+.editors__copy p {
+  color: var(--text-2);
   font-size: var(--t--1);
+  line-height: 1.6;
 }
 
-.status__word {
-  color: var(--tone);
+.editors__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.editors__list li {
+  padding: 6px var(--s-3);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text);
   font-family: var(--font-mono);
-  font-size: 0.7rem;
-  font-weight: 600;
-}
-
-.status__note {
-  color: var(--text-3);
   font-size: var(--t--2);
-  line-height: 1.5;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* ================================================================ *
