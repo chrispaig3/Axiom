@@ -1,31 +1,36 @@
-;;! Axqlite.AxqlSchema - the tables and indices a database holds.
+;;! Axqlite.AxqlSchema - the tables, fields, indexes, events and
+;;! functions a database holds.
 ;;!
-;;!     (axqlLoadSchema pager)                ; (Ok <Schema>): every entry
-;;!     (axqlTableDef pager schema "users")   ; (Ok <TableDef>) with its indices
+;;!     (axqlLoadSchema pager)            ; (Ok <Schema>): every entry
+;;!     (axqlTableDef schema "people")    ; (Ok <TableDef>) with its parts
 ;
-; The schema lives in the schema table, the table B-tree rooted at page
-; 1. Each row describes one table or index, as a record of five values:
+; The schema lives in the schema tree, the B-tree rooted at page 1.
+; Each entry is stored as one array value:
 ;
-;     'table' | 'index'   the kind
-;     name                the table's or index's name
-;     table               the table it belongs to (a table names itself)
-;     root                its B-tree's root page
-;     text                the CREATE statement that made it, as written
+;     kind    'table', 'field', 'index', 'event', 'function', 'feed'
+;             or 'meta'
+;     name    the entry's own name
+;     table   the table it belongs to (a table names itself)
+;     root    its B-tree's root page, 0 when it has none
+;     text    the DEFINE statement that made it, as written, or ""
+;             for a table a write made without one
 ;
-; The CREATE statement is the one source of truth: a table's columns
-; and an index's columns are read back by parsing it. Names compare
-; without regard to ASCII case, and tables and indices share one
-; namespace.
+; The DEFINE text is the one source of truth: a field's type, an
+; index's fields, an event's condition and a function's body are read
+; back by parsing it. Names compare without regard to ASCII case for
+; tables, indexes, events and functions, and exactly for fields,
+; where case is part of the document.
 ;
-; A table's rows are keyed by rowid. Its record holds every column in
-; declaration order, with NULL standing for an INTEGER PRIMARY KEY
-; column, whose value is the rowid itself. An index's keys are its
-; columns' order-preserving encoding followed by the rowid, with an
-; empty value.
+; A table's records live in its own tree, keyed by the key encoding
+; of the record's key scalar, holding the record's document without
+; its `id`. An index's keys are the indexed fields' encodings
+; followed by the record's key, with an empty value. A `feed` entry
+; roots a table's change feed, and the single `meta` entry roots a
+; tree of small counters and live subscriptions, keyed by plain
+; prefixed text.
 (import Str)
 (import Vec)
 (import Err)
-(import Fmt)
 (import Axqlite.Value)
 (import Axqlite.Pager)
 (import Axqlite.Btree)
@@ -34,38 +39,9 @@
 (import Axqlite.AxqlParse)
 
 ; ------------------------------------------------------------------
-; Names.
-; ------------------------------------------------------------------
-(:: lowerByte (-> Int Int))
-(fn (lowerByte c)
-  (if (&& (>= c 65) (<= c 90))
-    (+ c 32)
-    c))
-
-;; Whether two names are the same name: equal but for ASCII case.
-(pub :: axqlNameEq (-> String String Bool))
-(pub fn (axqlNameEq a b)
-  {
-    (let n (strLen a))
-    (if (!= n (strLen b))
-      false
-      {
-        (let mut i 0)
-        (let mut same true)
-        {
-          (while (&& same (< i n))
-            (if (== (lowerByte (strByte a i)) (lowerByte (strByte b i)))
-              (set i (+ i 1))
-              (set same false)))
-          same
-        }
-      })
-  })
-
-; ------------------------------------------------------------------
 ; The schema's shape.
 ; ------------------------------------------------------------------
-;; One row of the schema table.
+;; One row of the schema tree.
 (pub struct SchemaEntry
   (rowid : Int)
   (kind : String)
@@ -78,44 +54,139 @@
 (pub struct Schema
   (entries : (Vec SchemaEntry)))
 
-;; An index: its name, root page, whether it's UNIQUE, and the numbers
-;; of the table columns it covers, in order.
+;; A defined field of a table.
+(pub struct FieldDef
+  (name : String)
+  (ftype : (Option TypeExpr))
+  (dflt : (Option Expr))
+  (value : (Option Expr))
+  (assert : (Option Expr))
+  (readonly : Bool))
+
+;; An index: its name, root page, the field paths it covers, and
+;; whether it is unique.
 (pub struct IndexDef
   (name : String)
   (root : Int)
-  (unique : Bool)
-  (cols : (Vec Int)))
+  (fields : (Vec String))
+  (unique : Bool))
 
-;; A table: its name as created, root page, columns, the number of its
-;; INTEGER PRIMARY KEY column (-1 when it has none), its indices, and
-;; the tables its LINK columns point at.
+;; A defined event of a table.
+(pub struct EventDef
+  (name : String)
+  (when : Expr)
+  (then : (Vec Stmt)))
+
+;; A table: its name as first written, root page, whether it is
+;; schemafull, whether it keeps a change feed, and its defined
+;; fields, indexes and events.
 (pub struct TableDef
   (name : String)
   (root : Int)
-  (cols : (Vec ColumnDef))
-  (pk : Int)
+  (schemafull : Bool)
+  (changefeed : Bool)
+  (fields : (Vec FieldDef))
   (indexes : (Vec IndexDef))
-  (links : (Vec LinkDef)))
+  (events : (Vec EventDef)))
 
-;; A LINK column: its number in the row layout, and the table it points at,
-;; whose own indices and links are left empty.
-(pub struct LinkDef
-  (col : Int)
-  (target : TableDef))
+;; A defined function.
+(pub struct FunctionDef
+  (name : String)
+  (params : (Vec ParamDef))
+  (body : (Vec Stmt)))
 
 ;; The kind of a table entry.
 (pub :: kindTable String)
 (pub fn (kindTable)
   "table")
 
+;; The kind of a field entry.
+(pub :: kindField String)
+(pub fn (kindField)
+  "field")
+
 ;; The kind of an index entry.
 (pub :: kindIndex String)
 (pub fn (kindIndex)
   "index")
 
+;; The kind of an event entry.
+(pub :: kindEvent String)
+(pub fn (kindEvent)
+  "event")
+
+;; The kind of a function entry.
+(pub :: kindFunction String)
+(pub fn (kindFunction)
+  "function")
+
+;; The kind of a change-feed entry.
+(pub :: kindFeed String)
+(pub fn (kindFeed)
+  "feed")
+
+;; The kind of the one meta entry.
+(pub :: kindMeta String)
+(pub fn (kindMeta)
+  "meta")
+
 (:: corrupt (-> String (Result a Error)))
 (fn (corrupt msg)
-  (axqErr axqCorrupt (concat "the schema table is damaged: " msg) "axqlLoadSchema"))
+  (axqErr axqCorrupt (concat "the schema tree is damaged: " msg) "axqlLoadSchema"))
+
+; ------------------------------------------------------------------
+; Entries as values.
+; ------------------------------------------------------------------
+(:: entryValue (-> SchemaEntry Value))
+(fn (entryValue e)
+  {
+    (let xs vecNew)
+    {
+      (vecPush xs (VText e.kind))
+      (vecPush xs (VText e.name))
+      (vecPush xs (VText e.table))
+      (vecPush xs (VInt e.root))
+      (vecPush xs (VText e.text))
+      (VArray xs)
+    }
+  })
+
+(:: entryOfValue (-> Int Value (Result SchemaEntry Error)))
+(fn (entryOfValue rowid v)
+  (match v
+    ((VArray xs)
+      (if (!= (vecLen xs) 5)
+        (corrupt "an entry without five values")
+        (match (vecGet xs 0)
+          ((VText kind)
+            (match (vecGet xs 1)
+              ((VText name)
+                (match (vecGet xs 2)
+                  ((VText table)
+                    (match (vecGet xs 3)
+                      ((VInt root)
+                        (match (vecGet xs 4)
+                          ((VText text)
+                            (Ok
+                              (SchemaEntry
+                                :rowid rowid
+                                :kind kind
+                                :name name
+                                :table table
+                                :root root
+                                :text text))
+                          )
+                          (_ (corrupt "an entry's statement is not text")))
+                      )
+                      (_ (corrupt "an entry's root is not an int")))
+                  )
+                  (_ (corrupt "an entry's table is not text")))
+              )
+              (_ (corrupt "an entry's name is not text")))
+          )
+          (_ (corrupt "an entry's kind is not text"))))
+    )
+    (_ (corrupt "an entry that is not an array"))))
 
 ; ------------------------------------------------------------------
 ; Reading the schema.
@@ -123,7 +194,7 @@
 (struct Loader
   (entries : (Vec SchemaEntry)))
 
-;; Read every entry of the schema table. Needs a lock.
+;; Read every entry of the schema tree. Needs a lock.
 (pub :: axqlLoadSchema (-> Pager (Result Schema Error)))
 ;@axiom:effect(io)
 (pub fn (axqlLoadSchema pager)
@@ -139,125 +210,58 @@
 (fn (loadEntry ld k v)
   {
     (let rowid (keyRowidOf k)?)
-    (let vals (recDecode v)?)
-    (if (!= (vecLen vals) 5)
-      (corrupt "an entry without five values")
-      (match (vecGet vals 0)
-        ((VText kind)
-          (match (vecGet vals 1)
-            ((VText name)
-              (match (vecGet vals 2)
-                ((VText table)
-                  (match (vecGet vals 3)
-                    ((VInt root)
-                      (match (vecGet vals 4)
-                        ((VText text)
-                          {
-                            (vecPush ld.entries
-                              (SchemaEntry
-                                :rowid rowid
-                                :kind kind
-                                :name name
-                                :table table
-                                :root root
-                                :text text))
-                            (Ok true)
-                          }
-                        )
-                        (_ (corrupt "an entry's statement isn't TEXT")))
-                    )
-                    (_ (corrupt "an entry's root isn't INTEGER")))
-                )
-                (_ (corrupt "an entry's table isn't TEXT")))
-            )
-            (_ (corrupt "an entry's name isn't TEXT")))
-        )
-        (_ (corrupt "an entry's kind isn't TEXT"))))
+    {
+      (let value (recDecode v)?)
+      {
+        (let e (entryOfValue rowid value)?)
+        {
+          (vecPush ld.entries e)
+          (Ok true)
+        }
+      }
+    }
   })
 
-;; The entry named `name`, table or index.
-(pub :: axqlFindEntry (-> Schema String (Option SchemaEntry)))
-(pub fn (axqlFindEntry s name)
+;; The entries of one kind, in the order they were made.
+(pub :: axqlEntriesOf (-> Schema String (Vec SchemaEntry)))
+(pub fn (axqlEntriesOf s kind)
   {
-    (let es s.entries)
-    (let n (vecLen es))
-    (let mut i 0)
+    (let out vecNew)
+    {
+      (for e in s.entries
+        (if (strEq e.kind kind)
+          (vecPush out e)))
+      out
+    }
+  })
+
+;; The entry of `kind` named `name`, on `table` when the kind has
+;; one. Table, index, event and function names are case-blind; a
+;; field entry matches its name exactly and its table as tables do.
+(pub :: axqlFindEntry (-> Schema String String String (Option SchemaEntry)))
+(pub fn (axqlFindEntry s kind table name)
+  {
     (let mut found None)
     {
-      (while (&& (isNone found) (< i n))
-        {
-          (let e (vecGet es i))
-          {
-            (if (axqlNameEq e.name name)
-              (set found (Some e)))
-            (set i (+ i 1))
-          }
-        })
+      (for e in s.entries
+        (if (&& (isNone found)
+              (&& (strEq e.kind kind)
+                (&& (nameMatches kind e.name name)
+                  (|| (strIsEmpty table) (axqlWordEq e.table table)))))
+          (set found (Some e))))
       found
     }
   })
 
-;; The number of the column named `name`, or -1.
-(pub :: axqlColumnIndex (-> (Vec ColumnDef) String Int))
-(pub fn (axqlColumnIndex cols name)
-  {
-    (let n (vecLen cols))
-    (let mut i 0)
-    (let mut found -1)
-    {
-      (while (&& (< found 0) (< i n))
-        {
-          (let c (vecGet cols i))
-          {
-            (if (axqlNameEq c.name name)
-              (set found i))
-            (set i (+ i 1))
-          }
-        })
-      found
-    }
-  })
+(:: nameMatches (-> String String String Bool))
+(fn (nameMatches kind have want)
+  (if (strEq kind kindField)
+    ; Field paths may be quoted in a definition and dotted; the
+    ; stored spelling is what a later mention must repeat.
+    (strEq have want)
+    (axqlWordEq have want)))
 
-; The columns a CREATE TABLE text declares.
-(:: tableColumns (-> String (Result (Vec ColumnDef) Error)))
-(fn (tableColumns text)
-  (match (axqlParse text)
-    ((Ok p)
-      (match p.stmt
-        ((SCreateTable _ _ cols) (Ok cols))
-        (_ (corrupt "a table's statement isn't CREATE TABLE")))
-    )
-    ((Err e) (corrupt (concat "a table's statement doesn't parse: " (errorText e))))))
-
-; The unique flag and column names a CREATE INDEX text declares.
-(:: indexShape (-> String (Result IndexShape Error)))
-(fn (indexShape text)
-  (match (axqlParse text)
-    ((Ok p)
-      (match p.stmt
-        ((SCreateIndex unique _ _ _ cols) (Ok (IndexShape :unique unique :cols cols)))
-        (_ (corrupt "an index's statement isn't CREATE INDEX")))
-    )
-    ((Err e) (corrupt (concat "an index's statement doesn't parse: " (errorText e))))))
-
-(struct IndexShape
-  (unique : Bool)
-  (cols : (Vec String)))
-
-;; The primary key column among `cols`, or -1.
-(pub :: axqlPrimaryKey (-> (Vec ColumnDef) Int))
-(pub fn (axqlPrimaryKey cols)
-  {
-    (let mut pk -1)
-    {
-      (for (c i) in cols
-        (if (&& (< pk 0) c.primaryKey)
-          (set pk i)))
-      pk
-    }
-  })
-
-;; The names of every table, in the order they were created.
+;; The names of every table, in the order they were made.
 (pub :: axqlTableNames (-> Schema (Vec String)))
 (pub fn (axqlTableNames s)
   {
@@ -265,16 +269,268 @@
     {
       (for e in s.entries
         (if (strEq e.kind kindTable)
-          (vecPush out e.name)
-          out))
+          (vecPush out e.name)))
       out
     }
   })
 
-;; A hint naming what `name` might have meant among `names`, the kind
-;; of thing they are given by `what` ("tables", "columns"): the closest
-;; one within two edits (one, for a name of four bytes or fewer), else
-;; the list, else that there are none.
+; Parse an entry's DEFINE text.
+(:: parseEntryText (-> SchemaEntry (Result Stmt Error)))
+(fn (parseEntryText e)
+  (if (strIsEmpty e.text)
+    (axqErr axqCorrupt
+      (concat "the schema tree is damaged: an entry without its statement: " e.name)
+      "axqlLoadSchema")
+    (match (axqlParse e.text)
+      ((Ok p) (Ok p.stmt))
+      ((Err err)
+        (axqErr axqCorrupt
+          (concat (concat "the schema tree is damaged: a statement does not parse: " e.name)
+            (concat ": " (errorText err)))
+          "axqlLoadSchema")
+      ))))
+
+;; The table named `name`, with its fields, indexes and events, or
+;; `axqSchema` naming what might have been meant.
+(pub :: axqlTableDef (-> Schema String (Result TableDef Error)))
+(pub fn (axqlTableDef s name)
+  (match (axqlFindEntry s kindTable "" name)
+    ((None)
+      (axqErr axqSchema
+        (concat (concat "no such table: " name) (axqlHint name (axqlTableNames s) "tables"))
+        "axqlTableDef")
+    )
+    ((Some e) (tableDefOf s e))))
+
+(:: tableDefOf (-> Schema SchemaEntry (Result TableDef Error)))
+(fn (tableDefOf s e)
+  {
+    (let shape (tableShape e)?)
+    {
+      (let fields (tableFields s e.name)?)
+      {
+        (let indexes (tableIndexes s e.name)?)
+        {
+          (let events (tableEvents s e.name)?)
+          (Ok
+            (TableDef
+              :name e.name
+              :root e.root
+              :schemafull (== (vecGet shape 0) 1)
+              :changefeed (== (vecGet shape 1) 1)
+              :fields fields
+              :indexes indexes
+              :events events))
+        }
+      }
+    }
+  })
+
+; (schemafull, changefeed) as two words in one Vec; an implicit
+; table (no DEFINE text) is schemaless and feedless.
+(:: tableShape (-> SchemaEntry (Result (Vec Int) Error)))
+(fn (tableShape e)
+  (if (strIsEmpty e.text)
+    (Ok (vecPush (vecPush vecNew 0) 0))
+    (match (parseEntryText e)
+      ((Err err) (Err err))
+      ((Ok stmt)
+        (match stmt
+          ((SDefineTable _ _ _ schema feed)
+            (Ok
+              (vecPush
+                (vecPush vecNew
+                  (if (== schema 1)
+                    1
+                    0))
+                (if feed
+                  1
+                  0)))
+          )
+          (_ (corrupt "a table's statement is not DEFINE TABLE")))
+      ))))
+
+(:: tableFields (-> Schema String (Result (Vec FieldDef) Error)))
+(fn (tableFields s table)
+  {
+    (let out vecNew)
+    (let mut failure None)
+    {
+      (for e in s.entries
+        (if (&& (isNone failure) (&& (strEq e.kind kindField) (axqlWordEq e.table table)))
+          (match (parseEntryText e)
+            ((Err err)
+              (set failure (Some err))
+            )
+            ((Ok stmt)
+              (match stmt
+                ((SDefineField name _ _ _ ftype dflt value assert readonly)
+                  (vecPush out
+                    (FieldDef
+                      :name name
+                      :ftype ftype
+                      :dflt dflt
+                      :value value
+                      :assert assert
+                      :readonly readonly))
+                )
+                (_
+                  (set failure (Some
+                                 (mkError axqCorrupt
+                                   "the schema tree is damaged: a field's statement is not DEFINE FIELD")))
+                ))
+            ))))
+      (match failure
+        ((Some err) (Err err))
+        ((None) (Ok out)))
+    }
+  })
+
+(:: tableIndexes (-> Schema String (Result (Vec IndexDef) Error)))
+(fn (tableIndexes s table)
+  {
+    (let out vecNew)
+    (let mut failure None)
+    {
+      (for e in s.entries
+        (if (&& (isNone failure) (&& (strEq e.kind kindIndex) (axqlWordEq e.table table)))
+          (match (parseEntryText e)
+            ((Err err)
+              (set failure (Some err))
+            )
+            ((Ok stmt)
+              (match stmt
+                ((SDefineIndex name _ _ _ fields unique)
+                  (vecPush out (IndexDef :name name :root e.root :fields fields :unique unique))
+                )
+                (_
+                  (set failure (Some
+                                 (mkError axqCorrupt
+                                   "the schema tree is damaged: an index's statement is not DEFINE INDEX")))
+                ))
+            ))))
+      (match failure
+        ((Some err) (Err err))
+        ((None) (Ok out)))
+    }
+  })
+
+(:: tableEvents (-> Schema String (Result (Vec EventDef) Error)))
+(fn (tableEvents s table)
+  {
+    (let out vecNew)
+    (let mut failure None)
+    {
+      (for e in s.entries
+        (if (&& (isNone failure) (&& (strEq e.kind kindEvent) (axqlWordEq e.table table)))
+          (match (parseEntryText e)
+            ((Err err)
+              (set failure (Some err))
+            )
+            ((Ok stmt)
+              (match stmt
+                ((SDefineEvent name _ _ _ when then)
+                  (vecPush out (EventDef :name name :when when :then then))
+                )
+                (_
+                  (set failure (Some
+                                 (mkError axqCorrupt
+                                   "the schema tree is damaged: an event's statement is not DEFINE EVENT")))
+                ))
+            ))))
+      (match failure
+        ((Some err) (Err err))
+        ((None) (Ok out)))
+    }
+  })
+
+;; The function named `name`, or `None`.
+(pub :: axqlFunctionDef (-> Schema String (Result (Option FunctionDef) Error)))
+(pub fn (axqlFunctionDef s name)
+  (match (axqlFindEntry s kindFunction "" name)
+    ((None) (Ok None))
+    ((Some e)
+      (match (parseEntryText e)
+        ((Err err) (Err err))
+        ((Ok stmt)
+          (match stmt
+            ((SDefineFunction fname _ _ params body)
+              (Ok (Some (FunctionDef :name fname :params params :body body)))
+            )
+            (_ (corrupt "a function's statement is not DEFINE FUNCTION")))
+        ))
+    )))
+
+;; The root page of table `name`'s change feed, or `None`.
+(pub :: axqlFeedRoot (-> Schema String (Option Int)))
+(pub fn (axqlFeedRoot s name)
+  (match (axqlFindEntry s kindFeed name name)
+    ((Some e) (Some e.root))
+    ((None) None)))
+
+;; The root page of the meta tree, or `None` when none was made yet.
+(pub :: axqlMetaRoot (-> Schema (Option Int)))
+(pub fn (axqlMetaRoot s)
+  (match (axqlFindEntry s kindMeta "" "meta")
+    ((Some e) (Some e.root))
+    ((None) None)))
+
+; ------------------------------------------------------------------
+; Writing the schema. Each of these needs a write transaction and
+; raises the schema version, so another connection rereads.
+; ------------------------------------------------------------------
+;; Add an entry. Its rowid field is ignored; the next free one is
+;; used. Answers the rowid.
+(pub :: axqlPutEntry (-> Pager SchemaEntry (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqlPutEntry pager e)
+  {
+    (let last (btreeLastKey pager btreeSchemaRoot)?)
+    {
+      (let rowid
+        (match last
+          ((None) 1)
+          ((Some k) (+ (keyRowidOf k)? 1))))
+      {
+        (let value (recEncode (entryValue e))?)
+        {
+          (let _ (btreePut pager btreeSchemaRoot (keyRowid rowid) value)?)
+          {
+            (let _ (pagerBumpSchemaVersion pager)?)
+            (Ok rowid)
+          }
+        }
+      }
+    }
+  })
+
+;; Rewrite the entry at `rowid` wholesale.
+(pub :: axqlReplaceEntry (-> Pager SchemaEntry (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqlReplaceEntry pager e)
+  {
+    (let value (recEncode (entryValue e))?)
+    {
+      (let _ (btreePut pager btreeSchemaRoot (keyRowid e.rowid) value)?)
+      (pagerBumpSchemaVersion pager)
+    }
+  })
+
+;; Remove the entry at `rowid`.
+(pub :: axqlDeleteEntry (-> Pager Int (Result Int Error)))
+;@axiom:effect(io)
+(pub fn (axqlDeleteEntry pager rowid)
+  {
+    (let _ (btreeDelete pager btreeSchemaRoot (keyRowid rowid))?)
+    (pagerBumpSchemaVersion pager)
+  })
+
+; ------------------------------------------------------------------
+; Naming what might have been meant.
+; ------------------------------------------------------------------
+;; A hint naming what `name` might have meant among `names`: the
+;; closest one within two edits, else the list, else that there are
+;; none. `what` says what they are ("tables").
 (pub :: axqlHint (-> String (Vec String) String String))
 (pub fn (axqlHint name names what)
   {
@@ -284,7 +540,7 @@
     {
       (for (n i) in names
         {
-          (let d (axqlEditDistance name n))
+          (let d (editDistance name n))
           {
             (if (< d bestD)
               {
@@ -294,14 +550,12 @@
             (if (< i 12)
               (set list (if (== i 0)
                 n
-                (concat list (concat ", " n))))
-              list)
+                (concat list (concat ", " n)))))
           }
         })
       (if (> (vecLen names) 12)
-        (set list (concat list ", ..."))
-        list)
-      (if (&& (< bestD 3) (axqlNear name best))
+        (set list (concat list ", ...")))
+      (if (< bestD 3)
           (concat (concat "; did you mean " best) "?")
         (== (vecLen names) 0)
           (concat "; there are no " (concat what " yet"))
@@ -309,264 +563,61 @@
     }
   })
 
-;; The table named `name` with its indices and links, or `axqSchema`.
-(pub :: axqlTableDef (-> Schema String (Result TableDef Error)))
-(pub fn (axqlTableDef s name)
-  (match (axqlFindEntry s name)
-    ((None)
-      (axqErr axqSchema
-        (concat (concat "no such table: " name) (axqlHint name (axqlTableNames s) "tables"))
-        "axqlTableDef")
-    )
-    ((Some e)
-      (if (! (strEq e.kind kindTable))
-        (axqErr axqSchema (concat (concat "no such table: " name) " (it names an index)")
-          "axqlTableDef")
-        {
-          (let cols (tableColumns e.text)?)
-          (let idx (tableIndexes s e.name cols)?)
-          (let links (tableLinks s e cols)?)
-          (Ok
-            (TableDef
-              :name e.name
-              :root e.root
-              :cols cols
-              :pk (axqlPrimaryKey cols)
-              :indexes idx
-              :links links))
-        })
-    )))
-
-;; The table named `name` without its indices or links: what a LINK
-;; reads.
-(pub :: axqlBareTableDef (-> Schema String (Result TableDef Error)))
-(pub fn (axqlBareTableDef s name)
-  (match (axqlFindEntry s name)
-    ((Some e)
-      (if (strEq e.kind kindTable)
-        {
-          (let cols (tableColumns e.text)?)
-          (Ok
-            (TableDef
-              :name e.name
-              :root e.root
-              :cols cols
-              :pk (axqlPrimaryKey cols)
-              :indexes vecNew
-              :links vecNew))
-        }
-        (corrupt (concat "a link names an index: " name)))
-    )
-    ((None) (corrupt (concat "a link names a missing table: " name)))))
-
-; The LINK columns of the table `e` declares.
-(:: tableLinks (-> Schema SchemaEntry (Vec ColumnDef) (Result (Vec LinkDef) Error)))
-(fn (tableLinks s e cols)
+; The Levenshtein distance of two names, in bytes, capped by the
+; lengths: enough to spot a typo.
+(:: editDistance (-> String String Int))
+(fn (editDistance a b)
   {
-    (let out vecNew)
-    (let mut failure None)
+    (let la (strLen a))
+    (let lb (strLen b))
+    (let row vecNew)
     {
-      (for (c i) in cols
-        (if (! (|| (isSome failure) (strIsEmpty c.link)))
-          (match (axqlBareTableDef s c.link)
-            ((Ok t) (vecPush out (LinkDef :col i :target t)))
-            ((Err err)
-              (set failure (Some err))
-            ))))
-      (match failure
-        ((Some err) (Err err))
-        ((None) (Ok out)))
-    }
-  })
-
-;; Every LINK column of another table that points at table `name`, as
-;; `table.column`.
-(pub :: axqlLinksTo (-> Schema String (Result (Vec String) Error)))
-(pub fn (axqlLinksTo s name)
-  {
-    (let out vecNew)
-    (let mut failure None)
-    {
-      (for e in s.entries
-        (if (! (|| (isSome failure) (|| (! (strEq e.kind kindTable)) (axqlNameEq e.name name))))
-          (match (tableColumns e.text)
-            ((Ok cols)
-              (for c in cols
-                (if (&& (! (strIsEmpty c.link)) (axqlNameEq c.link name))
-                  (vecPush out (concat (concat e.name ".") c.name))
-                  out))
-            )
-            ((Err err)
-              (set failure (Some err))
-            ))))
-      (match failure
-        ((Some err) (Err err))
-        ((None) (Ok out)))
-    }
-  })
-
-;; The columns a table's CREATE TABLE text declares.
-(pub :: axqlTableColumns (-> String (Result (Vec ColumnDef) Error)))
-(pub fn (axqlTableColumns text)
-  (tableColumns text))
-
-; The indices of table `table`, in the order they were created.
-(:: tableIndexes (-> Schema String (Vec ColumnDef) (Result (Vec IndexDef) Error)))
-(fn (tableIndexes s table cols)
-  {
-    (let out vecNew)
-    (let mut failure None)
-    {
-      (for e in s.entries
-        (if (&& (isNone failure) (&& (strEq e.kind kindIndex) (axqlNameEq e.table table)))
-          (match (indexShape e.text)
-            ((Ok shape)
-              {
-                (let nums vecNew)
-                (let mut bad false)
-                {
-                  (for cn in shape.cols
-                    {
-                      (let ci (axqlColumnIndex cols cn))
-                      (if (< ci 0)
-                        (set bad true)
-                        (vecPush nums ci))
-                    })
-                  (if bad
-                    (set failure (Some
-                                   (mkError axqCorrupt
-                                     (concat
-                                       "the schema table is damaged: index names a missing column: "
-                                       e.name))))
-                    (vecPush out
-                      (IndexDef :name e.name :root e.root :unique shape.unique :cols nums)))
-                }
-              }
-            )
-            ((Err err)
-              (set failure (Some err))
-            ))))
-      (match failure
-        ((Some err) (Err err))
-        ((None) (Ok out)))
-    }
-  })
-
-; ------------------------------------------------------------------
-; Rows.
-; ------------------------------------------------------------------
-;; The record a row of `t` is stored as: `values` in column order, with
-;; the primary key column, if any, stored as NULL.
-(pub :: axqlRowRecord (-> TableDef (Vec Value) (Result String Error)))
-(pub fn (axqlRowRecord t values)
-  (if (< t.pk 0)
-    (recEncode values)
-    {
-      (let stored vecNew)
+      (for j in 0..(+ lb 1)
+        (vecPush row j))
       {
-        (for (v i) in values
-          (vecPush stored
-            (if (== i t.pk)
-              VNull
-              v)))
-        (recEncode stored)
+        (for i in 1..(+ la 1)
+          {
+            (let next vecNew)
+            {
+              (vecPush next i)
+              (for j in 1..(+ lb 1)
+                {
+                  (let cost
+                    (if (== (lowByte (strByte a (- i 1))) (lowByte (strByte b (- j 1))))
+                      0
+                      1))
+                  (vecPush next
+                    (min3 (+ (vecGet row j) 1) (+ (vecGet next (- j 1)) 1)
+                      (+ (vecGet row (- j 1)) cost)))
+                })
+              (copyRow row next)
+            }
+          })
+        (vecGet row lb)
       }
-    }))
-
-;; A row of `t` read back from its record and rowid, with the primary key
-;; column filled in. A record of the wrong width, or a value whose type
-;; its column doesn't allow, is `axqCorrupt`.
-(pub :: axqlRowValues (-> TableDef String Int (Result (Vec Value) Error)))
-(pub fn (axqlRowValues t rec rowid)
-  {
-    (let vals (recDecode rec)?)
-    (if (!= (vecLen vals) (vecLen t.cols))
-      (axqErr axqCorrupt (concat "a row of " (concat t.name " has the wrong number of values"))
-        "axqlRowValues")
-      {
-        (let mut ok true)
-        {
-          (for (c i) in t.cols
-            (if (== i t.pk)
-              (vecSet vals i (VInt rowid))
-              (if (valueFits c.ctype (vecGet vals i))
-                vals
-                {
-                  (set ok false)
-                  vals
-                })))
-          (if ok
-            (Ok vals)
-            (axqErr axqCorrupt
-              (concat "a row of " (concat t.name " holds a value its column's type doesn't allow"))
-              "axqlRowValues"))
-        }
-      })
-  })
-
-; Whether `v` may be stored in a column of type `ty`.
-(:: valueFits (-> Int Value Bool))
-(fn (valueFits ty v)
-  (match v
-    ((VNull) true)
-    ((VInt _) (== ty typeInteger))
-    ((VReal _) (== ty typeReal))
-    ((VText _) (== ty typeText))
-    ((VBlob _) (== ty typeBlob))))
-
-;; The encoded values of `ix`'s columns for a row: the prefix every key
-;; for those values starts with.
-(pub :: axqlIndexPrefix (-> IndexDef (Vec Value) (Result String Error)))
-(pub fn (axqlIndexPrefix ix values)
-  {
-    (let vs vecNew)
-    {
-      (for ci in ix.cols
-        (vecPush vs (vecGet values ci)))
-      (keyEncode vs)
     }
   })
 
-;; Whether any of `ix`'s columns is NULL in a row. Such a row never
-;; conflicts in a UNIQUE index: NULLs are distinct.
-(pub :: axqlIndexHasNull (-> IndexDef (Vec Value) Bool))
-(pub fn (axqlIndexHasNull ix values)
+(:: copyRow (-> (Vec Int) (Vec Int) Int))
+(fn (copyRow row next)
   {
-    (let mut found false)
-    {
-      (for ci in ix.cols
-        (match (vecGet values ci)
-          ((VNull)
-            (set found true)
-          )
-          (_ ())))
-      found
-    }
+    (for (v j) in next
+      (vecSet row j v))
+    0
   })
 
-;; A table's column types, the rowid's INTEGER aside.
-(pub :: axqlColumnTypes (-> TableDef (Vec Int)))
-(pub fn (axqlColumnTypes t)
-  {
-    (let out vecNew)
-    {
-      (for c in t.cols
-        (vecPush out c.ctype))
-      out
-    }
-  })
+(:: min3 (-> Int Int Int Int))
+(fn (min3 a b c)
+  (if (< a b)
+    (if (< a c)
+      a
+      c)
+    (if (< b c)
+      b
+      c)))
 
-;; The record of a schema entry.
-(pub :: axqlEntryRecord (-> String String String Int String (Result String Error)))
-(pub fn (axqlEntryRecord kind name table root text)
-  {
-    (let vs vecNew)
-    {
-      (vecPush vs (VText kind))
-      (vecPush vs (VText name))
-      (vecPush vs (VText table))
-      (vecPush vs (VInt root))
-      (vecPush vs (VText text))
-      (recEncode vs)
-    }
-  })
+(:: lowByte (-> Int Int))
+(fn (lowByte c)
+  (if (&& (>= c 65) (<= c 90))
+    (+ c 32)
+    c))

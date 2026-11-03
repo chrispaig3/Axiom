@@ -23,7 +23,7 @@
   (match (recEncode
            (vecPush
              (vecPush (vecPush vecNew (VInt n)) (VText "a row of about fifty bytes, give or take"))
-             (VReal 2.5)))
+             (VFloat 2.5)))
     ((Ok r) r)
     ((Err e) "")))
 

@@ -1,59 +1,66 @@
-;;! Axqlite.Record - a row's values as bytes, and keys whose byte order
-;;! is their values' order.
+;;! Axqlite.Record - a value as bytes, and keys whose byte order is
+;;! their values' order.
 ;;!
-;;!     (recEncode (vecPush (vecPush vecNew (VInt 7)) (VText "Ada")))
-;;!         ; (Ok <record bytes>), which `recDecode` reads back exactly
-;;!     (keyRowid 42)                      ; 8 bytes, the key of row 42
-;;!     (keyEncodeValue (VReal 2.0))       ; the same bytes as (VInt 2)
-;;!     (keyCompare a b)                   ; <0, 0 or >0, as memcmp orders
+;;!     (recEncode (VObject fields))   ; (Ok <bytes>), `recDecode` reads back
+;;!     (keyEncodeValue (VText "Ada")) ; the key of record person:Ada's key half
+;;!     (keyCompare a b)               ; <0, 0 or >0, as memcmp orders
 ;
 ; These are the two byte formats a table and an index store. The B-tree
-; (`Axqlite.Btree`) compares keys as byte strings and knows nothing about
-; values; this module is where a value becomes bytes, and back.
+; (`Axqlite.Btree`) compares keys as byte strings and knows nothing
+; about values; this module is where a value becomes bytes, and back.
 ;
-; A RECORD is a row's value, as a table tree stores it:
+; A RECORD is one value written out in full, as a table tree stores a
+; record's document. Each value is a tag byte and a payload:
 ;
-;     u16 column count n
-;     n type codes, one byte each: 0 NULL, 1 INTEGER, 2 REAL, 3 TEXT, 4 BLOB
-;     the payloads, in column order:
-;         INTEGER  8 bytes, two's complement
-;         REAL     8 bytes, the IEEE 754 binary64 bits
-;         TEXT     u32 length, then the bytes
-;         BLOB     u32 length, then the bytes
-;         NULL     nothing
+;     0  none       (nothing)
+;     1  false      (nothing)
+;     2  true       (nothing)
+;     3  int        8 bytes, two's complement
+;     4  float      8 bytes, the IEEE 754 binary64 bits
+;     5  text       u32 length, then the bytes
+;     6  bytes      u32 length, then the bytes
+;     7  datetime   8 bytes, UTC microseconds since the epoch
+;     8  duration   8 bytes, microseconds
+;     9  uuid       the 16 bytes
+;     10 array      u32 count, then each value
+;     11 object     u32 count, then per field a u32 name length, the
+;                   name's bytes, and the value
+;     12 record     the table name as a text payload (u32 + bytes),
+;                   then the key as a value
 ;
-; Every integer is big-endian. Decoding checks every length against the
-; record's size and answers `axqCorrupt` for a record that is short,
-; has bytes left over, or holds an unknown type code; it never reads
-; past the record.
+; Every integer is big-endian. Decoding checks every length against
+; the record's size and answers `axqCorrupt` for a record that is
+; short, has bytes left over, nests past 64 levels, or holds an
+; unknown tag; it never reads past the record.
 ;
 ; A KEY sorts as its values do when two keys are compared bytewise
-; (`keyCompare`, memcmp order). Each value is a type tag and a body:
+; (`keyCompare`, memcmp order). The type order is:
 ;
-;     NULL      01
-;     number    02 (negative) / 03 (zero) / 04 (positive), then for
-;               non-zero numbers a 2-byte exponent and an 8-byte
-;               mantissa, both inverted for negatives
-;     TEXT      05, the bytes with 00 written as 00 FF, then 00 01
-;     BLOB      06, the same escaping
+;     none < bool < number < text < bytes < datetime < duration
+;          < uuid < record < array
 ;
-; so NULL sorts before every number, numbers before TEXT, TEXT before
-; BLOB, and a string before every longer string it is a prefix of.
-; INTEGER and REAL share one numeric order: a number is written as its
-; exact binary magnitude 1.m x 2^e, so (VInt 2) and (VReal 2.0) are the
-; same key, as are 0, 0.0 and -0.0, and 2^53 + 1 still sorts above the
-; REAL 2^53. The infinities sort beyond every finite number. A NaN has
-; no place in the order and is refused (`axqType`).
+; written as tags 1 to 13 (numbers take three: negative, zero,
+; positive). Ints and floats share one numeric order: a number is
+; written as its exact binary magnitude 1.m x 2^e, so (VInt 2) and
+; (VFloat 2.0) are the same key, as are 0, 0.0 and -0.0, and 2^53 + 1
+; still sorts above the float 2^53. The infinities sort beyond every
+; finite number. A NaN has no place in the order and is refused
+; (`axqType`), and so is an object. Text and bytes escape a 00 byte
+; as 00 FF and end with 00 01, so a value sorts before every longer
+; value it is a prefix of. A record writes its table escaped the same
+; way, then its key's encoding. An array writes each element, then a
+; 00 terminator.
 ;
-; A table key is the rowid alone (`keyRowid`): 8 bytes, big-endian,
-; with the sign bit flipped so negative rowids sort first. An index key
-; is the key encoding of the indexed columns followed by that 8-byte
-; rowid (`keyWithRowid`), which makes every index key unique.
+; A table's key for a record is the key encoding of the record's key
+; scalar alone. An index key is the encoding of the indexed fields'
+; values followed by the record's key encoding, which makes every
+; index key unique. The schema tree still keys its entries by rowid
+; (`keyRowid`): 8 bytes with the sign bit flipped.
 ;
-; LIMITS. A record holds at most 65535 columns and at most 1 GiB
-; (`axqTooBig` beyond). `keyDecode` gives back the values of a key but
-; not which numbers were INTEGER: an integral number in the 64-bit range
-; comes back as `VInt`, any other as `VReal`.
+; LIMITS. A record holds at most 1 GiB (`axqTooBig` beyond) and nests
+; at most 64 deep. `keyDecode` gives back the values of a key but not
+; which numbers were ints: an integral number in the 64-bit range
+; comes back as `VInt`, any other as `VFloat`.
 (import Internal.Raw)
 (import Str)
 (import Vec)
@@ -124,6 +131,66 @@
 (fn (corrupt what where)
   (axqErr axqCorrupt what where))
 
+; A byte string being built.
+(struct W
+  (bs : (Vec Int)))
+
+(:: wNew W)
+(fn (wNew)
+  (W :bs vecNew))
+
+(:: wByte (-> W Int Int))
+(fn (wByte w b)
+  {
+    (vecPush w.bs (& b 255))
+    0
+  })
+
+; The low `n` bytes of `v`, big-endian.
+(:: wBe (-> W Int Int Int))
+(fn (wBe w n v)
+  {
+    (for i in 0..n
+      (wByte w (>> v (* 8 (- (- n 1) i)))))
+    0
+  })
+
+(:: wStr (-> W String Int))
+;@axiom:effect(unsafe)
+(fn (wStr w s)
+  {
+    (let a (strData s))
+    {
+      (for i in 0..(strLen s)
+        (vecPush w.bs (__load8 a i)))
+      0
+    }
+  })
+
+(:: wFinish (-> W String))
+;@axiom:effect(unsafe)
+(fn (wFinish w)
+  {
+    (let n (vecLen w.bs))
+    (let out (strAlloc n))
+    {
+      (for i in 0..n
+        (__store8 (strData out) i (vecGet w.bs i)))
+      out
+    }
+  })
+
+; The string of `len` bytes at `a + off`.
+(:: bytesAt (-> Int Int Int String))
+(fn (bytesAt a off len)
+  {
+    (let out (strAlloc len))
+    {
+      (rawCopy (strData out) (+ a off) len)
+      out
+    }
+  })
+
 ; ------------------------------------------------------------------
 ; Records.
 ; ------------------------------------------------------------------
@@ -132,270 +199,349 @@
 (fn (recMaxBytes)
   1073741824)
 
-(:: typeCode (-> Value Int))
-(fn (typeCode v)
-  (match v
-    ((VNull) 0)
-    ((VInt _) 1)
-    ((VReal _) 2)
-    ((VText _) 3)
-    ((VBlob _) 4)))
+(:: maxDepth Int)
+(fn (maxDepth)
+  64)
 
-(:: payloadBytes (-> Value Int))
-(fn (payloadBytes v)
-  (match v
-    ((VNull) 0)
-    ((VInt _) 8)
-    ((VReal _) 8)
-    ((VText s) (+ 4 (strLen s)))
-    ((VBlob s) (+ 4 (strLen s)))))
-
-(:: isNanValue (-> Value Bool))
-(fn (isNanValue v)
-  (match v
-    ((VReal x) (floatIsNan x))
-    (_ false)))
-
-;; The bytes of a row: its values in column order, as the header
-;; describes. A NaN answers `axqType`, more than 65535 columns or a
-;; record over 1 GiB `axqTooBig`.
-(pub :: recEncode (-> (Vec Value) (Result String Error)))
-;@axiom:effect(unsafe)
-(pub fn (recEncode vals)
+;; The bytes of one value, as the header describes. A NaN, a uuid that
+;; isn't 16 bytes, or a record whose key is no scalar answers
+;; `axqType`; nesting past 64 or a record over 1 GiB answers
+;; `axqTooBig`.
+(pub :: recEncode (-> Value (Result String Error)))
+(pub fn (recEncode v)
   {
-    (let n (vecLen vals))
-    (let mut size 0)
-    (let mut nan false)
+    (let w (wNew))
     {
-      (set size (+ 2 n))
-      (for v in vals
+      (let _ (encValue w v 0)?)
+      (if (> (vecLen w.bs) recMaxBytes)
+        (axqErr axqTooBig "a record over 1 GiB" "recEncode")
+        (Ok (wFinish w)))
+    }
+  })
+
+(:: encValue (-> W Value Int (Result Int Error)))
+(fn (encValue w v depth)
+  (if (> depth maxDepth)
+    (axqErr axqTooBig "a value nested past 64 levels" "recEncode")
+    (match v
+      ((VNone) (Ok (wByte w 0)))
+      ((VBool b)
+        (Ok
+          (wByte w
+            (if b
+              2
+              1)))
+      )
+      ((VInt n)
         {
-          (set size (+ size (payloadBytes v)))
-          (if (isNanValue v)
-            (set nan true)
-            false)
-        })
-      (if (> n 65535)
-        (axqErr axqTooBig "a record holds at most 65535 columns" "recEncode")
-        (if nan
+          (wByte w 3)
+          (Ok (wBe w 8 n))
+        }
+      )
+      ((VFloat x)
+        (if (floatIsNan x)
           (axqErr axqType "a NaN can't be stored" "recEncode")
-          (if (> size recMaxBytes)
-            (axqErr axqTooBig "a record is at most 1 GiB" "recEncode")
-            {
-              (let out (strAlloc size))
-              (let mut at (+ 2 n))
-              {
-                (let a (strData out))
-                {
-                  (putBe a 0 2 n)
-                  (for i in 0..n
-                    {
-                      (let v (vecGet vals i))
-                      {
-                        (__store8 a (+ 2 i) (typeCode v))
-                        (match v
-                          ((VNull) ())
-                          ((VInt k)
-                            {
-                              (putBe a at 8 k)
-                              (set at (+ at 8))
-                            }
-                          )
-                          ((VReal x)
-                            {
-                              (putBe a at 8 (floatToBits x))
-                              (set at (+ at 8))
-                            }
-                          )
-                          ((VText s)
-                            {
-                              (putBe a at 4 (strLen s))
-                              (rawCopy (+ a (+ at 4)) (strData s) (strLen s))
-                              (set at (+ at (+ 4 (strLen s))))
-                            }
-                          )
-                          ((VBlob s)
-                            {
-                              (putBe a at 4 (strLen s))
-                              (rawCopy (+ a (+ at 4)) (strData s) (strLen s))
-                              (set at (+ at (+ 4 (strLen s))))
-                            }
-                          ))
-                      }
-                    })
-                  (Ok out)
-                }
-              }
-            })))
-    }
-  })
-
-; A fresh string holding the `n` bytes at `a + off`.
-(:: bytesAt (-> Int Int Int String))
-(fn (bytesAt a off n)
-  {
-    (let s (strAlloc n))
-    {
-      (rawCopy (strData s) (+ a off) n)
-      s
-    }
-  })
-
-; The value of type `code` whose payload starts at byte `at` of a
-; record `size` bytes long at `a`, and the offset just past it; `Err`
-; when the payload runs past the end.
-(:: readPayload (-> Int Int Int Int (Result Value Error)))
-(fn (readPayload a size code at)
-  (if (== code 0)
-    (Ok VNull)
-    (if (|| (== code 1) (== code 2))
-      (if (> (+ at 8) size)
-        (corrupt "a number runs past the end of its record" "recDecode")
+          {
+            (wByte w 4)
+            (Ok (wBe w 8 (floatToBits x)))
+          })
+      )
+      ((VText s)
         {
-          (let bits (getBe a at 8))
-          (if (== code 1)
-            (Ok (VInt bits))
-            (Ok (VReal (floatFromBits bits))))
-        })
-      (if (|| (== code 3) (== code 4))
-        (if (> (+ at 4) size)
-          (corrupt "a length runs past the end of its record" "recDecode")
+          (wByte w 5)
+          (wBe w 4 (strLen s))
+          (Ok (wStr w s))
+        }
+      )
+      ((VBytes s)
+        {
+          (wByte w 6)
+          (wBe w 4 (strLen s))
+          (Ok (wStr w s))
+        }
+      )
+      ((VDatetime n)
+        {
+          (wByte w 7)
+          (Ok (wBe w 8 n))
+        }
+      )
+      ((VDuration n)
+        {
+          (wByte w 8)
+          (Ok (wBe w 8 n))
+        }
+      )
+      ((VUuid s)
+        (if (!= (strLen s) 16)
+          (axqErr axqType "a uuid is 16 bytes" "recEncode")
           {
-            (let len (getBe a at 4))
-            (if (> len (- size (+ at 4)))
-              (corrupt "a string runs past the end of its record" "recDecode")
-              {
-                (let s (bytesAt a (+ at 4) len))
-                (if (== code 3)
-                  (Ok (VText s))
-                  (Ok (VBlob s)))
-              })
+            (wByte w 9)
+            (Ok (wStr w s))
           })
-        (corrupt "an unknown type code in a record" "recDecode")))))
-
-; How many payload bytes a value of type `code` at `at` takes, reading
-; its length where it has one; -1 when that runs past `size`.
-(:: payloadSpan (-> Int Int Int Int Int))
-(fn (payloadSpan a size code at)
-  (if (== code 0)
-    0
-    (if (|| (== code 1) (== code 2))
-      8
-      (if (> (+ at 4) size)
-        -1
-        (+ 4 (getBe a at 4))))))
-
-;; The values of a record, in column order. Anything malformed answers
-;; `axqCorrupt`.
-(pub :: recDecode (-> String (Result (Vec Value) Error)))
-;@axiom:effect(unsafe)
-(pub fn (recDecode rec)
-  {
-    (let size (strLen rec))
-    (let a (strData rec))
-    (if (< size 2)
-      (corrupt "a record shorter than its column count" "recDecode")
-      {
-        (let n (getBe a 0 2))
-        (if (> (+ 2 n) size)
-          (corrupt "a record shorter than its type codes" "recDecode")
+      )
+      ((VArray items)
+        {
+          (wByte w 10)
+          (wBe w 4 (vecLen items))
+          (encItems w items 0 (+ depth 1))
+        }
+      )
+      ((VObject fs)
+        {
+          (wByte w 11)
+          (wBe w 4 (vecLen fs))
+          (encFields w fs 0 (+ depth 1))
+        }
+      )
+      ((VRecord rid)
+        (if (! (valueIsKey rid.key))
+          (axqErr axqType "a record's key is an int, text or a uuid" "recEncode")
           {
-            (let out vecNew)
-            (let mut at (+ 2 n))
-            (let mut bad None)
-            {
-              (for i in 0..n
-                (if (isNone bad)
-                  (match (readPayload a size (__load8 a (+ 2 i)) at)
-                    ((Ok v)
-                      {
-                        (vecPush out v)
-                        (set at (+ at (payloadSpan a size (__load8 a (+ 2 i)) at)))
-                      }
-                    )
-                    ((Err e)
-                      (set bad (Some e))
-                    ))))
-              (match bad
-                ((Some e) (Err e))
-                ((None)
-                  (if (!= at size)
-                    (corrupt "a record with bytes after its last value" "recDecode")
-                    (Ok out))
-                ))
-            }
+            (wByte w 12)
+            (wBe w 4 (strLen rid.table))
+            (wStr w rid.table)
+            (encValue w rid.key (+ depth 1))
           })
-      })
-  })
+      ))))
 
-;; How many columns a record holds.
-(pub :: recColumnCount (-> String (Result Int Error)))
-(pub fn (recColumnCount rec)
-  (if (< (strLen rec) 2)
-    (corrupt "a record shorter than its column count" "recColumnCount")
+(:: encItems (-> W (Vec Value) Int Int (Result Int Error)))
+(fn (encItems w items i depth)
+  (if (>= i (vecLen items))
+    (Ok 0)
     {
-      (let n (getBe (strData rec) 0 2))
-      (if (> (+ 2 n) (strLen rec))
-        (corrupt "a record shorter than its type codes" "recColumnCount")
-        (Ok n))
+      (let _ (encValue w (vecGet items i) depth)?)
+      (encItems w items (+ i 1) depth)
     }))
 
-;; Column `i` of a record, without decoding the columns after it. An
-;; `i` outside the record answers `axqMisuse`.
-(pub :: recColumn (-> String Int (Result Value Error)))
-;@axiom:effect(unsafe)
-(pub fn (recColumn rec i)
-  {
-    (let n (recColumnCount rec)?)
-    (if (|| (< i 0) (>= i n))
-      (axqErr axqMisuse "no such column in this record" "recColumn")
+(:: encFields (-> W (Vec Field) Int Int (Result Int Error)))
+(fn (encFields w fs i depth)
+  (if (>= i (vecLen fs))
+    (Ok 0)
+    {
+      (let f (vecGet fs i))
       {
-        (let a (strData rec))
-        (let size (strLen rec))
-        (let mut at (+ 2 n))
-        (let mut ok true)
-        {
-          (for j in 0..i
-            (if ok
-              {
-                (let span (payloadSpan a size (__load8 a (+ 2 j)) at))
-                (if (|| (< span 0) (> span (- size at)))
-                  (set ok false)
-                  (set at (+ at span)))
-              }))
-          (if ok
-            (readPayload a size (__load8 a (+ 2 i)) at)
-            (corrupt "a string runs past the end of its record" "recColumn"))
-        }
-      })
+        (wBe w 4 (strLen f.name))
+        (wStr w f.name)
+        (let _ (encValue w f.value depth)?)
+        (encFields w fs (+ i 1) depth)
+      }
+    }))
+
+; A decoded value and the offset just past it.
+(struct Dec
+  (value : Value)
+  (next : Int))
+
+;; The value a record holds. Bytes that aren't a record answer
+;; `axqCorrupt`.
+(pub :: recDecode (-> String (Result Value Error)))
+(pub fn (recDecode rec)
+  {
+    (let d (decValue (strData rec) 0 (strLen rec) 0)?)
+    (if (!= d.next (strLen rec))
+      (corrupt "a record with bytes left over" "recDecode")
+      (Ok d.value))
   })
+
+(:: decValue (-> Int Int Int Int (Result Dec Error)))
+;@axiom:effect(unsafe)
+(fn (decValue a at n depth)
+  (if (> depth maxDepth)
+    (corrupt "a record nested past 64 levels" "recDecode")
+    (if (>= at n)
+      (corrupt "a short record" "recDecode")
+      {
+        (let tag (__load8 a at))
+        (if (== tag 0)
+          (Ok (Dec :value VNone :next (+ at 1)))
+          (if (== tag 1)
+            (Ok (Dec :value (VBool false) :next (+ at 1)))
+            (if (== tag 2)
+              (Ok (Dec :value (VBool true) :next (+ at 1)))
+              (if (== tag 3)
+                (decFixed a at n 8 (lambda (x) (VInt x)))
+                (if (== tag 4)
+                  (decFixed a at n 8 (lambda (x) (VFloat (floatFromBits x))))
+                  (if (== tag 5)
+                    (decBytes a at n (lambda (s) (VText s)))
+                    (if (== tag 6)
+                      (decBytes a at n (lambda (s) (VBytes s)))
+                      (if (== tag 7)
+                        (decFixed a at n 8 (lambda (x) (VDatetime x)))
+                        (if (== tag 8)
+                          (decFixed a at n 8 (lambda (x) (VDuration x)))
+                          (if (== tag 9)
+                            (if (> (+ at 17) n)
+                              (corrupt "a short record" "recDecode")
+                              (Ok (Dec :value (VUuid (bytesAt a (+ at 1) 16)) :next (+ at 17))))
+                            (if (== tag 10)
+                              (decArray a at n depth)
+                              (if (== tag 11)
+                                (decObject a at n depth)
+                                (if (== tag 12)
+                                  (decRecord a at n depth)
+                                  (corrupt "a record with an unknown tag" "recDecode"))))))))))))))
+      })))
+
+(:: decFixed (-> Int Int Int Int (-> Int Value) (Result Dec Error)))
+(fn (decFixed a at n size mk)
+  (if (> (+ at (+ 1 size)) n)
+    (corrupt "a short record" "recDecode")
+    (Ok (Dec :value (mk (getBe a (+ at 1) size)) :next (+ at (+ 1 size))))))
+
+(:: decBytes (-> Int Int Int (-> String Value) (Result Dec Error)))
+(fn (decBytes a at n mk)
+  (if (> (+ at 5) n)
+    (corrupt "a short record" "recDecode")
+    {
+      (let len (getBe a (+ at 1) 4))
+      (if (|| (< len 0) (> (+ at (+ 5 len)) n))
+        (corrupt "a short record" "recDecode")
+        (Ok (Dec :value (mk (bytesAt a (+ at 5) len)) :next (+ at (+ 5 len)))))
+    }))
+
+(:: decArray (-> Int Int Int Int (Result Dec Error)))
+(fn (decArray a at n depth)
+  (if (> (+ at 5) n)
+    (corrupt "a short record" "recDecode")
+    {
+      (let count (getBe a (+ at 1) 4))
+      (if (< count 0)
+        (corrupt "a record with a bad count" "recDecode")
+        {
+          (let items vecNew)
+          {
+            (let next (decItems a (+ at 5) n count items (+ depth 1))?)
+            (Ok (Dec :value (VArray items) :next next))
+          }
+        })
+    }))
+
+(:: decItems (-> Int Int Int Int (Vec Value) Int (Result Int Error)))
+(fn (decItems a at n left items depth)
+  (if (<= left 0)
+    (Ok at)
+    {
+      (let d (decValue a at n depth)?)
+      {
+        (vecPush items d.value)
+        (decItems a d.next n (- left 1) items depth)
+      }
+    }))
+
+(:: decObject (-> Int Int Int Int (Result Dec Error)))
+(fn (decObject a at n depth)
+  (if (> (+ at 5) n)
+    (corrupt "a short record" "recDecode")
+    {
+      (let count (getBe a (+ at 1) 4))
+      (if (< count 0)
+        (corrupt "a record with a bad count" "recDecode")
+        {
+          (let fs vecNew)
+          {
+            (let next (decFields a (+ at 5) n count fs (+ depth 1))?)
+            (Ok (Dec :value (VObject fs) :next next))
+          }
+        })
+    }))
+
+(:: decFields (-> Int Int Int Int (Vec Field) Int (Result Int Error)))
+(fn (decFields a at n left fs depth)
+  (if (<= left 0)
+    (Ok at)
+    (if (> (+ at 4) n)
+      (corrupt "a short record" "recDecode")
+      {
+        (let len (getBe a at 4))
+        (if (|| (< len 0) (> (+ at (+ 4 len)) n))
+          (corrupt "a short record" "recDecode")
+          {
+            (let name (bytesAt a (+ at 4) len))
+            {
+              (let d (decValue a (+ at (+ 4 len)) n depth)?)
+              {
+                (vecPush fs (Field :name name :value d.value))
+                (decFields a d.next n (- left 1) fs depth)
+              }
+            }
+          })
+      })))
+
+(:: decRecord (-> Int Int Int Int (Result Dec Error)))
+(fn (decRecord a at n depth)
+  (if (> (+ at 5) n)
+    (corrupt "a short record" "recDecode")
+    {
+      (let len (getBe a (+ at 1) 4))
+      (if (|| (< len 0) (> (+ at (+ 5 len)) n))
+        (corrupt "a short record" "recDecode")
+        {
+          (let table (bytesAt a (+ at 5) len))
+          {
+            (let d (decValue a (+ at (+ 5 len)) n (+ depth 1))?)
+            (if (! (valueIsKey d.value))
+              (corrupt "a record whose key is no scalar" "recDecode")
+              (Ok (Dec :value (VRecord (RecordId :table table :key d.value)) :next d.next)))
+          }
+        })
+    }))
 
 ; ------------------------------------------------------------------
 ; Keys.
 ; ------------------------------------------------------------------
-(:: tagNull Int)
-(fn (tagNull)
+(:: tagNone Int)
+(fn (tagNone)
   1)
+
+(:: tagFalse Int)
+(fn (tagFalse)
+  2)
+
+(:: tagTrue Int)
+(fn (tagTrue)
+  3)
 
 (:: tagNeg Int)
 (fn (tagNeg)
-  2)
+  4)
 
 (:: tagZero Int)
 (fn (tagZero)
-  3)
+  5)
 
 (:: tagPos Int)
 (fn (tagPos)
-  4)
+  6)
 
 (:: tagText Int)
 (fn (tagText)
-  5)
+  7)
 
-(:: tagBlob Int)
-(fn (tagBlob)
-  6)
+(:: tagBytes Int)
+(fn (tagBytes)
+  8)
+
+(:: tagDatetime Int)
+(fn (tagDatetime)
+  9)
+
+(:: tagDuration Int)
+(fn (tagDuration)
+  10)
+
+(:: tagUuid Int)
+(fn (tagUuid)
+  11)
+
+(:: tagRecord Int)
+(fn (tagRecord)
+  12)
+
+(:: tagArray Int)
+(fn (tagArray)
+  13)
 
 ; The exponent bias: the smallest exponent, a subnormal's -1074, is 1
 ; after it, and an infinity's 1024 is 2099.
@@ -403,8 +549,8 @@
 (fn (expBias)
   1075)
 
-;; The 8-byte key of a table row: the rowid big-endian with its sign bit
-;; flipped, so bytewise order is numeric order.
+;; The 8-byte key of a schema entry: its rowid big-endian with its
+;; sign bit flipped, so bytewise order is numeric order.
 (pub :: keyRowid (-> Int String))
 (pub fn (keyRowid n)
   {
@@ -415,28 +561,12 @@
     }
   })
 
-;; The rowid a table key holds.
+;; The rowid a schema key holds.
 (pub :: keyRowidOf (-> String (Result Int Error)))
 (pub fn (keyRowidOf k)
   (if (!= (strLen k) 8)
-    (corrupt "a table key is not 8 bytes" "keyRowidOf")
+    (corrupt "a schema key is not 8 bytes" "keyRowidOf")
     (Ok (^ (getBe (strData k) 0 8) intMin))))
-
-;; The rowid in the last 8 bytes of an index key.
-(pub :: keyIndexRowid (-> String (Result Int Error)))
-(pub fn (keyIndexRowid k)
-  {
-    (let n (strLen k))
-    (if (< n 8)
-      (corrupt "an index key shorter than a rowid" "keyIndexRowid")
-      (Ok (^ (getBe (strData k) (- n 8) 8) intMin)))
-  })
-
-;; An index key: `prefix`, the key encoding of the indexed columns, then
-;; the rowid's 8 bytes.
-(pub :: keyWithRowid (-> String Int String))
-(pub fn (keyWithRowid prefix rowid)
-  (concat prefix (keyRowid rowid)))
 
 ; A number as sign, exponent and mantissa: `sign` -1, 0 or 1, `e` the
 ; power of two of its leading bit, and `mant` the bits after that bit,
@@ -488,135 +618,135 @@
           })))
   })
 
-(:: numKeyBytes (-> Num Int))
-(fn (numKeyBytes num)
+(:: wNum (-> W Num Int))
+(fn (wNum w num)
   (if (== num.sign 0)
-    1
-    11))
-
-(:: putNum (-> Int Int Num Int))
-;@axiom:effect(unsafe)
-(fn (putNum a at num)
-  (if (== num.sign 0)
-    {
-      (__store8 a at tagZero)
-      1
-    }
+    (wByte w tagZero)
     {
       (let ex (+ num.e expBias))
       (if (> num.sign 0)
         {
-          (__store8 a at tagPos)
-          (putBe a (+ at 1) 2 ex)
-          (putBe a (+ at 3) 8 num.mant)
-          11
+          (wByte w tagPos)
+          (wBe w 2 ex)
+          (wBe w 8 num.mant)
         }
         {
-          (__store8 a at tagNeg)
-          (putBe a (+ at 1) 2 (^ ex 65535))
-          (putBe a (+ at 3) 8 (^ num.mant -1))
-          11
+          (wByte w tagNeg)
+          (wBe w 2 (^ ex 65535))
+          (wBe w 8 (^ num.mant -1))
         })
     }))
 
-(:: zeroCount (-> String Int))
+; `s` with its 00 bytes written 00 FF, then a 00 01 ending.
+(:: wEscaped (-> W String Int))
 ;@axiom:effect(unsafe)
-(fn (zeroCount s)
+(fn (wEscaped w s)
   {
     (let a (strData s))
-    (let mut z 0)
     {
-      (for i in 0..(strLen s)
-        (if (== (__load8 a i) 0)
-          (set z (+ z 1))))
-      z
-    }
-  })
-
-(:: putEscaped (-> Int Int Int String Int))
-;@axiom:effect(unsafe)
-(fn (putEscaped a at tag s)
-  {
-    (let src (strData s))
-    (let mut w (+ at 1))
-    {
-      (__store8 a at tag)
       (for i in 0..(strLen s)
         {
-          (let b (__load8 src i))
+          (let b (__load8 a i))
           (if (== b 0)
             {
-              (__store8 a w 0)
-              (__store8 a (+ w 1) 255)
-              (set w (+ w 2))
+              (wByte w 0)
+              (wByte w 255)
             }
-            {
-              (__store8 a w b)
-              (set w (+ w 1))
-            })
+            (wByte w b))
         })
-      (__store8 a w 0)
-      (__store8 a (+ w 1) 1)
-      (- (+ w 2) at)
+      (wByte w 0)
+      (wByte w 1)
     }
   })
 
-; The key bytes of one value; 0 for a NaN, which has none.
-(:: valueKeyBytes (-> Value Int))
-(fn (valueKeyBytes v)
-  (match v
-    ((VNull) 1)
-    ((VInt n) (numKeyBytes (numOfInt n)))
-    ((VReal x)
-      (if (floatIsNan x)
-        0
-        (numKeyBytes (numOfBits (floatToBits x))))
-    )
-    ((VText s) (+ 3 (+ (strLen s) (zeroCount s))))
-    ((VBlob s) (+ 3 (+ (strLen s) (zeroCount s))))))
+(:: wKeyValue (-> W Value Int (Result Int Error)))
+(fn (wKeyValue w v depth)
+  (if (> depth maxDepth)
+    (axqErr axqTooBig "a value nested past 64 levels" "keyEncode")
+    (match v
+      ((VNone) (Ok (wByte w tagNone)))
+      ((VBool b)
+        (Ok
+          (wByte w
+            (if b
+              tagTrue
+              tagFalse)))
+      )
+      ((VInt n) (Ok (wNum w (numOfInt n))))
+      ((VFloat x)
+        (if (floatIsNan x)
+          (axqErr axqType "a NaN has no place in a key" "keyEncode")
+          (Ok (wNum w (numOfBits (floatToBits x)))))
+      )
+      ((VText s)
+        {
+          (wByte w tagText)
+          (Ok (wEscaped w s))
+        }
+      )
+      ((VBytes s)
+        {
+          (wByte w tagBytes)
+          (Ok (wEscaped w s))
+        }
+      )
+      ((VDatetime n)
+        {
+          (wByte w tagDatetime)
+          (Ok (wBe w 8 (^ n intMin)))
+        }
+      )
+      ((VDuration n)
+        {
+          (wByte w tagDuration)
+          (Ok (wBe w 8 (^ n intMin)))
+        }
+      )
+      ((VUuid s)
+        (if (!= (strLen s) 16)
+          (axqErr axqType "a uuid is 16 bytes" "keyEncode")
+          {
+            (wByte w tagUuid)
+            (Ok (wStr w s))
+          })
+      )
+      ((VArray items)
+        {
+          (wByte w tagArray)
+          {
+            (let _ (wKeyItems w items 0 (+ depth 1))?)
+            (Ok (wByte w 0))
+          }
+        }
+      )
+      ((VObject _) (axqErr axqType "an object has no place in a key" "keyEncode"))
+      ((VRecord rid)
+        {
+          (wByte w tagRecord)
+          (wEscaped w rid.table)
+          (wKeyValue w rid.key (+ depth 1))
+        }
+      ))))
 
-(:: putValueKey (-> Int Int Value Int))
-;@axiom:effect(unsafe)
-(fn (putValueKey a at v)
-  (match v
-    ((VNull)
-      {
-        (__store8 a at tagNull)
-        1
-      }
-    )
-    ((VInt n) (putNum a at (numOfInt n)))
-    ((VReal x) (putNum a at (numOfBits (floatToBits x))))
-    ((VText s) (putEscaped a at tagText s))
-    ((VBlob s) (putEscaped a at tagBlob s))))
+(:: wKeyItems (-> W (Vec Value) Int Int (Result Int Error)))
+(fn (wKeyItems w items i depth)
+  (if (>= i (vecLen items))
+    (Ok 0)
+    {
+      (let _ (wKeyValue w (vecGet items i) depth)?)
+      (wKeyItems w items (+ i 1) depth)
+    }))
 
 ;; The key encoding of several values, one after another: the key an
-;; index on those columns stores before the rowid. A NaN answers
-;; `axqType`.
+;; index stores before the record's own key. A NaN or an object
+;; answers `axqType`.
 (pub :: keyEncode (-> (Vec Value) (Result String Error)))
 (pub fn (keyEncode vals)
   {
-    (let mut size 0)
-    (let mut nan false)
+    (let w (wNew))
     {
-      (for v in vals
-        {
-          (let b (valueKeyBytes v))
-          (if (== b 0)
-            (set nan true)
-            (set size (+ size b)))
-        })
-      (if nan
-        (axqErr axqType "a NaN has no place in a key" "keyEncode")
-        {
-          (let out (strAlloc size))
-          (let mut at 0)
-          {
-            (for v in vals
-              (set at (+ at (putValueKey (strData out) at v))))
-            (Ok out)
-          }
-        })
+      (let _ (wKeyItems w vals 0 0)?)
+      (Ok (wFinish w))
     }
   })
 
@@ -650,15 +780,16 @@
                 (- 0 mag)
                 mag))
           }
-          (VReal (floatFromBits (numBits neg e mant))))
+          (VFloat (floatFromBits (numBits neg e mant))))
         (if (&& (&& neg (== e 63)) (== mant 0))
           (VInt intMin)
-          (VReal (floatFromBits (numBits neg e mant)))))
+          (VFloat (floatFromBits (numBits neg e mant)))))
     }
   })
 
 ; The binary64 bits of sign, exponent and mantissa. Exact for every
-; number a REAL can hold; an integer beyond 53 bits never reaches here.
+; number a float can hold; an integer beyond 53 bits never reaches
+; here.
 (:: numBits (-> Bool Int Int Int))
 (fn (numBits neg e mant)
   {
@@ -676,13 +807,14 @@
         }))
   })
 
-; The escaped string starting at `a + at` (after its tag), and where it
-; ends; `None` when the terminator is missing or an escape is invalid.
-(:: unescape (-> Int Int Int (Option (Vec Int))))
+; The escaped string starting at `a + at`, as a `Dec` whose value is
+; the string as `VText`; `Err` when the terminator is missing or an
+; escape is invalid.
+(:: unescape (-> Int Int Int (Result Dec Error)))
 ;@axiom:effect(unsafe)
 (fn (unescape a at n)
   {
-    (let bytes vecNew)
+    (let w (wNew))
     (let mut i at)
     (let mut done false)
     (let mut ok true)
@@ -704,87 +836,148 @@
                     }
                     (if (== c 255)
                       {
-                        (vecPush bytes 0)
+                        (wByte w 0)
                         (set i (+ i 2))
                       }
                       (set ok false)))
                 })
               {
-                (vecPush bytes b)
+                (wByte w b)
                 (set i (+ i 1))
               })
           }))
       (if ok
-        (Some (vecPush bytes i))
-        None)
+        (Ok (Dec :value (VText (wFinish w)) :next i))
+        (corrupt "bytes that aren't a key" "keyDecode"))
     }
   })
 
-;; The values a key encodes. Numbers come back as `VInt` when they are
-;; integral and in the 64-bit range, and as `VReal` otherwise. Bytes
-;; that aren't a key answer `axqCorrupt`.
-(pub :: keyDecode (-> String (Result (Vec Value) Error)))
+(:: keyDecValue (-> Int Int Int Int (Result Dec Error)))
 ;@axiom:effect(unsafe)
+(fn (keyDecValue a at n depth)
+  (if (> depth maxDepth)
+    (corrupt "a key nested past 64 levels" "keyDecode")
+    (if (>= at n)
+      (corrupt "bytes that aren't a key" "keyDecode")
+      {
+        (let tag (__load8 a at))
+        (if (== tag tagNone)
+          (Ok (Dec :value VNone :next (+ at 1)))
+          (if (== tag tagFalse)
+            (Ok (Dec :value (VBool false) :next (+ at 1)))
+            (if (== tag tagTrue)
+              (Ok (Dec :value (VBool true) :next (+ at 1)))
+              (if (== tag tagZero)
+                (Ok (Dec :value (VInt 0) :next (+ at 1)))
+                (if (|| (== tag tagNeg) (== tag tagPos))
+                  (if (> (+ at 11) n)
+                    (corrupt "bytes that aren't a key" "keyDecode")
+                    (Ok (Dec :value (numFromKey a (+ at 1) (== tag tagNeg)) :next (+ at 11))))
+                  (if (== tag tagText)
+                    (unescape a (+ at 1) n)
+                    (if (== tag tagBytes)
+                      {
+                        (let d (unescape a (+ at 1) n)?)
+                        (Ok
+                          (Dec
+                            :value
+                              (match d.value
+                                ((VText s) (VBytes s))
+                                (_ VNone))
+                            :next d.next))
+                      }
+                      (if (|| (== tag tagDatetime) (== tag tagDuration))
+                        (if (> (+ at 9) n)
+                          (corrupt "bytes that aren't a key" "keyDecode")
+                          (Ok
+                            (Dec
+                              :value
+                                ((if (== tag tagDatetime)
+                                  (lambda (x) (VDatetime x))
+                                  (lambda (x) (VDuration x)))
+                                  (^ (getBe a (+ at 1) 8) intMin))
+                              :next (+ at 9))))
+                        (if (== tag tagUuid)
+                          (if (> (+ at 17) n)
+                            (corrupt "bytes that aren't a key" "keyDecode")
+                            (Ok (Dec :value (VUuid (bytesAt a (+ at 1) 16)) :next (+ at 17))))
+                          (if (== tag tagRecord)
+                            {
+                              (let t (unescape a (+ at 1) n)?)
+                              {
+                                (let k (keyDecValue a t.next n (+ depth 1))?)
+                                (Ok
+                                  (Dec
+                                    :value
+                                      (VRecord
+                                        (RecordId
+                                          :table
+                                            (match t.value
+                                              ((VText s) s)
+                                              (_ ""))
+                                          :key k.value))
+                                    :next k.next))
+                              }
+                            }
+                            (if (== tag tagArray)
+                              {
+                                (let items vecNew)
+                                {
+                                  (let next (keyDecItems a (+ at 1) n items (+ depth 1))?)
+                                  (Ok (Dec :value (VArray items) :next next))
+                                }
+                              }
+                              (corrupt "bytes that aren't a key" "keyDecode"))))))))))))
+      })))
+
+(:: keyDecItems (-> Int Int Int (Vec Value) Int (Result Int Error)))
+;@axiom:effect(unsafe)
+(fn (keyDecItems a at n items depth)
+  (if (>= at n)
+    (corrupt "bytes that aren't a key" "keyDecode")
+    (if (== (__load8 a at) 0)
+      (Ok (+ at 1))
+      {
+        (let d (keyDecValue a at n depth)?)
+        {
+          (vecPush items d.value)
+          (keyDecItems a d.next n items depth)
+        }
+      })))
+
+;; The values a key encodes. Numbers come back as `VInt` when they
+;; are integral and in the 64-bit range, and as `VFloat` otherwise.
+;; Bytes that aren't a key answer `axqCorrupt`.
+(pub :: keyDecode (-> String (Result (Vec Value) Error)))
 (pub fn (keyDecode k)
   {
     (let a (strData k))
     (let n (strLen k))
     (let out vecNew)
     (let mut at 0)
-    (let mut ok true)
+    (let mut failure None)
     {
-      (while (&& ok (< at n))
-        {
-          (let tag (__load8 a at))
-          (if (== tag tagNull)
+      (while (&& (isNone failure) (< at n))
+        (match (keyDecValue a at n 0)
+          ((Ok d)
             {
-              (vecPush out VNull)
-              (set at (+ at 1))
+              (vecPush out d.value)
+              (set at d.next)
             }
-            (if (== tag tagZero)
-              {
-                (vecPush out (VInt 0))
-                (set at (+ at 1))
-              }
-              (if (|| (== tag tagNeg) (== tag tagPos))
-                (if (> (+ at 11) n)
-                  (set ok false)
-                  {
-                    (vecPush out (numFromKey a (+ at 1) (== tag tagNeg)))
-                    (set at (+ at 11))
-                  })
-                (if (|| (== tag tagText) (== tag tagBlob))
-                  (match (unescape a (+ at 1) n)
-                    ((None)
-                      (set ok false)
-                    )
-                    ((Some bytes)
-                      {
-                        (let len (- (vecLen bytes) 1))
-                        (let s (strAlloc (- (vecLen bytes) 1)))
-                        {
-                          (for j in 0..len
-                            (__store8 (strData s) j (vecGet bytes j)))
-                          (vecPush out
-                            (if (== tag tagText)
-                              (VText s)
-                              (VBlob s)))
-                          (set at (vecGet bytes len))
-                        }
-                      }
-                    ))
-                  (set ok false)))))
-        })
-      (if ok
-        (Ok out)
-        (corrupt "bytes that aren't a key" "keyDecode"))
+          )
+          ((Err e)
+            (set failure (Some e))
+          )))
+      (match failure
+        ((Some e) (Err e))
+        ((None) (Ok out)))
     }
   })
 
 ;; The smallest key greater than every key that starts with `prefix`:
-;; the prefix with its last byte below FF incremented and the rest cut
-;; off. `None` when there is no such key (the prefix is empty or all
-;; FF), meaning "no upper bound".
+;; the prefix with its last byte below FF incremented and the rest
+;; cut off. `None` when there is no such key (the prefix is empty or
+;; all FF), meaning "no upper bound".
 (pub :: keyPrefixEnd (-> String (Option String)))
 ;@axiom:effect(unsafe)
 (pub fn (keyPrefixEnd prefix)
@@ -807,8 +1000,8 @@
     }
   })
 
-;; Compare two keys as the B-tree does: bytewise by unsigned value, and
-;; a prefix before any longer key. Negative, zero or positive.
+;; Compare two keys as the B-tree does: bytewise by unsigned value,
+;; and a prefix before any longer key. Negative, zero or positive.
 (pub :: keyCompare (-> String String Int))
 (pub fn (keyCompare a b)
   (strCmp a b))

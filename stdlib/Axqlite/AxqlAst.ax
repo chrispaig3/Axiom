@@ -1,511 +1,228 @@
-;;! Axqlite.AxqlAst - the parsed form of one AXQL statement.
+;;! Axqlite.AxqlAst - the shape of a parsed AXQL statement.
 ;;!
-;;!     (axqlParse "SELECT name FROM users WHERE id = ?")
-;;!         ; (Ok (SSelect ...)) with one parameter
+;;!     (SSelect (Select ...))     ; SELECT name FROM person WHERE age > 30
+;;!     (SCreate (Write ...))      ; CREATE person:ada SET name = 'Ada'
 ;
-; The parser in `Axqlite.AxqlParse` builds these, and the executor in
-; `Axqlite.AxqlExec` binds them to the schema and runs them. They live
-; in the caller's arena for the length of one call: a prepared
-; statement keeps its text, never a tree, and parses it again each time
-; it runs.
+; `Axqlite.AxqlParse` turns text into these forms, and
+; `Axqlite.AxqlExec` runs them. Nothing here runs anything: an AST is
+; plain data a program can build, inspect and pass to `dbRunStmt`.
 ;
-; An `Expr` names its columns by the spelling the statement used. The
-; binder rewrites each name to a column number (`ECol`) once it knows
-; the table, so the evaluator never looks a name up.
+; Targets - what `FROM`, `CREATE`, `UPDATE` and friends name - are
+; expressions: a table is `ETable`, a record `ERecord`, and anything
+; that evaluates to a record, a table name, or an array of either
+; (a `$parameter`, a subquery) works where they do.
 (import Str)
 (import Vec)
 (import Fmt)
 (import Axqlite.Value)
 
 ; ------------------------------------------------------------------
-; Operators.
+; Types, as `DEFINE FIELD ... TYPE` and `<cast>` write them.
 ; ------------------------------------------------------------------
-;; The binary operators an `EBin` carries: `+`.
-(pub :: opAdd Int)
-(pub fn (opAdd)
-  1)
-
-;; `-`.
-(pub :: opSub Int)
-(pub fn (opSub)
-  2)
-
-;; `*`.
-(pub :: opMul Int)
-(pub fn (opMul)
-  3)
-
-;; `/`.
-(pub :: opDiv Int)
-(pub fn (opDiv)
-  4)
-
-;; `%`.
-(pub :: opMod Int)
-(pub fn (opMod)
-  5)
-
-;; `=`.
-(pub :: opEq Int)
-(pub fn (opEq)
-  6)
-
-;; `!=`.
-(pub :: opNe Int)
-(pub fn (opNe)
-  7)
-
-;; `<`.
-(pub :: opLt Int)
-(pub fn (opLt)
-  8)
-
-;; `<=`.
-(pub :: opLe Int)
-(pub fn (opLe)
-  9)
-
-;; `>`.
-(pub :: opGt Int)
-(pub fn (opGt)
-  10)
-
-;; `>=`.
-(pub :: opGe Int)
-(pub fn (opGe)
-  11)
-
-;; `AND`.
-(pub :: opAnd Int)
-(pub fn (opAnd)
-  12)
-
-;; `OR`.
-(pub :: opOr Int)
-(pub fn (opOr)
-  13)
-
-;; `||`, text concatenation.
-(pub :: opConcat Int)
-(pub fn (opConcat)
-  14)
-
-;; Whether `op` is one of the six comparisons.
-(pub :: opIsComparison (-> Int Bool))
-(pub fn (opIsComparison op)
-  (&& (>= op opEq) (<= op opGe)))
-
-;; Whether `op` is one of the five arithmetic operators.
-(pub :: opIsArithmetic (-> Int Bool))
-(pub fn (opIsArithmetic op)
-  (&& (>= op opAdd) (<= op opMod)))
-
-;; The operator as AXQL spells it, for messages.
-(pub :: opText (-> Int String))
-(pub fn (opText op)
-  (if (== op opAdd)
-      "+"
-    (== op opSub)
-      "-"
-    (== op opMul)
-      "*"
-    (== op opDiv)
-      "/"
-    (== op opMod)
-      "%"
-    (== op opEq)
-      "="
-    (== op opNe)
-      "!="
-    (== op opLt)
-      "<"
-    (== op opLe)
-      "<="
-    (== op opGt)
-      ">"
-    (== op opGe)
-      ">="
-    (== op opAnd)
-      "AND"
-    (== op opOr)
-      "OR"
-    "||"))
-
-; ------------------------------------------------------------------
-; Column types.
-; ------------------------------------------------------------------
-;; The four column types, as a `ColumnDef` records them: INTEGER.
-(pub :: typeInteger Int)
-(pub fn (typeInteger)
-  1)
-
-;; REAL.
-(pub :: typeReal Int)
-(pub fn (typeReal)
-  2)
-
-;; TEXT.
-(pub :: typeText Int)
-(pub fn (typeText)
-  3)
-
-;; BLOB.
-(pub :: typeBlob Int)
-(pub fn (typeBlob)
-  4)
-
-;; The type of an expression whose value is always NULL, such as the
-;; literal `NULL`. Never a column's type.
-(pub :: typeNull Int)
-(pub fn (typeNull)
-  0)
-
-;; A type's name as a statement spells it.
-(pub :: typeName (-> Int String))
-(pub fn (typeName t)
-  (if (== t typeInteger)
-      "INTEGER"
-    (== t typeReal)
-      "REAL"
-    (== t typeText)
-      "TEXT"
-    (== t typeBlob)
-      "BLOB"
-    "NULL"))
+;; A type a field may declare, or a cast may name.
+(pub data TypeExpr
+  (TyAny)
+  (TyBool)
+  (TyInt)
+  (TyFloat)
+  (TyText)
+  (TyBytes)
+  (TyDatetime)
+  (TyDuration)
+  (TyUuid)
+  (TyArray)
+  (TyObject)
+  (TyRecord)
+  (TyRecordOf String)
+  (TyOption TypeExpr)
+  (TyArrayOf TypeExpr))
 
 ; ------------------------------------------------------------------
 ; Expressions.
 ; ------------------------------------------------------------------
-;; An expression. Every variant that can fail at run time carries the
-;; byte offset of its operator, so a message can say where.
+;; One `name: expr` pair of an object literal.
+(pub struct EField
+  (name : String)
+  (expr : Expr))
+
+;; One step of a path: a field, an index, a dereference of a record
+;; link (`.*`), or a step across the graph.
+(pub data Step
+  (SField String)
+  (SIndex Expr)
+  (SDeref)
+  (SGraph Graph))
+
+;; A step across the graph: `->edge->table`, `<-edge<-table`, or
+;; `<->edge<->table`. `dir` is 0 out, 1 in, 2 both. An empty `edge`
+;; crosses every edge table; an empty `next` stops at the edges
+;; themselves.
+(pub struct Graph
+  (dir : Int)
+  (edge : String)
+  (next : String))
+
+;; An expression.
 (pub data Expr
   (ELit Value)
-  (EName String Int)
-  (ECol Int)
-  (EParam Int Int)
-  (ENeg Expr Int)
-  (ENot Expr)
-  (EBin Int Expr Expr Int)
-  (EIsNull Expr Bool)
-  (EFun String (Vec Expr) Int)
-  (EAgg Int (Option Expr) Int)
-  (ELike Expr Expr Bool Int)
-  (EIn Expr (Vec Expr) Bool Int)
-  (ELink String String Int)
-  (EPath (Vec String) (Option String) Int))
-
-; ELink keeps a single LINK name, its final column and source offset.
-; EPath keeps LINK names separately, its final column (None for a
-; spread) and source offset. It also represents a one-step read of a
-; column named "*", distinct from a spread. Dots inside quoted names
-; remain part of that identifier.
-; A literal, or a folded constant.
-; A column named in the statement, before binding: its spelling and
-; offset.
-; A bound column: its number in the table, or -1 for the rowid.
-; A parameter: its index in the parameter vector, from 0, and its
-; offset.
-; Unary minus, and its offset.
-; NOT.
-; A binary operator, its operands, and its offset.
-; `IS NULL`, or `IS NOT NULL` when the flag is true.
-; ------------------------------------------------------------------
-; Statements.
-; ------------------------------------------------------------------
-;; One column of a `CREATE TABLE`: its name, type, whether it is NOT
-;; NULL and whether it is the PRIMARY KEY, the table it links to (""
-;; for none), its DEFAULT and CHECK expressions, its text as the
-;; statement wrote it, and where in that text the linked table's name
-;; starts (-1 for none).
-(pub struct ColumnDef
-  (name : String)
-  (ctype : Int)
-  (notNull : Bool)
-  (primaryKey : Bool)
-  (link : String)
-  (dflt : (Option Expr))
-  (check : (Option Expr))
-  (text : String)
-  (linkAt : Int))
-
-;; The aggregates: `count`, `sum`, `avg`, `min` and `max`.
-(pub :: aggCount Int)
-(pub fn (aggCount)
-  1)
-
-;; `sum(e)`.
-(pub :: aggSum Int)
-(pub fn (aggSum)
-  2)
-
-;; `avg(e)`.
-(pub :: aggAvg Int)
-(pub fn (aggAvg)
-  3)
-
-;; `min(e)`.
-(pub :: aggMin Int)
-(pub fn (aggMin)
-  4)
-
-;; `max(e)`.
-(pub :: aggMax Int)
-(pub fn (aggMax)
-  5)
-
-;; An aggregate's name as AXQL spells it.
-(pub :: aggName (-> Int String))
-(pub fn (aggName k)
-  (if (== k aggCount)
-      "count"
-    (== k aggSum)
-      "sum"
-    (== k aggAvg)
-      "avg"
-    (== k aggMin)
-      "min"
-    "max"))
+  (EArray (Vec Expr))
+  (EObject (Vec EField))
+  (EParam String)
+  (ETable String)
+  (ERecord String Expr)
+  (EName String)
+  (EPath Expr (Vec Step))
+  (EBinary String Expr Expr)
+  (EUnary String Expr)
+  (ECall String (Vec Expr))
+  (ECast TypeExpr Expr)
+  (EIf Expr Expr (Option Expr))
+  (EBlock (Vec Stmt))
+  (ESelect Select))
 
 ; ------------------------------------------------------------------
-; Names a message suggests.
+; SELECT.
 ; ------------------------------------------------------------------
-; Byte `c` in lower case, for ASCII letters.
-(:: astLower (-> Int Int))
-(fn (astLower c)
-  (if (&& (>= c 65) (<= c 90))
-    (+ c 32)
-    c))
-
-; The smaller of two numbers.
-(:: least (-> Int Int Int))
-(fn (least a b)
-  (if (< a b)
-    a
-    b))
-
-;; How many single-byte edits, ignoring ASCII case, turn `a` into `b`,
-;; counted up to 3. An edit inserts, deletes or changes a byte, or swaps
-;; two neighbours.
-(pub :: axqlEditDistance (-> String String Int))
-(pub fn (axqlEditDistance a b)
-  {
-    (let n (strLen a))
-    (let m (strLen b))
-    (if (>
-          (if (> n m)
-            (- n m)
-            (- m n))
-          2)
-      3
-      {
-        (let before vecNew)
-        (let prev vecNew)
-        (let cur vecNew)
-        {
-          (for j in 0..(+ m 1)
-            {
-              (vecPush before j)
-              (vecPush prev j)
-              (vecPush cur 0)
-            })
-          (for i in 1..(+ n 1)
-            {
-              (vecSet cur 0 i)
-              (for j in 1..(+ m 1)
-                {
-                  (let ca (astLower (strByte a (- i 1))))
-                  (let cb (astLower (strByte b (- j 1))))
-                  (let cost
-                    (if (== ca cb)
-                      0
-                      1))
-                  (let best
-                    (least (least (+ (vecGet prev j) 1) (+ (vecGet cur (- j 1)) 1))
-                      (+ (vecGet prev (- j 1)) cost)))
-                  (vecSet cur j
-                    (if (&& (> i 1)
-                          (&& (> j 1)
-                            (&& (== ca (astLower (strByte b (- j 2))))
-                              (== (astLower (strByte a (- i 2))) cb))))
-                      (least best (+ (vecGet before (- j 2)) 1))
-                      best))
-                })
-              (for j in 0..(+ m 1)
-                {
-                  (vecSet before j (vecGet prev j))
-                  (vecSet prev j (vecGet cur j))
-                })
-            })
-          (least (vecGet prev m) 3)
-        }
-      })
-  })
-
-;; Whether `name` is near enough `other` to suggest it: within two
-;; edits, or one for a name of four bytes or fewer, and fewer edits
-;; than `name` has bytes.
-(pub :: axqlNear (-> String String Bool))
-(pub fn (axqlNear name other)
-  {
-    (let d (axqlEditDistance name other))
-    (&& (< d (strLen name))
-      (< d
-        (if (> (strLen name) 4)
-          3
-          2)))
-  })
-
-; ------------------------------------------------------------------
-; Functions.
-; ------------------------------------------------------------------
-;; The functions an expression may call, by their lower-case names, as
-;; one string for messages.
-(pub :: axqlFunctionNames String)
-(pub fn (axqlFunctionNames)
-  "abs, asInt, asReal, asText, coalesce, instr, length, lower, max, min, nullif, replace, round, substr, trim, typeOf, upper")
-
-;; The fewest arguments function `name` (in lower case) takes, or -1
-;; when there is no such function.
-(pub :: axqlFunMinArgs (-> String Int))
-(pub fn (axqlFunMinArgs name)
-  (if (isAny name "abs asint asreal astext length lower round trim typeof upper")
-      1
-    (isAny name "coalesce instr max min nullif substr")
-      2
-    (strEq name "replace")
-      3
-    -1))
-
-;; The most arguments function `name` takes, or -1 when there is no
-;; such function. `coalesce`, `min` and `max` take up to 32.
-(pub :: axqlFunMaxArgs (-> String Int))
-(pub fn (axqlFunMaxArgs name)
-  (if (isAny name "abs asint asreal astext length lower round trim typeof upper")
-      1
-    (isAny name "instr nullif")
-      2
-    (isAny name "replace substr")
-      3
-    (isAny name "coalesce max min")
-      32
-    -1))
-
-; Whether `name` is one of the space-separated words of `words`.
-(:: isAny (-> String String Bool))
-(fn (isAny name words)
-  {
-    (let n (strLen name))
-    (let w (strLen words))
-    (let mut start 0)
-    (let mut found false)
-    {
-      (for i in 0..(+ w 1)
-        (if (|| (== i w) (== (strByte words i) 32))
-          {
-            (if (&& (! found) (&& (== (- i start) n) (strEq (strSlice words start n) name)))
-              (set found true)
-              false)
-            (set start (+ i 1))
-          }))
-      found
-    }
-  })
-
-;; One item of a `SELECT` list: the expression, the name `AS` gave it
-;; ("" when none), and the text the statement wrote it with.
-(pub struct SelectItem
+;; One thing a `SELECT` answers per record: an expression, the name it
+;; is answered under (empty for the field's own name), or `star` for
+;; the whole record.
+(pub struct Proj
+  (star : Bool)
   (expr : Expr)
-  (alias : String)
-  (text : String))
+  (alias : String))
 
 ;; One `ORDER BY` term.
-(pub struct OrderTerm
+(pub struct Order
   (expr : Expr)
   (desc : Bool))
 
-;; A `SELECT`. `star` is true for `SELECT *`, and then `items` holds
-;; only the `link.*` items written after it. `from` is "" when the
-;; statement has no FROM clause.
+;; A `SELECT` statement or subquery.
 (pub struct Select
-  (star : Bool)
-  (items : (Vec SelectItem))
-  (from : String)
+  (value : Bool)
+  (projs : (Vec Proj))
+  (omit : (Vec String))
+  (targets : (Vec Expr))
   (where : (Option Expr))
-  (groupBy : (Vec Expr))
-  (having : (Option Expr))
-  (orderBy : (Vec OrderTerm))
+  (group : (Vec Expr))
+  (order : (Vec Order))
   (limit : (Option Expr))
-  (offset : (Option Expr)))
+  (start : (Option Expr))
+  (fetch : (Vec String)))
 
-;; One statement.
+; ------------------------------------------------------------------
+; Writes.
+; ------------------------------------------------------------------
+;; One `field = expr` of a `SET` clause. `path` is dotted
+;; (`address.city`); `op` is "=", "+=" or "-=".
+(pub struct Assign
+  (path : String)
+  (op : String)
+  (expr : Expr))
+
+;; What a write does with the records it touches.
+(pub data Content
+  (CNone)
+  (CSet (Vec Assign))
+  (CContent Expr)
+  (CMerge Expr)
+  (CPatch Expr))
+
+;; What a write answers.
+(pub data Return
+  (RetAfter)
+  (RetNone)
+  (RetBefore)
+  (RetDiff)
+  (RetValue Expr)
+  (RetFields (Vec Proj)))
+
+;; A `CREATE`, `UPDATE`, `UPSERT` or `DELETE` over some targets.
+(pub struct Write
+  (only : Bool)
+  (targets : (Vec Expr))
+  (content : Content)
+  (where : (Option Expr))
+  (return : Return))
+
+;; A `RELATE from->edge->to`.
+(pub struct Relate
+  (only : Bool)
+  (from : Expr)
+  (edge : String)
+  (edgeId : (Option Expr))
+  (to : Expr)
+  (content : Content)
+  (return : Return))
+
+;; One parameter of a defined function.
+(pub struct ParamDef
+  (name : String)
+  (ftype : (Option TypeExpr)))
+
+;; One `ELSE IF` arm of an `IF` statement.
+(pub struct Elif
+  (cond : Expr)
+  (body : (Vec Stmt)))
+
+; ------------------------------------------------------------------
+; Statements.
+; ------------------------------------------------------------------
+;; One statement. `SDefineField`'s `ftype` is `None` for `TYPE` left
+;; unwritten; `SDefineTable`'s `schema` is 0 for unwritten, 1 for
+;; `SCHEMAFULL`, 2 for `SCHEMALESS`.
 (pub data Stmt
-  (SCreateTable Bool String (Vec ColumnDef))
-  (SDropTable Bool String)
-  (SCreateIndex Bool Bool String String (Vec String))
-  (SDropIndex Bool String)
-  (SInsert String (Vec String) (Vec (Vec Expr)))
-  (SUpsert String (Vec String) (Vec (Vec Expr)))
-  (SAlterAdd String ColumnDef)
-  (SAlterRename String String)
-  (SAlterDrop String String)
-  (SAlterRenameColumn String String String)
-  (SUpdate String (Vec String) (Vec Expr) (Option Expr))
-  (SDelete String (Option Expr))
+  (SExpr Expr)
   (SSelect Select)
+  (SCreate Write)
+  (SUpdate Write)
+  (SUpsert Write)
+  (SDelete Write)
+  (SRelate Relate)
+  (SInsert String Expr (Vec Assign) Return)
+  (SDefineTable String Bool Bool Int Bool)
+  (SDefineField String String Bool Bool (Option TypeExpr) (Option Expr) (Option Expr) (Option Expr)
+    Bool)
+  (SDefineIndex String String Bool Bool (Vec String) Bool)
+  (SDefineEvent String String Bool Bool Expr (Vec Stmt))
+  (SDefineFunction String Bool Bool (Vec ParamDef) (Vec Stmt))
+  (SRemove String String String Bool)
+  (SLet String Expr)
+  (SReturn Expr)
+  (SThrow Expr)
+  (SIf Expr (Vec Stmt) (Vec Elif) (Vec Stmt))
+  (SFor String Expr (Vec Stmt))
+  (SBreak)
+  (SContinue)
   (SBegin)
   (SCommit)
-  (SRollback))
+  (SCancel)
+  (SLive Select)
+  (SKill Expr)
+  (SInfo String String)
+  (SShow String (Option Expr) (Option Expr)))
 
-;; CREATE TABLE [IF NOT EXISTS] name (columns)
-;; DROP TABLE [IF EXISTS] name
-;; CREATE [UNIQUE] INDEX [IF NOT EXISTS] name ON table (columns):
-;; unique, ifNotExists, name, table, columns
-;; DROP INDEX [IF EXISTS] name
-;; INSERT INTO table [(columns)] VALUES (row), ...: the columns are
-;; empty when the statement names none
-;; UPSERT INTO table [(columns)] VALUES (row), ...: the same shape; a
-;; row whose rowid exists is updated in the columns given
-;; ALTER TABLE table ADD COLUMN column
-;; ALTER TABLE table RENAME TO name
-;; ALTER TABLE table DROP COLUMN column
-;; ALTER TABLE table RENAME COLUMN old TO new
-;; UPDATE table SET column = expr, ... [WHERE expr]
-;; DELETE FROM table [WHERE expr]
-;; A parsed statement with what the parameter scan found: how many
-;; parameters it takes, the names of named ones in index order (empty
-;; when it uses `?` or `?N`), and the statement's own text, from its
-;; first token to its last.
+;; A parsed statement and the parameters its text names: every
+;; `$name` it mentions, in order of first appearance, so a caller can
+;; check a parameter object against it before running.
 (pub struct Parsed
   (stmt : Stmt)
-  (paramCount : Int)
   (paramNames : (Vec String))
   (text : String))
 
-;; Whether a statement answers rows.
+;; Whether a statement reads records and answers them (`SELECT`,
+;; `LIVE`, `INFO`, `SHOW`): what a read-only connection may run, and
+;; what never counts as a change.
 (pub :: stmtIsQuery (-> Stmt Bool))
 (pub fn (stmtIsQuery s)
   (match s
     ((SSelect _) true)
+    ((SLive _) true)
+    ((SInfo _ _) true)
+    ((SShow _ _ _) true)
     (_ false)))
 
-;; Whether a statement changes the schema.
-(pub :: stmtIsDdl (-> Stmt Bool))
-(pub fn (stmtIsDdl s)
-  (match s
-    ((SCreateTable _ _ _) true)
-    ((SDropTable _ _) true)
-    ((SCreateIndex _ _ _ _ _) true)
-    ((SDropIndex _ _) true)
-    ((SAlterAdd _ _) true)
-    ((SAlterRename _ _) true)
-    ((SAlterDrop _ _) true)
-    ((SAlterRenameColumn _ _ _) true)
-    (_ false)))
-
-; ------------------------------------------------------------------
-; Positions.
-; ------------------------------------------------------------------
-;; "line L, column C" for byte offset `at` of `src`.
+;; Where byte `at` of `src` is, as "line L, column C", both counted
+;; from 1 in bytes: how every AXQL error names its place.
 (pub :: axqlPosText (-> String Int String))
 (pub fn (axqlPosText src at)
   {

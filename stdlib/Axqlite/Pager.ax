@@ -1588,7 +1588,7 @@
 
 (:: dbMagic String)
 (fn (dbMagic)
-  "AXQLite format 1")
+  "AXQLite format 2")
 
 (:: isJournalled (-> Int Int Bool))
 ;@axiom:effect(unsafe)
@@ -1895,7 +1895,7 @@
         (axqErr axqNotADatabase "the file isn't an AXQLite database" "pagerOpen")
         (if (< n 4096)
           (corrupt "the file is shorter than its header page" "pagerOpen")
-          (if (!= (pagerGetBe a 20 4) 1)
+          (if (!= (pagerGetBe a 20 4) 2)
             (axqErr axqNotADatabase
               "the file was written by an AXQLite format this library doesn't read" "pagerOpen")
             (if (!= (pagerGetBe a 4088 8) (pagerChecksum a 4088 0))
@@ -1956,7 +1956,7 @@
   {
     (rawSet a 0 4096)
     (rawCopy a (strData dbMagic) 16)
-    (pagerPutBe a 20 4 1)
+    (pagerPutBe a 20 4 2)
     (pagerPutBe a 24 4 4096)
     (pagerPutBe a 28 4 (st m wPageCount))
     (pagerPutBe a 32 4 (st m wFreeHead))

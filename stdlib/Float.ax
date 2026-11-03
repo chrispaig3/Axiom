@@ -162,6 +162,94 @@
   })
 
 ; ------------------------------------------------------------------
+; Rounding and roots. Each is exact about integers: a value that is
+; already whole - every float at 2^52 and beyond is - answers itself,
+; and an infinity or NaN passes through unchanged.
+; ------------------------------------------------------------------
+;; `x` with its sign cleared. A NaN stays a NaN, and -0.0 answers 0.0.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: floatAbs (-> Float Float))
+(pub fn (floatAbs x)
+  (floatFromBits (& (floatToBits x) 9223372036854775807)))
+
+;; `x` cut toward zero to a whole number: 2.9 answers 2.0 and -2.9
+;; answers -2.0. The sign of a zero answer follows `x`, so -0.5
+;; answers -0.0.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: floatTrunc (-> Float Float))
+(pub fn (floatTrunc x)
+  (if (|| (floatIsNan x) (|| (floatIsInfinite x) (>= (floatAbs x) 9223372036854775808.0)))
+    x
+    {
+      (let n (as x Int))
+      (if (== n 0)
+        (if (< (floatToBits x) 0)
+          -0.0
+          0.0)
+        (as n Float))
+    }))
+
+;; The whole number at or below `x`: -2.1 answers -3.0.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: floatFloor (-> Float Float))
+(pub fn (floatFloor x)
+  {
+    (let t (floatTrunc x))
+    (if (< x t)
+      (- t 1.0)
+      t)
+  })
+
+;; The whole number at or above `x`: -2.9 answers -2.0.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: floatCeil (-> Float Float))
+(pub fn (floatCeil x)
+  {
+    (let t (floatTrunc x))
+    (if (> x t)
+      (+ t 1.0)
+      t)
+  })
+
+;; The whole number nearest `x`, halves away from zero: 2.5 answers
+;; 3.0 and -2.5 answers -3.0.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: floatRound (-> Float Float))
+(pub fn (floatRound x)
+  {
+    (let t (floatTrunc x))
+    (let frac (- x t))
+    (if (>= frac 0.5)
+        (+ t 1.0)
+      (<= frac -0.5)
+        (- t 1.0)
+      t)
+  })
+
+;; The square root of `x`: Newton's method from a bit-level first
+;; guess, ten steps of it. A negative `x` answers NaN, as IEEE 754
+;; has it. The result may sit a few ulps from the exact root; it is
+;; not the correctly rounded operation the conversions above are.
+;@axiom:restrict(no-io,no-foreign)
+(pub :: floatSqrt (-> Float Float))
+(pub fn (floatSqrt x)
+  (if (< x 0.0)
+    floatNan
+    (if (|| (== x 0.0) (|| (floatIsNan x) (floatIsInfinite x)))
+      x
+      {
+        (let bits (floatToBits x))
+        ; Halving the biased exponent: the first guess lands within
+        ; a factor of two of the root at every magnitude.
+        (let mut y (floatFromBits (>> (+ bits 4607182418800017408) 1)))
+        {
+          (for _ in 0..10
+            (set y (/ (+ y (/ x y)) 2.0)))
+          y
+        }
+      })))
+
+; ------------------------------------------------------------------
 ; Big non-negative integers, for the exact arithmetic both directions
 ; need. A number is a block of `bnCap` + 1 words: word 0 holds the
 ; count of limbs in use, and the limbs follow, least significant

@@ -1,38 +1,27 @@
-; Records: every edge value round-trips exactly, one column can be read
-; without the rest, and every malformed record answers axqCorrupt
-; instead of garbage: each truncation, a trailing byte, each unknown
-; type code, each overlong length, and 20000 damaged records.
+; Records: every edge value round-trips exactly, alone and nested in
+; an array and a document, and every malformed record answers
+; axqCorrupt instead of garbage: each truncation, a trailing byte,
+; each unknown tag, each overlong length, and 20000 damaged records.
 (import IO)
 (import Str)
 (import Vec)
 (import Err)
 (import Float)
+(import Fmt)
 (import Axqlite.Value)
 (import Axqlite.Record)
 (import StoreTest)
 (import StoreValues)
 
-(:: roundTrip (-> Tally (Vec Value) String Int))
+(:: roundTrip (-> Tally Value String Int))
 ;@axiom:effect(io)
-(fn (roundTrip t row label)
-  (match (recEncode row)
+(fn (roundTrip t v label)
+  (match (recEncode v)
     ((Err e) (check t false (concat "encode " label)))
     ((Ok rec)
       (match (recDecode rec)
         ((Err e) (check t false (concat "decode " label)))
-        ((Ok back)
-          {
-            (check t (sameValues row back) (concat "round trip " label))
-            (check t (== (codeOf (recColumnCount rec)) 0) (concat "count " label))
-            (for i in 0..(vecLen row)
-              (match (recColumn rec i)
-                ((Ok v) (check t (sameValue v (vecGet row i)) (concat "column " label)))
-                ((Err e) (check t false (concat "column err " label)))))
-            (check t (== (codeOf (recColumn rec (vecLen row))) axqMisuse)
-              (concat "column past end " label))
-          }
-        ))
-    )))
+        ((Ok back) (check t (sameValue v back) (concat "round trip " label)))))))
 
 (:: isCorrupt (-> String Bool))
 (fn (isCorrupt rec)
@@ -50,21 +39,14 @@
     }
   })
 
-;; A damaged record: a random row of edge values with one to three
+;; A damaged record: a random array of edge values with one to three
 ;; bytes changed, cut short or lengthened, or, every fourth case, a
-;; short run of random bytes after a small column count.
+;; short run of random bytes.
 (:: fuzzCase (-> Rng Int (Vec Value) String))
 ;@axiom:effect(unsafe)
 (fn (fuzzCase r i vals)
   (if (== (% i 4) 0)
-    {
-      (let s (rngBytes r (+ 2 (rngBelow r 30)) 256))
-      {
-        (__store8 (strData s) 0 0)
-        (__store8 (strData s) 1 (rngBelow r 4))
-        s
-      }
-    }
+    (rngBytes r (+ 1 (rngBelow r 30)) 256)
     {
       (let row vecNew)
       {
@@ -72,13 +54,12 @@
           {
             (let v (vecGet vals (rngBelow r (vecLen vals))))
             (match v
-              ((VReal x)
+              ((VFloat x)
                 (if (! (floatIsNan x))
-                  (vecPush row v))
-              )
+                  (vecPush row v)))
               (_ (vecPush row v)))
           })
-        (match (recEncode row)
+        (match (recEncode (VArray row))
           ((Err e) "")
           ((Ok rec)
             {
@@ -107,40 +88,51 @@
     (let t tallyNew)
     (let vals edgeValues)
     {
-      ; each edge value alone, then all of them in one row
-      (roundTrip t vecNew "empty row")
+      ; each edge value alone, in an array, and in a document
       (for v in vals
-        (roundTrip t (vecPush vecNew v) (showValue v)))
-      (roundTrip t vals "every edge value")
+        {
+          (roundTrip t v (showValue v))
+          (roundTrip t (VArray (vecPush vecNew v)) (concat "array of " (showValue v)))
+        })
+      (roundTrip t (VArray vals) "every edge value in one array")
+      {
+        (let fs vecNew)
+        {
+          (for (v i) in vals
+            (vecPush fs (Field :name (concat "f" (fmtInt i)) :value v)))
+          (roundTrip t (VObject fs) "every edge value in one document")
+        }
+      }
       {
         (let wide vecNew)
         {
           (for i in 0..3000
             (vecPush wide (VInt (* i 7919))))
-          (roundTrip t wide "3000 columns")
+          (roundTrip t (VArray wide) "3000 elements")
         }
       }
       ; -0.0 keeps its sign bit through a record
-      (match (recEncode (vecPush vecNew (VReal (floatFromBits intMin))))
+      (match (recEncode (VFloat (floatFromBits intMin)))
         ((Ok rec)
-          (match (recColumn rec 0)
-            ((Ok (VReal x)) (check t (== (floatToBits x) intMin) "-0.0 keeps its sign"))
-            (_ (check t false "-0.0 column")))
+          (match (recDecode rec)
+            ((Ok (VFloat x)) (check t (== (floatToBits x) intMin) "-0.0 keeps its sign"))
+            (_ (check t false "-0.0 decode")))
         )
         ((Err e) (check t false "-0.0 encode")))
-      ; a NaN is refused, and so are more than 65535 columns
-      (check t (== (codeOf (recEncode (vecPush vecNew (VReal floatNan)))) axqType) "NaN refused")
+      ; a NaN is refused, nesting past 64 is refused, and a bad uuid
+      (check t (== (codeOf (recEncode (VFloat floatNan))) axqType) "NaN refused")
+      (check t (== (codeOf (recEncode (VUuid "short"))) axqType) "short uuid refused")
       {
-        (let huge vecNew)
+        (let mut deep (VInt 1))
         {
-          (for i in 0..65536
-            (vecPush huge VNull))
-          (check t (== (codeOf (recEncode huge)) axqTooBig) "65536 columns refused")
+          (for i in 0..70
+            (set deep (VArray (vecPush vecNew deep))))
+          (check t (== (codeOf (recEncode deep)) axqTooBig) "nested past 64 refused")
         }
       }
-      ; every truncation of a record holding every edge value is corrupt,
-      ; and so is the record with one byte more
-      (match (recEncode vals)
+      ; every truncation of a record holding every edge value is
+      ; corrupt, and so is the record with one byte more
+      (match (recEncode (VArray vals))
         ((Ok rec)
           {
             (let n (strLen rec))
@@ -151,35 +143,30 @@
                   (set corrupt (+ corrupt 1))))
               (check t (== corrupt n) "every truncation is corrupt")
               (check t (isCorrupt (concat rec "x")) "a trailing byte is corrupt")
-              ; every type code outside 0..4, in the first column's slot
-              {
-                (let mut bad 0)
-                {
-                  (for code in 5..256
-                    (if (isCorrupt (withByte rec 2 code))
-                      (set bad (+ bad 1))))
-                  (check t (== bad 251) "every unknown type code is corrupt")
-                }
-              }
               (println "a record of {n} bytes: {corrupt} truncations, all corrupt")
             }
           }
         )
         ((Err e) (check t false "encode every edge value")))
-      ; a TEXT whose length claims more bytes than the record has
-      (match (recEncode (vecPush (vecPush vecNew (VText "abc")) (VInt 5)))
+      ; every tag outside 0..12, at the value's first byte
+      (match (recEncode (VText "abc"))
         ((Ok rec)
           {
-            ; the length's high byte, then its low byte
-            (check t (isCorrupt (withByte rec 4 1)) "length beyond the record")
-            (check t (isCorrupt (withByte rec 7 200)) "length beyond the record, low byte")
-            (check t (== (codeOf (recColumn (withByte rec 7 200) 1)) axqCorrupt)
-              "column after an overlong length")
+            (let mut bad 0)
+            {
+              (for code in 13..256
+                (if (isCorrupt (withByte rec 0 code))
+                  (set bad (+ bad 1))))
+              (check t (== bad 243) "every unknown tag is corrupt")
+            }
+            ; the length claiming more bytes than the record has
+            (check t (isCorrupt (withByte rec 1 1)) "length beyond the record")
+            (check t (isCorrupt (withByte rec 4 200)) "length beyond the record, last byte")
           }
         )
-        ((Err e) (check t false "encode text row")))
-      ; damaged records: every answer is either corrupt, or a record that
-      ; encodes back to exactly those bytes
+        ((Err e) (check t false "encode text")))
+      ; damaged records: every answer is either corrupt, or a value
+      ; that encodes back to exactly those bytes
       {
         (let r (rngNew 101))
         (let mut ok 0)
@@ -189,29 +176,27 @@
           (for i in 0..20000
             {
               (let s (fuzzCase r i vals))
-              {
-                (let len (strLen s))
-                (match (recDecode s)
-                  ((Err e)
-                    (if (== (errCode e) axqCorrupt)
-                      (set corrupt (+ corrupt 1))
-                      (set other (+ other 1)))
-                  )
-                  ((Ok row)
-                    (match (recEncode row)
-                      ((Ok again)
-                        (if (strEq again s)
-                          (set ok (+ ok 1))
-                          (set other (+ other 1)))
-                      )
-                      ; a REAL holding a NaN's bits decodes, and can't be re-encoded
-                      ((Err e)
-                        (if (== (errCode e) axqType)
-                          (set ok (+ ok 1))
-                          (set other (+ other 1)))
-                      ))
-                  ))
-              }
+              (match (recDecode s)
+                ((Err e)
+                  (if (== (errCode e) axqCorrupt)
+                    (set corrupt (+ corrupt 1))
+                    (set other (+ other 1)))
+                )
+                ((Ok v)
+                  (match (recEncode v)
+                    ((Ok again)
+                      (if (strEq again s)
+                        (set ok (+ ok 1))
+                        (set other (+ other 1)))
+                    )
+                    ; a float holding a NaN's bits decodes, and can't
+                    ; be re-encoded
+                    ((Err e)
+                      (if (== (errCode e) axqType)
+                        (set ok (+ ok 1))
+                        (set other (+ other 1)))
+                    ))
+                ))
             })
           (check t (== other 0) "damaged records: corrupt or canonical")
           (check t (> ok 100) "damaged records: some decode")

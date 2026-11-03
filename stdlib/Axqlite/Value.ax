@@ -1,30 +1,164 @@
 ;;! Axqlite.Value - the values an AXQLite database holds, and the error
 ;;! codes every AXQLite module answers.
 ;;!
-;;!     (VInt 42)            ; an INTEGER
-;;!     (VReal 2.5)          ; a REAL, IEEE 754 binary64
-;;!     (VText "Ada")        ; a TEXT, UTF-8
-;;!     (VBlob bytes)        ; a BLOB, any bytes
-;;!     VNull                ; NULL
+;;!     VNone                 ; no value
+;;!     (VBool true)          ; a bool
+;;!     (VInt 42)             ; an int, 64 bits
+;;!     (VFloat 2.5)          ; a float, IEEE 754 binary64
+;;!     (VText "Ada")         ; text, UTF-8
+;;!     (VBytes bytes)        ; any bytes
+;;!     (VDatetime micros)    ; a moment, UTC microseconds since the epoch
+;;!     (VDuration micros)    ; a length of time, in microseconds
+;;!     (VUuid bytes)         ; a uuid, its 16 bytes
+;;!     (VArray values)       ; a list of values
+;;!     (VObject fields)      ; a document: named fields
+;;!     (VRecord rid)         ; a link to a record: table + key
 ;
-; A column holds exactly one of these types, or NULL. AXQLite has no
-; type affinity: a TEXT column refuses an integer, and an INTEGER column
-; refuses text. A REAL column also takes an integer, converted exactly
-; when it can be. A REAL is stored with all 64 of its bits, so it reads
-; back exactly as it was written; NaN isn't storable.
+; A record in a table is a document: a `VObject` whose `id` field is a
+; `VRecord`. Tables may be schemaless, where a record holds any fields
+; of any types, or schemafull, where `DEFINE FIELD` says which fields
+; a record may hold and what each one holds. A float that is NaN is
+; never storable; infinities are. A record's key - the second half of
+; its record id - is a scalar: an int, text or a uuid.
 ;
 ; ERROR CODES sit at 1300-1399, clear of `Chan`, `Sync` and `Task`'s
 ; 1001-1005 and `Crypto`'s 1100-1199, and none is ever renumbered or
 ; reused.
+(import Str)
+(import Vec)
 (import Err)
+(import Chrono)
+(import Uuid)
+(import Float)
 
-;; One value in a row, or a parameter bound to a statement.
+;; One named field of a document.
+(pub struct Field
+  (name : String)
+  (value : Value))
+
+;; A record's identity: its table, and its key within the table. The
+;; key is a scalar value: `VInt`, `VText` or `VUuid`.
+(pub struct RecordId
+  (table : String)
+  (key : Value))
+
+;; One value in a document, a result, or a parameter bound to a query.
 (pub data Value
-  (VNull)
+  (VNone)
+  (VBool Bool)
   (VInt Int)
-  (VReal Float)
+  (VFloat Float)
   (VText String)
-  (VBlob String))
+  (VBytes String)
+  (VDatetime Int)
+  (VDuration Int)
+  (VUuid String)
+  (VArray (Vec Value))
+  (VObject (Vec Field))
+  (VRecord RecordId))
+
+;; The type of a value, as AXQL spells it: "none", "bool", "int",
+;; "float", "text", "bytes", "datetime", "duration", "uuid", "array",
+;; "object" or "record".
+(pub :: valueTypeName (-> Value String))
+(pub fn (valueTypeName v)
+  (match v
+    ((VNone) "none")
+    ((VBool _) "bool")
+    ((VInt _) "int")
+    ((VFloat _) "float")
+    ((VText _) "text")
+    ((VBytes _) "bytes")
+    ((VDatetime _) "datetime")
+    ((VDuration _) "duration")
+    ((VUuid _) "uuid")
+    ((VArray _) "array")
+    ((VObject _) "object")
+    ((VRecord _) "record")))
+
+;; Whether `v` can be a record's key: an int, text, or a uuid.
+(pub :: valueIsKey (-> Value Bool))
+(pub fn (valueIsKey v)
+  (match v
+    ((VInt _) true)
+    ((VText _) true)
+    ((VUuid _) true)
+    (_ false)))
+
+;; The record id of `key` in `table`, as a value.
+(pub :: recordId (-> String Value Value))
+(pub fn (recordId table key)
+  (VRecord (RecordId :table table :key key)))
+
+;; The value of the field `name` in the document `v`, or `None` when
+;; `v` is no document or has no such field. Field names are exact.
+(pub :: objGet (-> Value String (Option Value)))
+(pub fn (objGet v name)
+  (match v
+    ((VObject fs)
+      {
+        (let mut found None)
+        {
+          (for f in fs
+            (if (&& (isNone found) (strEq f.name name))
+              (set found (Some f.value))))
+          found
+        }
+      }
+    )
+    (_ None)))
+
+;; `v` with its field `name` set to `value`: replaced when present,
+;; appended when not. `v` must be a document; any other value answers
+;; itself unchanged. The fields of `v` are shared, not copied, when a
+;; field is replaced in place - values are treated as immutable, so
+;; build a fresh document when the old one is still in use.
+(pub :: objSet (-> Value String Value Value))
+(pub fn (objSet v name value)
+  (match v
+    ((VObject fs)
+      {
+        (let out vecNew)
+        (let mut done false)
+        {
+          (for f in fs
+            (if (strEq f.name name)
+              {
+                (vecPush out (Field :name name :value value))
+                (set done true)
+              }
+              (vecPush out f)))
+          {
+            (if (! done)
+              (vecPush out (Field :name name :value value)))
+            (VObject out)
+          }
+        }
+      }
+    )
+    (_ v)))
+
+;; `v` with its field `name` removed, when `v` is a document.
+(pub :: objDel (-> Value String Value))
+(pub fn (objDel v name)
+  (match v
+    ((VObject fs)
+      {
+        (let out vecNew)
+        {
+          (for f in fs
+            (if (! (strEq f.name name))
+              (vecPush out f)))
+          (VObject out)
+        }
+      }
+    )
+    (_ v)))
+
+;; An empty document.
+(pub :: emptyObject Value)
+(pub fn (emptyObject)
+  (VObject vecNew))
 
 ;; Another connection holds a lock this operation needs. Nothing was
 ;; changed; retry later.
@@ -38,8 +172,8 @@
 (pub fn (axqCorrupt)
   1302)
 
-;; A row broke a constraint: NOT NULL, a UNIQUE index, or a duplicate
-;; primary key.
+;; A record broke a constraint: a unique index, an asserted field, or
+;; a field definition a schemafull table enforces.
 (pub :: axqConstraint Int)
 (pub fn (axqConstraint)
   1303)
@@ -49,20 +183,19 @@
 (pub fn (axqSyntax)
   1304)
 
-;; A statement names a table, column or index that doesn't exist, or
-;; creates one that already does.
+;; A statement names a table, field, index, event or function that
+;; doesn't exist, or defines one that already does.
 (pub :: axqSchema Int)
 (pub fn (axqSchema)
   1305)
 
-;; A value of the wrong type for its column, parameter or operator.
+;; A value of the wrong type for its field, parameter or operator.
 (pub :: axqType Int)
 (pub fn (axqType)
   1306)
 
-;; The API was used out of order: a wrong number of parameters, a
-;; finished transaction used again, or a statement for another
-;; connection.
+;; The API was used out of order: an unknown parameter, a finished
+;; transaction used again, or a statement for another connection.
 (pub :: axqMisuse Int)
 (pub fn (axqMisuse)
   1307)
@@ -78,7 +211,7 @@
 (pub fn (axqIoFailed)
   1309)
 
-;; A value, key, row or database larger than AXQLite supports.
+;; A value, key, record or database larger than AXQLite supports.
 (pub :: axqTooBig Int)
 (pub fn (axqTooBig)
   1310)
@@ -95,13 +228,286 @@
 (pub fn (axqArithmetic)
   1312)
 
-;; A query asked for one row and found none.
+;; A query asked for one record and found none.
 (pub :: axqNotFound Int)
 (pub fn (axqNotFound)
   1313)
+
+;; A `CREATE` or `RELATE` named a record that already exists.
+(pub :: axqExists Int)
+(pub fn (axqExists)
+  1314)
+
+;; A statement ran `THROW`. The message is the value it threw, as text.
+(pub :: axqThrown Int)
+(pub fn (axqThrown)
+  1315)
 
 ;; An `Err` carrying one of the codes above, with a message and the
 ;; name of the function that raised it as context.
 (pub :: axqErr (-> Int String String (Result a Error)))
 (pub fn (axqErr code message where)
   (Err (errContextOf (mkError code message) where)))
+
+;; The datetime `micros` (UTC microseconds since the epoch) as a
+;; `Chrono` datetime, for callers who want one.
+(pub :: datetimeOfMicros (-> Int (Result NaiveDateTime Error)))
+(pub fn (datetimeOfMicros micros)
+  {
+    (let secs (/ micros 1000000))
+    (let rem (% micros 1000000))
+    (if (< rem 0)
+      (datetimeFromUnix (- secs 1) (* (+ rem 1000000) 1000))
+      (datetimeFromUnix secs (* rem 1000)))
+  })
+
+;; The UTC microseconds a `Chrono` datetime names.
+(pub :: microsOfDatetime (-> NaiveDateTime Int))
+(pub fn (microsOfDatetime dt)
+  (+ (* (datetimeToUnixSeconds dt) 1000000) (/ (timeNanosecond dt.time) 1000)))
+
+; ------------------------------------------------------------------
+; Bridges to the rest of the standard library. AXQL values are
+; self-contained, so a datetime or a uuid crosses into Chrono or
+; Uuid by one of these, and back the same way.
+; ------------------------------------------------------------------
+;; The `Chrono` datetime a datetime value holds.
+(pub :: valueDatetime (-> Value (Result NaiveDateTime Error)))
+(pub fn (valueDatetime v)
+  (match v
+    ((VDatetime n) (datetimeOfMicros n))
+    (_
+      (axqErr axqType (concat "a " (concat (valueTypeName v) " is not a datetime")) "valueDatetime")
+    )))
+
+;; A `Chrono` datetime as a value.
+(pub :: datetimeValue (-> NaiveDateTime Value))
+(pub fn (datetimeValue dt)
+  (VDatetime (microsOfDatetime dt)))
+
+;; The `Chrono` duration a duration value holds.
+(pub :: valueDuration (-> Value (Result Duration Error)))
+(pub fn (valueDuration v)
+  (match v
+    ((VDuration n) (durationFromMicros n))
+    (_
+      (axqErr axqType (concat "a " (concat (valueTypeName v) " is not a duration")) "valueDuration")
+    )))
+
+;; A `Chrono` duration as a value. Nanoseconds below a microsecond
+;; are dropped, as durations in the database count microseconds.
+(pub :: durationValue (-> Duration Value))
+(pub fn (durationValue d)
+  (VDuration (/ (durationNanos d) 1000)))
+
+;; The `Uuid` a uuid value holds.
+(pub :: valueUuid (-> Value (Result Uuid Error)))
+(pub fn (valueUuid v)
+  (match v
+    ((VUuid s) (uuidFromBytes s))
+    (_ (axqErr axqType (concat "a " (concat (valueTypeName v) " is not a uuid")) "valueUuid"))))
+
+;; A `Uuid` as a value.
+(pub :: uuidValue (-> Uuid Value))
+(pub fn (uuidValue u)
+  (VUuid (uuidBytes u)))
+
+; ------------------------------------------------------------------
+; Codecs: between Axiom types and values, as `Cereal`'s `Codec` is
+; between Axiom types and its tree. A struct of your own crosses
+; with a codec you assemble from these parts, or one `deriveCodec`
+; in `Axqlite.AxqlMacro` assembles for you:
+;
+;     (struct Person (name : String) (age : (Option Int)))
+;     (deriveCodec personCodec Person
+;       (name textCodec) (age (optionCodec intCodec)))
+;
+; and `Axqlite`'s `dbCreateAs`, `dbGetAs` and kin run it.
+; ------------------------------------------------------------------
+;; How one Axiom type is written as a value, and read back. Writing
+;; cannot fail; reading a value of the wrong shape is `axqType`.
+(pub data Codec a
+  (Codec (-> a Value) (-> Value (Result a Error))))
+
+;; `v` written by `codec`.
+(pub :: toValue (-> (Codec a) a Value))
+(pub fn (toValue codec v)
+  (match codec
+    ((Codec encode decode) (encode v))))
+
+;; The `a` a value holds, read by `codec`.
+(pub :: fromValue (-> (Codec a) Value (Result a Error)))
+(pub fn (fromValue codec v)
+  (match codec
+    ((Codec encode decode) (decode v))))
+
+(:: wantErr (-> String Value (Result a Error)))
+(fn (wantErr want v)
+  (axqErr axqType (concat (concat "expected a " want) (concat ", got a " (valueTypeName v)))
+    "Codec"))
+
+;; The `Codec` that reads and writes an `Int`. An integral float
+;; reads as its int.
+(pub :: intCodec (Codec Int))
+(pub fn (intCodec)
+  (Codec (lambda (n) (VInt n))
+    (lambda (v)
+      (match v
+        ((VInt n) (Ok n))
+        ((VFloat x)
+          (match (floatToIntExact x)
+            ((Ok n) (Ok n))
+            ((Err _) (wantErr "int" v)))
+        )
+        (_ (wantErr "int" v)))
+    )))
+
+;; The `Codec` that reads and writes a `Float`. An int reads as its
+;; float.
+(pub :: floatCodec (Codec Float))
+(pub fn (floatCodec)
+  (Codec (lambda (x) (VFloat x))
+    (lambda (v)
+      (match v
+        ((VFloat x) (Ok x))
+        ((VInt n)
+          (Ok (as n Float))
+        )
+        (_ (wantErr "float" v)))
+    )))
+
+;; The `Codec` that reads and writes a `String` as text.
+(pub :: textCodec (Codec String))
+(pub fn (textCodec)
+  (Codec (lambda (s) (VText s))
+    (lambda (v)
+      (match v
+        ((VText s) (Ok s))
+        (_ (wantErr "text" v)))
+    )))
+
+;; The `Codec` that reads and writes a `Bool`.
+(pub :: boolCodec (Codec Bool))
+(pub fn (boolCodec)
+  (Codec (lambda (b) (VBool b))
+    (lambda (v)
+      (match v
+        ((VBool b) (Ok b))
+        (_ (wantErr "bool" v)))
+    )))
+
+;; The `Codec` that reads and writes a byte string as bytes.
+(pub :: bytesCodec (Codec String))
+(pub fn (bytesCodec)
+  (Codec (lambda (s) (VBytes s))
+    (lambda (v)
+      (match v
+        ((VBytes s) (Ok s))
+        (_ (wantErr "bytes" v)))
+    )))
+
+;; The `Codec` that reads and writes a `Chrono` datetime.
+(pub :: datetimeCodec (Codec NaiveDateTime))
+(pub fn (datetimeCodec)
+  (Codec datetimeValue valueDatetime))
+
+;; The `Codec` that reads and writes a `Chrono` duration.
+(pub :: durationCodec (Codec Duration))
+(pub fn (durationCodec)
+  (Codec durationValue valueDuration))
+
+;; The `Codec` that reads and writes a `Uuid`.
+(pub :: uuidCodec (Codec Uuid))
+(pub fn (uuidCodec)
+  (Codec uuidValue valueUuid))
+
+;; The `Codec` that reads and writes a record link.
+(pub :: recordCodec (Codec RecordId))
+(pub fn (recordCodec)
+  (Codec (lambda (rid) (VRecord rid))
+    (lambda (v)
+      (match v
+        ((VRecord rid) (Ok rid))
+        (_ (wantErr "record" v)))
+    )))
+
+;; The `Codec` that passes a `Value` through unchanged, for a field
+;; the program keeps untyped.
+(pub :: valueCodec (Codec Value))
+(pub fn (valueCodec)
+  (Codec (lambda (v) v) (lambda (v) (Ok v))))
+
+;; A `Codec` for a `Vec` of what `codec` reads.
+(pub :: vecCodec (-> (Codec a) (Codec (Vec a))))
+(pub fn (vecCodec codec)
+  (Codec
+    (lambda (xs)
+      {
+        (let out vecNew)
+        {
+          (for x in xs
+            (vecPush out (toValue codec x)))
+          (VArray out)
+        }
+      }
+    )
+    (lambda (v)
+      (match v
+        ((VArray xs)
+          {
+            (let out vecNew)
+            (let mut failure None)
+            {
+              (for x in xs
+                (if (isNone failure)
+                  (match (fromValue codec x)
+                    ((Ok y) (vecPush out y))
+                    ((Err e)
+                      (set failure (Some e))
+                    ))))
+              (match failure
+                ((Some e) (Err e))
+                ((None) (Ok out)))
+            }
+          }
+        )
+        (_ (wantErr "array" v)))
+    )))
+
+;; A `Codec` for an `Option` of what `codec` reads: `none` in the
+;; database is `None` in the program.
+(pub :: optionCodec (-> (Codec a) (Codec (Option a))))
+(pub fn (optionCodec codec)
+  (Codec
+    (lambda (o)
+      (match o
+        ((None) VNone)
+        ((Some x) (toValue codec x)))
+    )
+    (lambda (v)
+      (match v
+        ((VNone) (Ok None))
+        (_
+          {
+            (let y (fromValue codec v)?)
+            (Ok (Some y))
+          }
+        ))
+    )))
+
+;; The field `name` of a document, read by `codec`. What a struct
+;; codec reads each field with; a missing field reads as `none`, so
+;; an `optionCodec` field may be absent and any other answers its
+;; own "expected" error, with the field named.
+(pub :: codecField (-> (Codec a) Value String (Result a Error)))
+(pub fn (codecField codec doc name)
+  (match (fromValue codec (valFieldOf doc name))
+    ((Ok y) (Ok y))
+    ((Err e) (Err (errContextOf e (concat "field " name))))))
+
+; A document's field, or `none` - `valField` without the executor.
+(:: valFieldOf (-> Value String Value))
+(fn (valFieldOf doc name)
+  (match (objGet doc name)
+    ((Some v) v)
+    ((None) VNone)))

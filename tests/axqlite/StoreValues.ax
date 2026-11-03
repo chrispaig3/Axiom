@@ -128,22 +128,50 @@
     }
   })
 
-; Every edge value: NULL, the integers, the REALs, and each string as
-; TEXT and as BLOB.
+; Every edge value: none, the bools, the integers, the floats, each
+; string as text and as bytes, datetimes and durations at their
+; edges, two uuids, records, and nested containers.
 (pub :: edgeValues (Vec Value))
 (pub fn (edgeValues)
   {
     (let v vecNew)
     {
-      (vecPush v VNull)
+      (vecPush v VNone)
+      (vecPush v (VBool false))
+      (vecPush v (VBool true))
       (for n in edgeInts
         (vecPush v (VInt n)))
       (for b in edgeRealBits
-        (vecPush v (VReal (floatFromBits b))))
+        (vecPush v (VFloat (floatFromBits b))))
       (for s in edgeStrings
         (vecPush v (VText s)))
       (for s in edgeStrings
-        (vecPush v (VBlob s)))
+        (vecPush v (VBytes s)))
+      (for n in edgeInts
+        {
+          (vecPush v (VDatetime n))
+          (vecPush v (VDuration n))
+        })
+      {
+        (let zero16 vecNew)
+        {
+          (for i in 0..16
+            (vecPush zero16 0))
+          (vecPush v (VUuid (bytesStr zero16)))
+          (vecSet zero16 0 255)
+          (vecPush v (VUuid (bytesStr zero16)))
+        }
+      }
+      (vecPush v (recordId "person" (VInt 1)))
+      (vecPush v (recordId "person" (VText "ada")))
+      (vecPush v (recordId "post" (VInt 1)))
+      (vecPush v (VArray vecNew))
+      (vecPush v (VArray (vecPush (vecPush vecNew (VInt 1)) (VText "x"))))
+      (vecPush v
+        (VObject
+          (vecPush
+            (vecPush vecNew (Field :name "a" :value (VInt 1)))
+            (Field :name "b" :value (VArray (vecPush vecNew (VBool true)))))))
       v
     }
   })

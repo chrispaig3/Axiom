@@ -8,6 +8,7 @@
 (import Fmt)
 (import Float)
 (import Axqlite.Value)
+(import Axqlite.AxqlEval)
 
 ; xorshift64*, seeded; the same seed gives the same sequence everywhere.
 (pub struct Rng
@@ -85,42 +86,12 @@
 ; A value as a test prints it.
 (pub :: showValue (-> Value String))
 (pub fn (showValue v)
-  (match v
-    ((VNull) "NULL")
-    ((VInt n) (fmtInt n))
-    ((VReal x) (concat (floatToString x) "r"))
-    ((VText s) (concat "'" (concat s "'")))
-    ((VBlob s) (concat "x'" (concat (hexOf s) "'")))))
+  (valueText v))
 
-; Values equal as stored: same type, and for a REAL the same bits.
+; Values equal as stored: same type, and for a float the same bits.
 (pub :: sameValue (-> Value Value Bool))
 (pub fn (sameValue a b)
-  (match a
-    ((VNull)
-      (match b
-        ((VNull) true)
-        (_ false))
-    )
-    ((VInt x)
-      (match b
-        ((VInt y) (== x y))
-        (_ false))
-    )
-    ((VReal x)
-      (match b
-        ((VReal y) (== (floatToBits x) (floatToBits y)))
-        (_ false))
-    )
-    ((VText x)
-      (match b
-        ((VText y) (strEq x y))
-        (_ false))
-    )
-    ((VBlob x)
-      (match b
-        ((VBlob y) (strEq x y))
-        (_ false))
-    )))
+  (valIdentical a b))
 
 (pub :: sameValues (-> (Vec Value) (Vec Value) Bool))
 (pub fn (sameValues a b)

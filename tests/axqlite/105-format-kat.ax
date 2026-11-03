@@ -140,16 +140,16 @@
       ; values and keys
       (match (recEncode
                (vecPush
-                 (vecPush (vecPush (vecPush (vecPush vecNew VNull) (VInt -2)) (VReal 1.5))
+                 (vecPush (vecPush (vecPush (vecPush vecNew VNone) (VInt -2)) (VFloat 1.5))
                    (VText "ab"))
-                 (VBlob "")))
+                 (VBytes "")))
         ((Ok r) (dump r 0 (strLen r) "record [NULL, -2, 1.5, 'ab', x'']:"))
         ((Err e) (check t false "record")))
       (match (keyEncode
                (vecPush
-                 (vecPush (vecPush (vecPush (vecPush vecNew VNull) (VInt -2)) (VReal 1.5))
+                 (vecPush (vecPush (vecPush (vecPush vecNew VNone) (VInt -2)) (VFloat 1.5))
                    (VText "a\0b"))
-                 (VBlob "")))
+                 (VBytes "")))
         ((Ok k)
           (dump (keyWithRowid k 7) 0 (+ (strLen k) 8)
             "index key [NULL, -2, 1.5, 'a\\0b', x''] + rowid 7:")

@@ -694,6 +694,40 @@
     }
   })
 
+;; `s` with every ASCII lower-case letter raised, or `s` itself when
+;; it has none. The companion of `strLower`.
+;@axiom:restrict(no-io,no-foreign)
+;@axiom:post((== (strLen result) (strLen s)))
+(pub :: strUpper (-> String String))
+;@axiom:effect(unsafe)
+(pub fn (strUpper s)
+  {
+    (let len (strLen s))
+    (let mut lower 0)
+    {
+      (for k in 0..len
+        (if (&& (>= (strByte s k) 97) (<= (strByte s k) 122))
+          (set lower (+ lower 1))))
+      (if (== lower 0)
+        s
+        {
+          (let out (strAlloc len))
+          (let d (strData out))
+          {
+            (for i in 0..len
+              {
+                (let c (strByte s i))
+                (__store8 d i
+                  (if (&& (>= c 97) (<= c 122))
+                    (- c 32)
+                    c))
+              })
+            out
+          }
+        })
+    }
+  })
+
 ;; The index of the first occurrence of `needle` in `s` at or after
 ;; `from`, or `None`. An empty needle is found at `from` whenever
 ;; `from` is inside `s` or at its end, which is the rule that makes

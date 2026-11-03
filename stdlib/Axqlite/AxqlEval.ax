@@ -1,1772 +1,188 @@
-;;! Axqlite.AxqlEval - what AXQL's operators do to values.
+;;! Axqlite.AxqlEval - what values mean: their order, their arithmetic,
+;;! their types, and how they are written as text.
 ;;!
-;;!     (axqlCompare (VInt 2) (VReal 2.5))       ; (Ok -1): numeric order
-;;!     (axqlArith opAdd (VInt 1) VNull)          ; (Ok VNull)
-;;!     (axqlArith opAdd (VInt intMax) (VInt 1))  ; (Err ...) axqArithmetic
+;;!     (valCompare (VInt 2) (VFloat 2.5))   ; -1: numbers share one order
+;;!     (valueText (recordId "person" (VText "ada")))   ; "person:ada"
+;;!     (valCast TyInt (VText "42"))          ; (Ok (VInt 42))
 ;
-; Values follow three-valued logic. A comparison, AND, OR or NOT is
-; TRUE (1), FALSE (0) or NULL. AND is FALSE when either side is FALSE
-; and OR is TRUE when either side is TRUE, even when the other side
-; fails to evaluate; otherwise a failure on either side is the answer.
-; That makes AND and OR independent of evaluation order, and it is what
-; lets the planner skip rows an index rules out.
+; Everything here is pure: a value goes in, a value comes out, and no
+; database is touched. `Axqlite.AxqlExec` evaluates expressions
+; against records on top of these rules, so an operator means the
+; same thing in a `WHERE`, a computed field and a test of this
+; module.
 ;
-; An INTEGER compares with a REAL exactly, as the two numbers they are,
-; however large. TEXT and BLOB compare bytewise. Comparing any other
-; pair of types is `axqType`, and so is arithmetic on TEXT or BLOB; the
-; checker `axqlTypeOf` finds those before a statement reads a row.
+; THE ORDER. Values compare first by type, in the order the key
+; encoding writes them:
 ;
-; INTEGER arithmetic never wraps: overflow and division by zero answer
-; `axqArithmetic`, and `/` truncates toward zero. REAL arithmetic is
-; IEEE 754, except that dividing by zero and a NaN result answer
-; `axqArithmetic` too. `%` takes INTEGER operands only.
+;     none < bool < number < text < bytes < datetime < duration
+;          < uuid < record < array < object
 ;
-; Functions (`axqlApply`) answer NULL for a NULL argument, but
-; `coalesce`, `nullif` and `typeOf`. `funType` gives each its static
-; type, so a wrong argument type is refused before a row is read.
-; `axqlLike` matches a LIKE pattern without recursion.
-(import Internal.Raw)
+; and then within a type. Ints and floats are one number order, exact
+; at every magnitude, so `2 = 2.0` and `2^53 + 1 > 2^53` (the float)
+; both hold. `IS` is stricter: same type as well as same value, so
+; `2 IS 2.0` is false. An array compares element by element; an
+; object by its field count, then by (name, value) pairs in name
+; order. A record compares by table, then by key.
+;
+; TRUTH. `none` and `false` are falsy. Everything else - 0, "", [],
+; a record - is truthy. `AND` and `OR` answer bools; `??` answers
+; its left side unless that is `none`.
+;
+; ARITHMETIC. Int arithmetic is exact and refuses to overflow
+; (`axqArithmetic`). A float in the mix makes a float. `/` on two
+; ints answers an int when it divides evenly and a float otherwise.
+; Text adds by joining, arrays by appending. A datetime plus or minus
+; a duration is a datetime; two datetimes subtract to a duration.
+; Anything else is `axqType`.
 (import Str)
 (import Vec)
+(import Utf8)
 (import Err)
 (import Fmt)
 (import Float)
+(import Chrono)
+(import Uuid)
 (import Axqlite.Value)
+(import Axqlite.Record)
 (import Axqlite.AxqlAst)
+(import Axqlite.AxqlParse)
 
 ; ------------------------------------------------------------------
-; Truth values.
+; Order and equality.
 ; ------------------------------------------------------------------
-;; FALSE, as a truth value.
-(pub :: tvFalse Int)
-(pub fn (tvFalse)
-  0)
-
-;; TRUE.
-(pub :: tvTrue Int)
-(pub fn (tvTrue)
-  1)
-
-;; NULL, as a truth value.
-(pub :: tvNull Int)
-(pub fn (tvNull)
-  2)
-
-;; The truth of a value: a number is TRUE when it isn't zero, NULL is
-;; NULL, and TEXT or BLOB is `axqType`.
-(pub :: axqlTruth (-> Value (Result Int Error)))
-(pub fn (axqlTruth v)
+(:: typeRank (-> Value Int))
+(fn (typeRank v)
   (match v
-    ((VNull) (Ok tvNull))
-    ((VInt n)
-      (Ok
-        (if (== n 0)
-          tvFalse
-          tvTrue))
-    )
-    ((VReal r)
-      (Ok
-        (if (== r 0.0)
-          tvFalse
-          tvTrue))
-    )
-    ((VText _) (axqErr axqType "a TEXT value isn't a truth value" "axqlTruth"))
-    ((VBlob _) (axqErr axqType "a BLOB value isn't a truth value" "axqlTruth"))))
+    ((VNone) 0)
+    ((VBool _) 1)
+    ((VInt _) 2)
+    ((VFloat _) 2)
+    ((VText _) 3)
+    ((VBytes _) 4)
+    ((VDatetime _) 5)
+    ((VDuration _) 6)
+    ((VUuid _) 7)
+    ((VRecord _) 8)
+    ((VArray _) 9)
+    ((VObject _) 10)))
 
-;; A truth value as the INTEGER or NULL a statement sees.
-(pub :: truthValue (-> Int Value))
-(pub fn (truthValue t)
-  (if (== t tvNull)
-    VNull
-    (VInt t)))
-
-; ------------------------------------------------------------------
-; Types.
-; ------------------------------------------------------------------
-;; The type of a value: one of the four column types, or `typeNull`.
-(pub :: axqlValueType (-> Value Int))
-(pub fn (axqlValueType v)
-  (match v
-    ((VNull) typeNull)
-    ((VInt _) typeInteger)
-    ((VReal _) typeReal)
-    ((VText _) typeText)
-    ((VBlob _) typeBlob)))
-
-(:: isNumericType (-> Int Bool))
-(fn (isNumericType t)
-  (|| (== t typeInteger) (== t typeReal)))
-
-; ------------------------------------------------------------------
-; Comparison.
-; ------------------------------------------------------------------
-; 2^63 as a REAL: the first number above every INTEGER.
-(:: twoTo63 Float)
-(fn (twoTo63)
-  (* -1.0 (as intMin Float)))
-
-;; -1, 0 or 1 as INTEGER `i` is below, equal to or above REAL `r`,
-;; exactly. `r` is never NaN: NaN isn't a value a statement can hold.
-(pub :: axqlCompareIntReal (-> Int Float Int))
-(pub fn (axqlCompareIntReal i r)
-  (if (>= r twoTo63)
-    -1
-    (if (< r (* -1.0 twoTo63))
-      1
-      {
-        (let ri (as r Int))
-        (if (< i ri)
-          -1
-          (if (> i ri)
-            1
-            {
-              (let fr (as ri Float))
-              (if (> r fr)
-                -1
-                (if (< r fr)
-                  1
-                  0))
-            }))
-      })))
-
-(:: sign (-> Int Int))
-(fn (sign n)
-  (if (< n 0)
-    -1
-    (if (> n 0)
-      1
-      0)))
-
-(:: cmpFloat (-> Float Float Int))
-(fn (cmpFloat a b)
-  (if (< a b)
-    -1
-    (if (> a b)
-      1
-      0)))
-
-;; -1, 0 or 1 as `a` is below, equal to or above `b`, for two non-NULL
-;; values of comparable types: two numbers, two TEXTs or two BLOBs.
-;; Anything else is `axqType`.
-(pub :: axqlCompare (-> Value Value (Result Int Error)))
-(pub fn (axqlCompare a b)
-  (match a
-    ((VInt x)
-      (match b
-        ((VInt y)
-          (Ok
-            (if (< x y)
-                -1
-              (> x y)
-                1
-              0))
-        )
-        ((VReal y) (Ok (axqlCompareIntReal x y)))
-        (_ (typeClash a b)))
-    )
-    ((VReal x)
-      (match b
-        ((VInt y) (Ok (- 0 (axqlCompareIntReal y x))))
-        ((VReal y) (Ok (cmpFloat x y)))
-        (_ (typeClash a b)))
-    )
-    ((VText x)
-      (match b
-        ((VText y) (Ok (sign (strCmp x y))))
-        (_ (typeClash a b)))
-    )
-    ((VBlob x)
-      (match b
-        ((VBlob y) (Ok (sign (strCmp x y))))
-        (_ (typeClash a b)))
-    )
-    ((VNull) (typeClash a b))))
-
-(:: typeClash (-> Value Value (Result Int Error)))
-(fn (typeClash a b)
-  (axqErr axqType
-    (concat (concat "can't compare " (typeName (axqlValueType a)))
-      (concat " with " (typeName (axqlValueType b))))
-    "axqlCompare"))
-
-;; The order ORDER BY sorts in: NULL first, then numbers, then TEXT,
-;; then BLOB, each kind in its own order. Total, so it never fails.
-(pub :: axqlSortCompare (-> Value Value Int))
-(pub fn (axqlSortCompare a b)
+;; How `a` stands to `b`: negative, zero or positive, in the order
+;; the header describes. A NaN - which a database never holds -
+;; compares as greater than every number here rather than trapping.
+(pub :: valCompare (-> Value Value Int))
+(pub fn (valCompare a b)
   {
-    (let ra (sortRank a))
-    (let rb (sortRank b))
+    (let ra (typeRank a))
+    (let rb (typeRank b))
     (if (!= ra rb)
       (if (< ra rb)
         -1
         1)
-      (if (== ra 0)
+      (match a
+        ((VArray xs)
+          (match b
+            ((VArray ys) (compareArrays xs ys 0))
+            (_ 0))
+        )
+        ((VObject xs)
+          (match b
+            ((VObject ys) (compareObjects xs ys))
+            (_ 0))
+        )
+        (_ (compareScalars a b))))
+  })
+
+(:: compareScalars (-> Value Value Int))
+(fn (compareScalars a b)
+  (match (keyEncodeValue a)
+    ((Ok ka)
+      (match (keyEncodeValue b)
+        ((Ok kb) (keyCompare ka kb))
+        ((Err _) -1))
+    )
+    ((Err _)
+      (match (keyEncodeValue b)
+        ((Ok _) 1)
+        ((Err _) 0))
+    )))
+
+(:: compareArrays (-> (Vec Value) (Vec Value) Int Int))
+(fn (compareArrays xs ys i)
+  (if (>= i (vecLen xs))
+      (if (>= i (vecLen ys))
         0
-        (match (axqlCompare a b)
-          ((Ok c) c)
-          ((Err _) 0))))
-  })
-
-(:: sortRank (-> Value Int))
-(fn (sortRank v)
-  (match v
-    ((VNull) 0)
-    ((VInt _) 1)
-    ((VReal _) 1)
-    ((VText _) 2)
-    ((VBlob _) 3)))
-
-;; The six comparisons over two values, with NULL on either side giving
-;; NULL.
-(pub :: axqlComparison (-> Int Value Value (Result Value Error)))
-(pub fn (axqlComparison op a b)
-  (if (|| (isNull a) (isNull b))
-    (Ok VNull)
+        -1)
+    (>= i (vecLen ys))
+      1
     {
-      (let c (axqlCompare a b)?)
-      (Ok
-        (VInt
-          (if (if (== op opEq)
-              (== c 0)
-            (== op opNe)
-              (!= c 0)
-            (== op opLt)
-              (< c 0)
-            (== op opLe)
-              (<= c 0)
-            (== op opGt)
-              (> c 0)
-            (>= c 0))
-            1
-            0)))
+      (let c (valCompare (vecGet xs i) (vecGet ys i)))
+      (if (!= c 0)
+        c
+        (compareArrays xs ys (+ i 1)))
     }))
 
-(:: isNull (-> Value Bool))
-(fn (isNull v)
-  (match v
-    ((VNull) true)
-    (_ false)))
+(:: compareObjects (-> (Vec Field) (Vec Field) Int))
+(fn (compareObjects xs ys)
+  (if (!= (vecLen xs) (vecLen ys))
+    (if (< (vecLen xs) (vecLen ys))
+      -1
+      1)
+    (compareSorted (sortedFields xs) (sortedFields ys) 0)))
 
-; ------------------------------------------------------------------
-; Arithmetic.
-; ------------------------------------------------------------------
-(:: arithErr (-> String (Result a Error)))
-(fn (arithErr msg)
-  (axqErr axqArithmetic msg "axqlArith"))
-
-(:: overflow (-> Int Int Int (Result a Error)))
-(fn (overflow op x y)
-  (arithErr
-    (concat "integer overflow: "
-      (concat (fmtInt x) (concat (concat " " (opText op)) (concat " " (fmtInt y)))))))
-
-; `x op y` on two INTEGERs, checked.
-(:: intArith (-> Int Int Int (Result Value Error)))
-(fn (intArith op x y)
-  (if (== op opAdd)
+(:: compareSorted (-> (Vec Field) (Vec Field) Int Int))
+(fn (compareSorted xs ys i)
+  (if (>= i (vecLen xs))
+    0
+    {
+      (let x (vecGet xs i))
+      (let y (vecGet ys i))
       {
-        (let s (+ x y))
-        (if (< (& (^ x s) (^ y s)) 0)
-          (overflow op x y)
-          (Ok (VInt s)))
-      }
-    (== op opSub)
-      {
-        (let s (- x y))
-        (if (< (& (^ x y) (^ x s)) 0)
-          (overflow op x y)
-          (Ok (VInt s)))
-      }
-    (== op opMul)
-      (if (|| (== x 0) (== y 0))
-        (Ok (VInt 0))
-        (if (|| (&& (== x intMin) (== y -1)) (&& (== y intMin) (== x -1)))
-          (overflow op x y)
+        (let c (strCmp x.name y.name))
+        (if (!= c 0)
+          c
           {
-            (let p (* x y))
-            (if (!= (/ p x) y)
-              (overflow op x y)
-              (Ok (VInt p)))
-          }))
-    (== op opDiv)
-      (if (== y 0)
-        (arithErr "integer division by zero")
-        (if (&& (== x intMin) (== y -1))
-          (overflow op x y)
-          (Ok (VInt (/ x y)))))
-    (if (== y 0)
-      (arithErr "integer remainder by zero")
-      (if (== y -1)
-        (Ok (VInt 0))
-        (Ok (VInt (% x y)))))))
-
-; `x op y` on two REALs, IEEE 754 but refusing a zero divisor and NaN.
-(:: realArith (-> Int Float Float (Result Value Error)))
-(fn (realArith op x y)
-  (if (&& (== op opDiv) (== y 0.0))
-    (arithErr "real division by zero")
-    {
-      (let r
-        (if (== op opAdd)
-            (+ x y)
-          (== op opSub)
-            (- x y)
-          (== op opMul)
-            (* x y)
-          (/ x y)))
-      (if (floatIsNan r)
-        (arithErr (concat "a real operation with no numeric answer: " (opText op)))
-        (Ok (VReal r)))
-    }))
-
-(:: toFloat (-> Value Float))
-(fn (toFloat v)
-  (match v
-    ((VInt n)
-      (as n Float)
-    )
-    ((VReal r) r)
-    (_ 0.0)))
-
-;; One of `+ - * / %` over two values. NULL on either side gives NULL.
-(pub :: axqlArith (-> Int Value Value (Result Value Error)))
-(pub fn (axqlArith op a b)
-  (if (|| (isNull a) (isNull b))
-    (Ok VNull)
-    (match a
-      ((VInt x)
-        (match b
-          ((VInt y) (intArith op x y))
-          ((VReal y) (mixedArith op a b))
-          (_ (arithTypeErr op a b)))
-      )
-      ((VReal x)
-        (match b
-          ((VInt _) (mixedArith op a b))
-          ((VReal _) (mixedArith op a b))
-          (_ (arithTypeErr op a b)))
-      )
-      (_ (arithTypeErr op a b)))))
-
-(:: mixedArith (-> Int Value Value (Result Value Error)))
-(fn (mixedArith op a b)
-  (if (== op opMod)
-    (arithTypeErr op a b)
-    (realArith op (toFloat a) (toFloat b))))
-
-(:: arithTypeErr (-> Int Value Value (Result Value Error)))
-(fn (arithTypeErr op a b)
-  (axqErr axqType
-    (concat (concat (concat "can't apply " (opText op)) " to ")
-      (concat (typeName (axqlValueType a)) (concat " and " (typeName (axqlValueType b)))))
-    "axqlArith"))
-
-;; Unary minus. The most negative INTEGER has no negation.
-(pub :: axqlNegate (-> Value (Result Value Error)))
-(pub fn (axqlNegate v)
-  (match v
-    ((VNull) (Ok VNull))
-    ((VInt n)
-      (if (== n intMin)
-        (arithErr "integer overflow: -(-9223372036854775808)")
-        (Ok (VInt (- 0 n))))
-    )
-    ((VReal r) (Ok (VReal (* -1.0 r))))
-    (_ (axqErr axqType (concat "can't negate " (typeName (axqlValueType v))) "axqlNegate"))))
-
-; ------------------------------------------------------------------
-; Text.
-; ------------------------------------------------------------------
-; `||` over two values: TEXT with TEXT or BLOB with BLOB, NULL giving
-; NULL.
-(:: concatValues (-> Value Value (Result Value Error)))
-(fn (concatValues a b)
-  (if (|| (isNull a) (isNull b))
-    (Ok VNull)
-    (match a
-      ((VText x)
-        (match b
-          ((VText y) (Ok (VText (concat x y))))
-          (_ (concatTypeErr a b)))
-      )
-      ((VBlob x)
-        (match b
-          ((VBlob y) (Ok (VBlob (concat x y))))
-          (_ (concatTypeErr a b)))
-      )
-      (_ (concatTypeErr a b)))))
-
-(:: concatTypeErr (-> Value Value (Result Value Error)))
-(fn (concatTypeErr a b)
-  (axqErr axqType
-    (concat "|| joins TEXT with TEXT or BLOB with BLOB, not "
-      (concat (typeName (axqlValueType a)) (concat " and " (typeName (axqlValueType b)))))
-    "axqlEval"))
-
-; A LIKE pattern as tokens: -1 for `%`, -2 for `_`, else a byte. A
-; backslash makes the byte after it stand for itself.
-(:: likeTokens (-> String (Vec Int)))
-(fn (likeTokens p)
-  {
-    (let out vecNew)
-    (let m (strLen p))
-    (let mut j 0)
-    {
-      (while (< j m)
-        {
-          (let c (strByte p j))
-          (if (&& (== c 92) (< (+ j 1) m))
-            {
-              (vecPush out (strByte p (+ j 1)))
-              (set j (+ j 2))
-            }
-            {
-              (vecPush out
-                (if (== c 37)
-                    -1
-                  (== c 95)
-                    -2
-                  c))
-              (set j (+ j 1))
-            })
-        })
-      out
-    }
-  })
-
-;; Whether TEXT `s` matches LIKE pattern `p`: `%` matches any run of
-;; bytes, `_` any one byte, `\` makes the next byte literal, and every
-;; other byte matches itself, case and all.
-(pub :: axqlLike (-> String String Bool))
-(pub fn (axqlLike s p)
-  {
-    (let toks (likeTokens p))
-    (let n (strLen s))
-    (let m (vecLen toks))
-    (let mut i 0)
-    (let mut j 0)
-    (let mut starJ -1)
-    (let mut starI 0)
-    (let mut failed false)
-    {
-      (while (&& (! failed) (< i n))
-        {
-          (let t
-            (if (< j m)
-              (vecGet toks j)
-              -3))
-          (if (|| (== t -2) (== t (strByte s i)))
-            {
-              (set i (+ i 1))
-              (set j (+ j 1))
-            }
-            (if (== t -1)
-              {
-                (set starJ j)
-                (set starI i)
-                (set j (+ j 1))
-              }
-              (if (>= starJ 0)
-                {
-                  (set starI (+ starI 1))
-                  (set i starI)
-                  (set j (+ starJ 1))
-                }
-                (set failed true))))
-        })
-      (while (&& (< j m)
-               (==
-                 (if (< j m)
-                   (vecGet toks j)
-                   0)
-                 -1))
-        (set j (+ j 1)))
-      (&& (! failed) (== j m))
-    }
-  })
-
-; `s` with every ASCII lower-case letter raised.
-(:: upperText (-> String String))
-(fn (upperText s)
-  {
-    (let n (strLen s))
-    (let out (strAlloc n))
-    (let d (strData out))
-    {
-      (for i in 0..n
-        {
-          (let c (strByte s i))
-          (rawPutByte d i
-            (if (&& (>= c 97) (<= c 122))
-              (- c 32)
-              c))
-        })
-      out
-    }
-  })
-
-; `s` with every `from` replaced by `to`, left to right.
-(:: replaceText (-> String String String String))
-(fn (replaceText s from to)
-  (if (strIsEmpty from)
-    s
-    {
-      (let mut out "")
-      (let mut at 0)
-      (let mut going true)
-      {
-        (while going
-          (match (strFind s from at)
-            ((Some k)
-              {
-                (set out (concat out (concat (strSlice s at (- k at)) to)))
-                (set at (+ k (strLen from)))
-              }
-            )
-            ((None)
-              (set going false)
-            )))
-        (concat out (strSlice s at (- (strLen s) at)))
-      }
-    }))
-
-; ------------------------------------------------------------------
-; Functions.
-; ------------------------------------------------------------------
-(:: rangeErr (-> String (Result a Error)))
-(fn (rangeErr msg)
-  (axqErr axqArithmetic msg "axqlEval"))
-
-(:: valueBytes (-> Value String))
-(fn (valueBytes v)
-  (match v
-    ((VText x) x)
-    ((VBlob x) x)
-    (_ "")))
-
-; A value of the same kind as `like`: TEXT or BLOB.
-(:: sameKind (-> Value String Value))
-(fn (sameKind like bytes)
-  (match like
-    ((VBlob _) (VBlob bytes))
-    (_ (VText bytes))))
-
-(:: anyNull (-> (Vec Value) Bool))
-(fn (anyNull vs)
-  {
-    (let mut found false)
-    {
-      (for v in vs
-        (if (isNull v)
-          (set found true)))
-      found
-    }
-  })
-
-; The REAL `x` truncated toward zero, when it fits in an INTEGER.
-(:: realToInt (-> Float String (Result Int Error)))
-(fn (realToInt x what)
-  (if (|| (>= x twoTo63) (< x (* -1.0 twoTo63)))
-    (rangeErr
-      (concat (concat what " of ") (concat (floatToString x) " is outside the INTEGER range")))
-    (Ok (as x Int))))
-
-; The INTEGER nearest `x`, halves away from zero.
-(:: roundReal (-> Float (Result Value Error)))
-(fn (roundReal x)
-  {
-    (let t (realToInt x "round")?)
-    {
-      (let frac (- x (as t Float)))
-      (if (>= frac 0.5)
-        (if (== t 9223372036854775807)
-          (rangeErr "round of a value past the largest INTEGER")
-          (Ok (VInt (+ t 1))))
-        (if (<= frac -0.5)
-          (Ok (VInt (- t 1)))
-          (Ok (VInt t))))
-    }
-  })
-
-; A value's type in lower case, as `typeOf` answers it.
-(:: typeWord (-> Value String))
-(fn (typeWord v)
-  (match v
-    ((VNull) "null")
-    ((VInt _) "integer")
-    ((VReal _) "real")
-    ((VText _) "text")
-    ((VBlob _) "blob")))
-
-; `substr(s, start [, len])`, counting bytes from 1.
-(:: substrOf (-> (Vec Value) (Result Value Error)))
-(fn (substrOf vs)
-  {
-    (let s (vecGet vs 0))
-    (let bytes (valueBytes s))
-    (let n (strLen bytes))
-    (match (vecGet vs 1)
-      ((VInt start)
-        (if (< start 1)
-          (rangeErr (concat "substr counts from 1, so its start can't be " (fmtInt start)))
-          {
-            (let len
-              (if (> (vecLen vs) 2)
-                (match (vecGet vs 2)
-                  ((VInt k) k)
-                  (_ 0))
-                n))
-            (if (< len 0)
-              (rangeErr (concat "substr's length can't be negative: " (fmtInt len)))
-              {
-                (let from
-                  (if (> (- start 1) n)
-                    n
-                    (- start 1)))
-                (let take
-                  (if (> len (- n from))
-                    (- n from)
-                    len))
-                (Ok (sameKind s (strDup (strSlice bytes from take))))
-              })
+            (let v (valCompare x.value y.value))
+            (if (!= v 0)
+              v
+              (compareSorted xs ys (+ i 1)))
           })
-      )
-      (_ (axqErr axqType "substr's start needs an INTEGER" "axqlEval")))
-  })
-
-; `asInt(v)`: an INTEGER from a number or from TEXT spelling one.
-(:: asIntOf (-> Value (Result Value Error)))
-(fn (asIntOf v)
-  (match v
-    ((VInt _) (Ok v))
-    ((VReal x)
-      {
-        (let n (realToInt x "asInt")?)
-        (Ok (VInt n))
-      }
-    )
-    ((VText s)
-      (match (strParseInt (strTrim s))
-        ((Some n) (Ok (VInt n)))
-        ((None)
-          (axqErr axqType (concat (concat "asInt can't read " (axqlQuote s)) " as an INTEGER")
-            "axqlEval")
-        ))
-    )
-    (_
-      (axqErr axqType (concat "asInt needs a number or TEXT, not " (typeName (axqlValueType v)))
-        "axqlEval")
-    )))
-
-; `asReal(v)`: a REAL from a number or from TEXT spelling one.
-(:: asRealOf (-> Value (Result Value Error)))
-(fn (asRealOf v)
-  (match v
-    ((VInt n)
-      (Ok (VReal (as n Float)))
-    )
-    ((VReal _) (Ok v))
-    ((VText s)
-      (match (floatParse (strTrim s))
-        ((Ok x)
-          (if (floatIsNan x)
-            (axqErr axqType
-              (concat (concat "asReal can't read " (axqlQuote s)) " as a REAL: NaN can't be stored")
-              "axqlEval")
-            (Ok (VReal x)))
-        )
-        ((Err _)
-          (axqErr axqType (concat (concat "asReal can't read " (axqlQuote s)) " as a REAL")
-            "axqlEval")
-        ))
-    )
-    (_
-      (axqErr axqType (concat "asReal needs a number or TEXT, not " (typeName (axqlValueType v)))
-        "axqlEval")
-    )))
-
-; `asText(v)`: a number written in decimal, or a BLOB's bytes as TEXT.
-(:: asTextOf (-> Value Value))
-(fn (asTextOf v)
-  (match v
-    ((VInt n) (VText (fmtInt n)))
-    ((VReal x) (VText (floatToString x)))
-    ((VBlob b) (VText b))
-    (_ v)))
-
-; `s` in single quotes for a message, cut at 40 bytes.
-(:: axqlQuote (-> String String))
-(fn (axqlQuote s)
-  (if (> (strLen s) 40)
-    (concat (concat "'" (strSlice s 0 40)) "...'")
-    (concat (concat "'" s) "'")))
-
-; `min` or `max` over two or more values: NULL when any is NULL.
-(:: extremeOf (-> Bool (Vec Value) (Result Value Error)))
-(fn (extremeOf wantMax vs)
-  (if (anyNull vs)
-    (Ok VNull)
-    {
-      (let mut best (vecGet vs 0))
-      (let mut failure None)
-      {
-        (for v in vs
-          (if (isNone failure)
-            (match (axqlCompare v best)
-              ((Ok c)
-                (if (if wantMax
-                  (> c 0)
-                  (< c 0))
-                  (set best v))
-              )
-              ((Err e)
-                (set failure (Some e))
-              ))))
-        (match failure
-          ((Some e) (Err e))
-          ((None) (Ok best)))
       }
     }))
 
-(:: firstNonNull (-> (Vec Value) Value))
-(fn (firstNonNull vs)
-  {
-    (let mut found VNull)
-    {
-      (for v in vs
-        (if (&& (isNull found) (! (isNull v)))
-          (set found v)))
-      found
-    }
-  })
+; The fields in name order.
+(:: sortedFields (-> (Vec Field) (Vec Field)))
+(fn (sortedFields fs)
+  (vecSortBy fs (lambda (a b) (strCmp a.name b.name))))
 
-;; Function `name` (in lower case) applied to argument values `vs`,
-;; whose number the parser has checked. Every function but `coalesce`,
-;; `nullif` and `typeOf` answers NULL when an argument is NULL.
-(pub :: axqlApply (-> String (Vec Value) (Result Value Error)))
-(pub fn (axqlApply name vs)
-  {
-    (let a (vecGet vs 0))
-    (if (strEq name "coalesce")
-        (Ok (firstNonNull vs))
-      (strEq name "typeof")
-        (Ok (VText (typeWord a)))
-      (strEq name "nullif")
-        (if (|| (isNull a) (isNull (vecGet vs 1)))
-          (Ok a)
-          {
-            (let c (axqlCompare a (vecGet vs 1))?)
-            (Ok
-              (if (== c 0)
-                VNull
-                a))
-          })
-      (strEq name "min")
-        (extremeOf false vs)
-      (strEq name "max")
-        (extremeOf true vs)
-      (anyNull vs)
-        (Ok VNull)
-      (strEq name "length")
-        (Ok (VInt (strLen (valueBytes a))))
-      (strEq name "lower")
-        (Ok (VText (strLower (valueBytes a))))
-      (strEq name "upper")
-        (Ok (VText (upperText (valueBytes a))))
-      (strEq name "trim")
-        (Ok (VText (strDup (strTrim (valueBytes a)))))
-      (strEq name "replace")
-        (Ok
-          (VText
-            (replaceText (valueBytes a) (valueBytes (vecGet vs 1)) (valueBytes (vecGet vs 2)))))
-      (strEq name "instr")
-        (Ok
-          (VInt
-            (match (strFind (valueBytes a) (valueBytes (vecGet vs 1)) 0)
-              ((Some k) (+ k 1))
-              ((None) 0))))
-      (strEq name "substr")
-        (substrOf vs)
-      (strEq name "abs")
-        (match a
-          ((VInt n)
-            (if (== n intMin)
-              (rangeErr "integer overflow: abs(-9223372036854775808)")
-              (Ok
-                (VInt
-                  (if (< n 0)
-                    (- 0 n)
-                    n))))
-          )
-          ((VReal x)
-            (Ok
-              (VReal
-                (if (< x 0.0)
-                  (* -1.0 x)
-                  x)))
-          )
-          (_ (axqErr axqType "abs needs a number" "axqlEval")))
-      (strEq name "round")
-        (match a
-          ((VInt _) (Ok a))
-          ((VReal x) (roundReal x))
-          (_ (axqErr axqType "round needs a number" "axqlEval")))
-      (strEq name "asint")
-        (asIntOf a)
-      (strEq name "asreal")
-        (asRealOf a)
-      (strEq name "astext")
-        (Ok (asTextOf a))
-      (axqErr axqSyntax (concat "no function named " name) "axqlEval"))
-  })
+;; Whether two values are equal: `valCompare` at zero.
+(pub :: valEqual (-> Value Value Bool))
+(pub fn (valEqual a b)
+  (== (valCompare a b) 0))
 
-; ------------------------------------------------------------------
-; Evaluation.
-; ------------------------------------------------------------------
-;; Evaluate `e` over one row: `row` holds the table's columns and `rowid`
-;; its rowid. `params` are the bound parameters. An unbound name is a
-;; refusal: the binder rewrites every name before evaluation.
-(pub :: axqlEval (-> Expr (Vec Value) Int (Vec Value) (Result Value Error)))
-(pub fn (axqlEval e row rowid params)
-  (match e
-    ((ELit v) (Ok v))
-    ((ECol i)
-      (if (< i 0)
-        (Ok (VInt rowid))
-        (Ok (vecGet row i)))
-    )
-    ((EParam i _) (Ok (vecGet params i)))
-    ((EName n _) (axqErr axqSchema (concat "no such column: " n) "axqlEval"))
-    ((ENeg x _)
-      {
-        (let rx (axqlEval x row rowid params))
-        {
-          (let v rx?)
-          (axqlNegate v)
-        }
-      }
-    )
-    ((ENot x)
-      {
-        (let rx (axqlEval x row rowid params))
-        {
-          (let v rx?)
-          (let t (axqlTruth v)?)
-          (Ok
-            (truthValue
-              (if (== t tvNull)
-                tvNull
-                (- 1 t))))
-        }
-      }
-    )
-    ((EIsNull x negated)
-      {
-        (let rx (axqlEval x row rowid params))
-        {
-          (let v rx?)
-          (Ok
-            (VInt
-              (if (isNull v)
-                (if negated
-                  0
-                  1)
-                (if negated
-                  1
-                  0))))
-        }
-      }
-    )
-    ((EBin op l r _)
-      (if (== op opAnd)
-          (evalAndOr tvFalse l r row rowid params)
-        (== op opOr)
-          (evalAndOr tvTrue l r row rowid params)
-        {
-          (let ra (axqlEval l row rowid params))
-          (let rb (axqlEval r row rowid params))
-          {
-            (let a ra?)
-            (let b rb?)
-            (if (opIsComparison op)
-                (axqlComparison op a b)
-              (== op opConcat)
-                (concatValues a b)
-              (axqlArith op a b))
-          }
-        })
-    )
-    ((EFun name args _)
-      {
-        (let vs (axqlEvalAll args row rowid params)?)
-        (axqlApply name vs)
-      }
-    )
-    ((ELike x pat negated _)
-      {
-        (let rx (axqlEval x row rowid params))
-        (let rp (axqlEval pat row rowid params))
-        {
-          (let v rx?)
-          (let pv rp?)
-          (if (|| (isNull v) (isNull pv))
-            (Ok VNull)
-            {
-              (let hit (axqlLike (valueBytes v) (valueBytes pv)))
-              (Ok
-                (VInt
-                  (if (if negated
-                    (! hit)
-                    hit)
-                    1
-                    0)))
-            })
-        }
-      }
-    )
-    ((EIn x items negated _)
-      {
-        (let rx (axqlEval x row rowid params))
-        {
-          (let v rx?)
-          (if (isNull v)
-            (Ok VNull)
-            {
-              (let t (inList v items row rowid params)?)
-              (Ok
-                (truthValue
-                  (if (|| (! negated) (== t tvNull))
-                    t
-                    (- 1 t))))
-            })
-        }
-      }
-    )
-    ((EAgg k _ _)
-      (axqErr axqMisuse (concat (aggName k) " is an aggregate, worked out once per group")
-        "axqlEval")
-    )
-    ((EPath _ _ _) (axqErr axqSchema "a link path wasn't resolved" "axqlEval"))
-    ((ELink l c _)
-      (axqErr axqSchema
-        (concat (concat "the link path " l) (concat "." (concat c " wasn't resolved"))) "axqlEval")
-    )))
-
-;; Every expression of `es` evaluated over one row, or the first
-;; failure.
-(pub :: axqlEvalAll (-> (Vec Expr) (Vec Value) Int (Vec Value) (Result (Vec Value) Error)))
-(pub fn (axqlEvalAll es row rowid params)
-  {
-    (let out vecNew)
-    (let mut failure None)
-    {
-      (for e in es
-        (if (isNone failure)
-          (match (axqlEval e row rowid params)
-            ((Ok v) (vecPush out v))
-            ((Err err)
-              (set failure (Some err))
-            ))))
-      (match failure
-        ((Some err) (Err err))
-        ((None) (Ok out)))
-    }
-  })
-
-; Whether `v` equals an item of `items`: TRUE when one is equal, else
-; NULL when an item is NULL, else FALSE.
-(:: inList (-> Value (Vec Expr) (Vec Value) Int (Vec Value) (Result Int Error)))
-(fn (inList v items row rowid params)
-  {
-    (let vs (axqlEvalAll items row rowid params)?)
-    {
-      (let mut found tvFalse)
-      (let mut failure None)
-      {
-        (for w in vs
-          (if (! (|| (== found tvTrue) (isSome failure)))
-            (if (isNull w)
-              (set found tvNull)
-              (match (axqlCompare v w)
-                ((Ok c)
-                  (if (== c 0)
-                    (set found tvTrue))
-                )
-                ((Err e)
-                  (set failure (Some e))
-                )))))
-        (match failure
-          ((Some e) (Err e))
-          ((None) (Ok found)))
-      }
-    }
-  })
-
-; The truth of `e` over a row: TRUE, FALSE, NULL, or the failure.
-(:: evalTruth (-> Expr (Vec Value) Int (Vec Value) (Result Int Error)))
-(fn (evalTruth e row rowid params)
-  {
-    (let v (axqlEval e row rowid params)?)
-    (axqlTruth v)
-  })
-
-; AND (`dominant` FALSE) or OR (`dominant` TRUE): the dominant value
-; from either side decides, whatever the other side does; otherwise a
-; failure on either side is the answer; otherwise NULL wins over the
-; other value.
-(:: evalAndOr (-> Int Expr Expr (Vec Value) Int (Vec Value) (Result Value Error)))
-(fn (evalAndOr dominant l r row rowid params)
-  (match (evalTruth l row rowid params)
-    ((Ok a)
-      (if (== a dominant)
-        (Ok (truthValue dominant))
-        (match (evalTruth r row rowid params)
-          ((Ok b)
-            (if (== b dominant)
-              (Ok (truthValue dominant))
-              (if (|| (== a tvNull) (== b tvNull))
-                (Ok VNull)
-                (Ok (truthValue a))))
-          )
-          ((Err e) (Err e))))
-    )
-    ((Err e)
-      (match (evalTruth r row rowid params)
-        ((Ok b)
-          (if (== b dominant)
-            (Ok (truthValue dominant))
-            (Err e))
-        )
-        ((Err _) (Err e)))
-    )))
-
-; ------------------------------------------------------------------
-; WHERE.
-; ------------------------------------------------------------------
-;; The top-level AND terms of `e`, left to right.
-(pub :: axqlConjuncts (-> Expr (Vec Expr)))
-(pub fn (axqlConjuncts e)
-  {
-    (let out vecNew)
-    {
-      (pushConjuncts e out)
-      out
-    }
-  })
-
-(:: pushConjuncts (-> Expr (Vec Expr) Int))
-(fn (pushConjuncts e out)
-  (match e
-    ((EBin op l r _)
-      (if (== op opAnd)
-        {
-          (pushConjuncts l out)
-          (pushConjuncts r out)
-        }
-        {
-          (vecPush out e)
-          0
-        })
-    )
-    (_
-      {
-        (vecPush out e)
-        0
-      }
-    )))
-
-;; Whether a row passes a WHERE given as its AND terms. The row is
-;; dropped when any term is FALSE or NULL, whatever the others do; a
-;; term's failure is the answer only when no term drops the row.
-(pub :: axqlKeep (-> (Vec Expr) (Vec Value) Int (Vec Value) (Result Bool Error)))
-(pub fn (axqlKeep terms row rowid params)
-  {
-    (let n (vecLen terms))
-    (let mut i 0)
-    (let mut drop false)
-    (let mut failure None)
-    {
-      (while (&& (! drop) (< i n))
-        {
-          (match (evalTruth (vecGet terms i) row rowid params)
-            ((Ok t)
-              (if (!= t tvTrue)
-                (set drop true))
-            )
-            ((Err e)
-              (if (isNone failure)
-                (set failure (Some e)))
-            ))
-          (set i (+ i 1))
-        })
-      (if drop
-        (Ok false)
-        (match failure
-          ((Some e) (Err e))
-          ((None) (Ok true))))
-    }
-  })
-
-; ------------------------------------------------------------------
-; Static types.
-; ------------------------------------------------------------------
-;; The type `e` has whenever it isn't NULL, given the types of the
-;; table's columns (the rowid is INTEGER) and the bound parameters.
-;; `typeNull` means always NULL. A mismatch is `axqType`, named with its
-;; place in `src`, before any row is read.
-(pub :: axqlTypeOf (-> String Expr (Vec Int) (Vec Value) (Result Int Error)))
-(pub fn (axqlTypeOf src e colTypes params)
-  (match e
-    ((ELit v) (Ok (axqlValueType v)))
-    ((ECol i)
-      (Ok
-        (if (< i 0)
-          typeInteger
-          (vecGet colTypes i)))
-    )
-    ((EParam i _) (Ok (axqlValueType (vecGet params i))))
-    ((EName n _) (axqErr axqSchema (concat "no such column: " n) "axqlTypeOf"))
-    ((ENeg x at)
-      {
-        (let rx (axqlTypeOf src x colTypes params))
-        {
-          (let t rx?)
-          (if (|| (== t typeNull) (isNumericType t))
-            (Ok t)
-            (typeErrAt src at (concat "can't negate " (typeName t))))
-        }
-      }
-    )
-    ((ENot x)
-      {
-        (let rx (axqlTypeOf src x colTypes params))
-        {
-          (let t rx?)
-          (if (|| (== t typeNull) (isNumericType t))
-            (Ok typeInteger)
-            (typeErrAt src (exprPos x) (concat "NOT needs a number, not " (typeName t))))
-        }
-      }
-    )
-    ((EIsNull x _)
-      {
-        (let rx (axqlTypeOf src x colTypes params))
-        {
-          (let _ rx?)
-          (Ok typeInteger)
-        }
-      }
-    )
-    ((EBin op l r at)
-      {
-        (let ra (axqlTypeOf src l colTypes params))
-        (let rb (axqlTypeOf src r colTypes params))
-        {
-          (let a ra?)
-          (let b rb?)
-          (binType src op a b at)
-        }
-      }
-    )
-    ((EFun name args at)
-      {
-        (let ts (typesOf src args colTypes params)?)
-        (funType src name ts at)
-      }
-    )
-    ((ELike x pat _ at)
-      {
-        (let rx (axqlTypeOf src x colTypes params))
-        (let rp (axqlTypeOf src pat colTypes params))
-        {
-          (let a rx?)
-          (let b rp?)
-          (if (&& (|| (== a typeNull) (== a typeText)) (|| (== b typeNull) (== b typeText)))
-            (Ok typeInteger)
-            (typeErrAt src at
-              (concat "LIKE matches TEXT against a TEXT pattern, not " (pairText a b))))
-        }
-      }
-    )
-    ((EIn x items _ at)
-      {
-        (let rx (axqlTypeOf src x colTypes params))
-        {
-          (let a rx?)
-          (let ts (typesOf src items colTypes params)?)
-          {
-            (let mut bad -1)
-            {
-              (for t in ts
-                (if (&& (< bad 0) (! (comparable a t)))
-                  (set bad t)))
-              (if (< bad 0)
-                (Ok typeInteger)
-                (typeErrAt src at
-                  (concat "IN can't compare "
-                    (concat (typeName a) (concat " with " (typeName bad))))))
-            }
-          }
-        }
-      }
-    )
-    ((EAgg k arg at)
-      (match arg
-        ((None) (Ok typeInteger))
-        ((Some x)
-          {
-            (let rt (axqlTypeOf src x colTypes params))
-            {
-              (let t rt?)
-              (if (== k aggCount)
-                  (Ok typeInteger)
-                (|| (== k aggMin) (== k aggMax))
-                  (Ok t)
-                (if (|| (== t typeNull) (isNumericType t))
-                  (Ok
-                    (if (== k aggAvg)
-                      typeReal
-                      t))
-                  (typeErrAt src at
-                    (concat (concat (aggName k) " needs numbers, not ") (typeName t)))))
-            }
-          }
-        ))
-    )
-    ((EPath _ _ _) (axqErr axqSchema "a link path wasn't resolved" "axqlTypeOf"))
-    ((ELink l c at)
-      (axqErr axqSchema
-        (concat (concat "the link path " l) (concat "." (concat c " wasn't resolved")))
-        "axqlTypeOf")
-    )))
-
-; The static types of `es`.
-(:: typesOf (-> String (Vec Expr) (Vec Int) (Vec Value) (Result (Vec Int) Error)))
-(fn (typesOf src es colTypes params)
-  {
-    (let out vecNew)
-    (let mut failure None)
-    {
-      (for e in es
-        (if (isNone failure)
-          (match (axqlTypeOf src e colTypes params)
-            ((Ok t) (vecPush out t))
-            ((Err err)
-              (set failure (Some err))
-            ))))
-      (match failure
-        ((Some err) (Err err))
-        ((None) (Ok out)))
-    }
-  })
-
-; Whether two static types may be compared.
-(:: comparable (-> Int Int Bool))
-(fn (comparable a b)
-  (|| (== a typeNull) (|| (== b typeNull) (|| (== a b) (&& (isNumericType a) (isNumericType b))))))
-
-; The one type values of types `ts` share: NULL's is any, and INTEGER
-; with REAL is REAL. -1 when they share none.
-(:: unifyTypes (-> (Vec Int) Int))
-(fn (unifyTypes ts)
-  {
-    (let mut u typeNull)
-    {
-      (for t in ts
-        (if (! (< u 0))
-          (if (! (== t typeNull))
-            (if (== u typeNull)
-              (set u t)
-              (if (! (== u t))
-                (if (&& (isNumericType u) (isNumericType t))
-                  (set u typeReal)
-                  (set u -1)))))))
-      u
-    }
-  })
-
-; Whether `t` is one of `ok`, or NULL's type.
-(:: typeIn (-> Int (Vec Int) Bool))
-(fn (typeIn t ok)
-  {
-    (let mut found (== t typeNull))
-    {
-      (for k in ok
-        (if (== k t)
-          (set found true)))
-      found
-    }
-  })
-
-(:: textTypes (Vec Int))
-(fn (textTypes)
-  {
-    (let v vecNew)
-    {
-      (vecPush v typeText)
-      v
-    }
-  })
-
-(:: bytesTypes (Vec Int))
-(fn (bytesTypes)
-  {
-    (let v (textTypes))
-    {
-      (vecPush v typeBlob)
-      v
-    }
-  })
-
-(:: numberTypes (Vec Int))
-(fn (numberTypes)
-  {
-    (let v vecNew)
-    {
-      (vecPush v typeInteger)
-      (vecPush v typeReal)
-      v
-    }
-  })
-
-(:: convertibleTypes (Vec Int))
-(fn (convertibleTypes)
-  {
-    (let v (numberTypes))
-    {
-      (vecPush v typeText)
-      v
-    }
-  })
-
-; The first argument of `ts` whose type isn't in `ok`, or -1.
-(:: firstOutside (-> (Vec Int) (Vec Int) Int))
-(fn (firstOutside ts ok)
-  {
-    (let mut bad -1)
-    {
-      (for (t i) in ts
-        (if (&& (< bad 0) (! (typeIn t ok)))
-          (set bad i)))
-      bad
-    }
-  })
-
-; The refusal of argument `i` of function `name`, of type `t`.
-(:: argTypeErr (-> String String Int Int Int String (Result Int Error)))
-(fn (argTypeErr src name i t at want)
-  (typeErrAt src at
-    (concat (concat (concat (concat name "'s argument ") (fmtInt (+ i 1))) (concat " needs " want))
-      (concat ", not " (typeName t)))))
-
-; The type of a call of function `name` with arguments of types `ts`.
-(:: funType (-> String String (Vec Int) Int (Result Int Error)))
-(fn (funType src name ts at)
-  {
-    (let t0 (vecGet ts 0))
-    (if (|| (strEq name "coalesce") (|| (strEq name "min") (strEq name "max")))
-        {
-          (let u (unifyTypes ts))
-          (if (< u 0)
-            (typeErrAt src at
-              (concat name "'s arguments need one type, or INTEGER mixed with REAL"))
-            (Ok u))
-        }
-      (strEq name "nullif")
-        (if (comparable t0 (vecGet ts 1))
-          (Ok t0)
-          (typeErrAt src at (concat "nullif can't compare " (pairText t0 (vecGet ts 1)))))
-      (strEq name "typeof")
-        (Ok typeText)
-      (strEq name "astext")
-        (Ok typeText)
-      (|| (strEq name "asint") (strEq name "asreal"))
-        (if (typeIn t0 convertibleTypes)
-          (Ok
-            (if (strEq name "asint")
-              typeInteger
-              typeReal))
-          (argTypeErr src name 0 t0 at "a number or TEXT"))
-      (|| (strEq name "abs") (strEq name "round"))
-        (if (typeIn t0 numberTypes)
-          (Ok
-            (if (strEq name "round")
-              typeInteger
-              t0))
-          (argTypeErr src name 0 t0 at "a number"))
-      (strEq name "length")
-        (if (typeIn t0 bytesTypes)
-          (Ok typeInteger)
-          (argTypeErr src name 0 t0 at "TEXT or BLOB"))
-      (|| (strEq name "lower")
-        (|| (strEq name "upper") (|| (strEq name "trim") (strEq name "replace"))))
-        {
-          (let bad (firstOutside ts textTypes))
-          (if (< bad 0)
-            (Ok typeText)
-            (argTypeErr src name bad (vecGet ts bad) at "TEXT"))
-        }
-      (strEq name "instr")
-        (if (&& (typeIn t0 bytesTypes) (comparable t0 (vecGet ts 1)))
-          (Ok typeInteger)
-          (typeErrAt src at
-            (concat "instr looks for TEXT in TEXT or a BLOB in a BLOB, not "
-              (pairText t0 (vecGet ts 1)))))
-      (strEq name "substr")
-        (if (! (typeIn t0 bytesTypes))
-          (argTypeErr src name 0 t0 at "TEXT or BLOB")
-          {
-            (let ints vecNew)
-            {
-              (vecPush ints typeInteger)
-              {
-                (let rest vecNew)
-                {
-                  (for (t i) in ts
-                    (if (> i 0)
-                      (vecPush rest t)
-                      rest))
-                  {
-                    (let bad (firstOutside rest ints))
-                    (if (< bad 0)
-                      (Ok t0)
-                      (argTypeErr src name (+ bad 1) (vecGet rest bad) at "an INTEGER"))
-                  }
-                }
-              }
-            }
-          })
-      (typeErrAt src at (concat "no function named " name)))
-  })
-
-(:: binType (-> String Int Int Int Int (Result Int Error)))
-(fn (binType src op a b at)
-  (if (== op opConcat)
-    (if (&& (|| (== a typeNull) (== a typeText)) (|| (== b typeNull) (== b typeText)))
-      (Ok
-        (if (&& (== a typeNull) (== b typeNull))
-          typeNull
-          typeText))
-      (if (&& (|| (== a typeNull) (== a typeBlob)) (|| (== b typeNull) (== b typeBlob)))
-        (Ok typeBlob)
-        (typeErrAt src at
-          (concat (concat "|| joins TEXT with TEXT or BLOB with BLOB, not " (pairText a b))
-            "; asText converts a number"))))
-    (if (|| (== op opAnd) (== op opOr))
-      (if (&& (|| (== a typeNull) (isNumericType a)) (|| (== b typeNull) (isNumericType b)))
-        (Ok typeInteger)
-        (typeErrAt src at (concat (concat (opText op) " needs numbers, not ") (pairText a b))))
-      (if (opIsComparison op)
-        (if (|| (== a typeNull)
-              (|| (== b typeNull) (|| (== a b) (&& (isNumericType a) (isNumericType b)))))
-          (Ok typeInteger)
-          (typeErrAt src at
-            (concat "can't compare " (concat (typeName a) (concat " with " (typeName b))))))
-        (if (== op opMod)
-          (if (&& (|| (== a typeNull) (== a typeInteger)) (|| (== b typeNull) (== b typeInteger)))
-            (Ok
-              (if (|| (== a typeNull) (== b typeNull))
-                typeNull
-                typeInteger))
-            (typeErrAt src at (concat "% needs INTEGER operands, not " (pairText a b))))
-          (if (&& (|| (== a typeNull) (isNumericType a)) (|| (== b typeNull) (isNumericType b)))
-            (Ok
-              (if (|| (== a typeNull) (== b typeNull))
-                  typeNull
-                (|| (== a typeReal) (== b typeReal))
-                  typeReal
-                typeInteger))
-            (typeErrAt src at
-              (concat (concat (concat "can't apply " (opText op)) " to ") (pairText a b)))))))))
-
-(:: pairText (-> Int Int String))
-(fn (pairText a b)
-  (concat (typeName a) (concat " and " (typeName b))))
-
-; The byte offset an expression's own operator or name sits at, or -1.
-(:: exprPos (-> Expr Int))
-(fn (exprPos e)
-  (match e
-    ((EName _ at) at)
-    ((EParam _ at) at)
-    ((ENeg _ at) at)
-    ((EBin _ _ _ at) at)
-    ((ENot x) (exprPos x))
-    ((EIsNull x _) (exprPos x))
-    ((EFun _ _ at) at)
-    ((EAgg _ _ at) at)
-    ((ELike _ _ _ at) at)
-    ((EIn _ _ _ at) at)
-    ((ELink _ _ at) at)
-    ((EPath _ _ at) at)
-    (_ -1)))
-
-(:: typeErrAt (-> String Int String (Result a Error)))
-(fn (typeErrAt src at msg)
-  (axqErr axqType
-    (if (< at 0)
-      msg
-      (concat (concat (axqlPosText src at) ": ") msg))
-    "axqlTypeOf"))
-
-; ------------------------------------------------------------------
-; Folding.
-; ------------------------------------------------------------------
-;; `e` with each largest subexpression that names no column replaced by
-;; its value. Those are evaluated once, before any row is read, so a
-;; failure among them fails the statement even when no row would have
-;; reached it.
-(pub :: axqlFold (-> Expr (Vec Value) (Result Expr Error)))
-(pub fn (axqlFold e params)
-  (if (axqlIsConstant e)
-    {
-      (let v (axqlEval e vecNew 0 params)?)
-      (Ok (ELit v))
-    }
-    (foldInside e params)))
-
-; Fold the constant parts of `e`, which names a column somewhere.
-(:: foldInside (-> Expr (Vec Value) (Result Expr Error)))
-(fn (foldInside e params)
-  (match e
-    ((ELit _) (Ok e))
-    ((ECol _) (Ok e))
-    ((EName _ _) (Ok e))
-    ((EParam i _) (Ok (ELit (vecGet params i))))
-    ((ENeg x at)
-      {
-        (let fx (axqlFold x params)?)
-        (Ok (ENeg fx at))
-      }
-    )
-    ((ENot x)
-      {
-        (let fx (axqlFold x params)?)
-        (Ok (ENot fx))
-      }
-    )
-    ((EIsNull x negated)
-      {
-        (let fx (axqlFold x params)?)
-        (Ok (EIsNull fx negated))
-      }
-    )
-    ((EBin op l r at)
-      {
-        (let rl (axqlFold l params))
-        {
-          (let fl rl?)
-          (let fr (axqlFold r params)?)
-          (Ok (EBin op fl fr at))
-        }
-      }
-    )
-    ((EFun name args at)
-      {
-        (let fs (foldAll args params)?)
-        (Ok (EFun name fs at))
-      }
-    )
-    ((EAgg k arg at)
-      (match arg
-        ((None) (Ok e))
-        ((Some x)
-          {
-            (let fx (axqlFold x params)?)
-            (Ok (EAgg k (Some fx) at))
-          }
-        ))
-    )
-    ((ELike x pat negated at)
-      {
-        (let fx (axqlFold x params)?)
-        (let fp (axqlFold pat params)?)
-        (Ok (ELike fx fp negated at))
-      }
-    )
-    ((EIn x items negated at)
-      {
-        (let fx (axqlFold x params)?)
-        (let fs (foldAll items params)?)
-        (Ok (EIn fx fs negated at))
-      }
-    )
-    ((EPath _ _ _) (Ok e))
-    ((ELink _ _ _) (Ok e))))
-
-(:: foldAll (-> (Vec Expr) (Vec Value) (Result (Vec Expr) Error)))
-(fn (foldAll es params)
-  {
-    (let out vecNew)
-    (let mut failure None)
-    {
-      (for e in es
-        (if (isNone failure)
-          (match (axqlFold e params)
-            ((Ok f) (vecPush out f))
-            ((Err err)
-              (set failure (Some err))
-            ))))
-      (match failure
-        ((Some err) (Err err))
-        ((None) (Ok out)))
-    }
-  })
-
-;; Whether `e` names no column: a literal, a parameter, or operators
-;; over those.
-(pub :: axqlIsConstant (-> Expr Bool))
-(pub fn (axqlIsConstant e)
-  (match e
-    ((ELit _) true)
-    ((EParam _ _) true)
-    ((ECol _) false)
-    ((EName _ _) false)
-    ((ENeg x _) (axqlIsConstant x))
-    ((ENot x) (axqlIsConstant x))
-    ((EIsNull x _) (axqlIsConstant x))
-    ((EBin _ l r _) (&& (axqlIsConstant l) (axqlIsConstant r)))
-    ((EFun _ args _) (allConstant args))
-    ((EAgg _ _ _) false)
-    ((ELike x pat _ _) (&& (axqlIsConstant x) (axqlIsConstant pat)))
-    ((EIn x items _ _) (&& (axqlIsConstant x) (allConstant items)))
-    ((EPath _ _ _) false)
-    ((ELink _ _ _) false)))
-
-; ------------------------------------------------------------------
-; Walking expressions.
-; ------------------------------------------------------------------
-;; The expressions directly inside `e`, left to right.
-(pub :: axqlChildren (-> Expr (Vec Expr)))
-(pub fn (axqlChildren e)
-  {
-    (let out vecNew)
-    {
-      (match e
-        ((ENeg x _) (vecPush out x))
-        ((ENot x) (vecPush out x))
-        ((EIsNull x _) (vecPush out x))
-        ((EBin _ l r _)
-          {
-            (vecPush out l)
-            (vecPush out r)
-          }
-        )
-        ((EFun _ args _)
-          {
-            (for a in args
-              (vecPush out a))
-            out
-          }
-        )
-        ((EAgg _ arg _)
-          (match arg
-            ((Some x) (vecPush out x))
-            ((None) out))
-        )
-        ((ELike x pat _ _)
-          {
-            (vecPush out x)
-            (vecPush out pat)
-          }
-        )
-        ((EIn x items _ _)
-          {
-            (vecPush out x)
-            (for a in items
-              (vecPush out a))
-            out
-          }
-        )
-        (_ out))
-      out
-    }
-  })
-
-;; Whether `e` holds an aggregate anywhere.
-(pub :: axqlHasAgg (-> Expr Bool))
-(pub fn (axqlHasAgg e)
-  (match e
-    ((EAgg _ _ _) true)
-    (_
-      {
-        (let mut found false)
-        {
-          (for c in (axqlChildren e)
-            (if (axqlHasAgg c)
-              (set found true)))
-          found
-        }
-      }
-    )))
-
-;; The offset of the first aggregate in `e`, or -1.
-(pub :: axqlAggPos (-> Expr Int))
-(pub fn (axqlAggPos e)
-  (match e
-    ((EAgg _ _ at) at)
-    (_
-      {
-        (let mut found -1)
-        {
-          (for c in (axqlChildren e)
-            (if (< found 0)
-              (set found (axqlAggPos c))))
-          found
-        }
-      }
-    )))
-
-;; Whether `e` holds a parameter or a link path anywhere: what a
-;; DEFAULT or CHECK stored in the schema can't hold.
-(pub :: axqlHasParamOrLink (-> Expr Bool))
-(pub fn (axqlHasParamOrLink e)
-  (match e
-    ((EParam _ _) true)
-    ((ELink _ _ _) true)
-    ((EPath _ _ _) true)
-    (_
-      {
-        (let mut found false)
-        {
-          (for c in (axqlChildren e)
-            (if (axqlHasParamOrLink c)
-              (set found true)))
-          found
-        }
-      }
-    )))
-
-;; Every column number a bound `e` reads, pushed onto `out`.
-(pub :: axqlColumnsRead (-> Expr (Vec Int) Int))
-(pub fn (axqlColumnsRead e out)
-  (match e
-    ((ECol i)
-      {
-        (vecPush out i)
-        0
-      }
-    )
-    (_
-      {
-        (for c in (axqlChildren e)
-          (axqlColumnsRead c out))
-        0
-      }
-    )))
-
-(:: valueEq (-> Value Value Bool))
-(fn (valueEq a b)
+;; Whether two values are the same in type and in value: what `IS`
+;; answers. An int is never a float here, and an object's field order
+;; is part of the value.
+(pub :: valIdentical (-> Value Value Bool))
+(pub fn (valIdentical a b)
   (match a
-    ((VNull) (isNull b))
+    ((VNone)
+      (match b
+        ((VNone) true)
+        (_ false))
+    )
+    ((VBool x)
+      (match b
+        ((VBool y) (|| (&& x y) (&& (! x) (! y))))
+        (_ false))
+    )
     ((VInt x)
       (match b
         ((VInt y) (== x y))
         (_ false))
     )
-    ((VReal x)
+    ((VFloat x)
       (match b
-        ((VReal y) (== x y))
+        ((VFloat y) (== (floatToBits x) (floatToBits y)))
         (_ false))
     )
     ((VText x)
@@ -1774,121 +190,2197 @@
         ((VText y) (strEq x y))
         (_ false))
     )
-    ((VBlob x)
+    ((VBytes x)
       (match b
-        ((VBlob y) (strEq x y))
+        ((VBytes y) (strEq x y))
+        (_ false))
+    )
+    ((VDatetime x)
+      (match b
+        ((VDatetime y) (== x y))
+        (_ false))
+    )
+    ((VDuration x)
+      (match b
+        ((VDuration y) (== x y))
+        (_ false))
+    )
+    ((VUuid x)
+      (match b
+        ((VUuid y) (strEq x y))
+        (_ false))
+    )
+    ((VArray xs)
+      (match b
+        ((VArray ys) (identicalArrays xs ys))
+        (_ false))
+    )
+    ((VObject xs)
+      (match b
+        ((VObject ys) (identicalObjects xs ys))
+        (_ false))
+    )
+    ((VRecord x)
+      (match b
+        ((VRecord y) (&& (strEq x.table y.table) (valIdentical x.key y.key)))
         (_ false))
     )))
 
-;; Whether two bound expressions are written the same way.
-(pub :: axqlExprEq (-> Expr Expr Bool))
-(pub fn (axqlExprEq a b)
-  {
-    (let same
-      (match a
-        ((ELit v)
-          (match b
-            ((ELit w) (valueEq v w))
-            (_ false))
-        )
-        ((ECol i)
-          (match b
-            ((ECol j) (== i j))
-            (_ false))
-        )
-        ((EParam i _)
-          (match b
-            ((EParam j _) (== i j))
-            (_ false))
-        )
-        ((ENeg _ _)
-          (match b
-            ((ENeg _ _) true)
-            (_ false))
-        )
-        ((ENot _)
-          (match b
-            ((ENot _) true)
-            (_ false))
-        )
-        ((EIsNull _ n)
-          (match b
-            ((EIsNull _ m)
-              (==
-                (if n
-                  1
-                  0)
-                (if m
-                  1
-                  0))
-            )
-            (_ false))
-        )
-        ((EBin op _ _ _)
-          (match b
-            ((EBin op2 _ _ _) (== op op2))
-            (_ false))
-        )
-        ((EFun name _ _)
-          (match b
-            ((EFun name2 _ _) (strEq name name2))
-            (_ false))
-        )
-        ((EAgg k _ _)
-          (match b
-            ((EAgg k2 _ _) (== k k2))
-            (_ false))
-        )
-        ((ELike _ _ n _)
-          (match b
-            ((ELike _ _ m _)
-              (==
-                (if n
-                  1
-                  0)
-                (if m
-                  1
-                  0))
-            )
-            (_ false))
-        )
-        ((EIn _ _ n _)
-          (match b
-            ((EIn _ _ m _)
-              (==
-                (if n
-                  1
-                  0)
-                (if m
-                  1
-                  0))
-            )
-            (_ false))
-        )
-        (_ false)))
-    (if (! same)
-      false
-      {
-        (let ca (axqlChildren a))
-        (let cb (axqlChildren b))
-        (let mut eq (== (vecLen ca) (vecLen cb)))
-        {
-          (for (x i) in ca
-            (if (&& eq (! (axqlExprEq x (vecGet cb i))))
-              (set eq false)))
-          eq
-        }
-      })
-  })
-
-(:: allConstant (-> (Vec Expr) Bool))
-(fn (allConstant es)
-  {
-    (let mut all true)
+(:: identicalArrays (-> (Vec Value) (Vec Value) Bool))
+(fn (identicalArrays xs ys)
+  (if (!= (vecLen xs) (vecLen ys))
+    false
     {
-      (for e in es
-        (if (! (axqlIsConstant e))
-          (set all false)))
-      all
+      (let mut same true)
+      {
+        (for (x i) in xs
+          (if (! (valIdentical x (vecGet ys i)))
+            (set same false)))
+        same
+      }
+    }))
+
+(:: identicalObjects (-> (Vec Field) (Vec Field) Bool))
+(fn (identicalObjects xs ys)
+  (if (!= (vecLen xs) (vecLen ys))
+    false
+    {
+      (let mut same true)
+      {
+        (for x in xs
+          (match (objGet (VObject ys) x.name)
+            ((None)
+              (set same false)
+            )
+            ((Some y)
+              (if (! (valIdentical x.value y))
+                (set same false))
+            )))
+        same
+      }
+    }))
+
+;; Whether `v` counts as true: everything but `none` and `false`.
+(pub :: valTruthy (-> Value Bool))
+(pub fn (valTruthy v)
+  (match v
+    ((VNone) false)
+    ((VBool b) b)
+    (_ true)))
+
+; ------------------------------------------------------------------
+; Arithmetic.
+; ------------------------------------------------------------------
+(:: typeErr (-> String String (Result a Error)))
+(fn (typeErr msg where)
+  (axqErr axqType msg where))
+
+(:: arithErr (-> String String (Result a Error)))
+(fn (arithErr msg where)
+  (axqErr axqArithmetic msg where))
+
+; `a` as a float, when it is a number.
+(:: asFloat (-> Value (Option Float)))
+(fn (asFloat v)
+  (match v
+    ((VInt n) (Some (intToFloat n)))
+    ((VFloat x) (Some x))
+    (_ None)))
+
+(:: intToFloat (-> Int Float))
+(fn (intToFloat n)
+  (as n Float))
+
+; Checked int arithmetic, on `Err`'s operators: `None` when the
+; answer leaves 64 bits.
+(:: checkedAdd (-> Int Int (Option Int)))
+(fn (checkedAdd a b)
+  (match (addChecked a b)
+    ((Ok n) (Some n))
+    ((Err _) None)))
+
+(:: checkedSub (-> Int Int (Option Int)))
+(fn (checkedSub a b)
+  (match (subChecked a b)
+    ((Ok n) (Some n))
+    ((Err _) None)))
+
+(:: checkedMul (-> Int Int (Option Int)))
+(fn (checkedMul a b)
+  (match (mulChecked a b)
+    ((Ok n) (Some n))
+    ((Err _) None)))
+
+(:: overflow (-> String (Result a Error)))
+(fn (overflow where)
+  (arithErr "this arithmetic overflowed 64 bits" where))
+
+;; `a + b`, by the rules in the header.
+(pub :: valAdd (-> Value Value (Result Value Error)))
+(pub fn (valAdd a b)
+  (match a
+    ((VInt x)
+      (match b
+        ((VInt y)
+          (match (checkedAdd x y)
+            ((Some r) (Ok (VInt r)))
+            ((None) (overflow "valAdd")))
+        )
+        ((VFloat y) (Ok (VFloat (+ (intToFloat x) y))))
+        (_ (typeErr (concat "+ does not take an int and a " (valueTypeName b)) "valAdd")))
+    )
+    ((VFloat x)
+      (match (asFloat b)
+        ((Some y) (Ok (VFloat (+ x y))))
+        ((None) (typeErr (concat "+ does not take a float and a " (valueTypeName b)) "valAdd")))
+    )
+    ((VText x)
+      (match b
+        ((VText y) (Ok (VText (concat x y))))
+        (_ (typeErr (concat "+ does not take text and a " (valueTypeName b)) "valAdd")))
+    )
+    ((VArray xs)
+      (match b
+        ((VArray ys)
+          {
+            (let out vecNew)
+            {
+              (for v in xs
+                (vecPush out v))
+              (for v in ys
+                (vecPush out v))
+              (Ok (VArray out))
+            }
+          }
+        )
+        (_ (typeErr (concat "+ does not take an array and a " (valueTypeName b)) "valAdd")))
+    )
+    ((VDatetime x)
+      (match b
+        ((VDuration y)
+          (match (checkedAdd x y)
+            ((Some r) (Ok (VDatetime r)))
+            ((None) (overflow "valAdd")))
+        )
+        (_ (typeErr (concat "+ does not take a datetime and a " (valueTypeName b)) "valAdd")))
+    )
+    ((VDuration x)
+      (match b
+        ((VDuration y)
+          (match (checkedAdd x y)
+            ((Some r) (Ok (VDuration r)))
+            ((None) (overflow "valAdd")))
+        )
+        ((VDatetime y)
+          (match (checkedAdd x y)
+            ((Some r) (Ok (VDatetime r)))
+            ((None) (overflow "valAdd")))
+        )
+        (_ (typeErr (concat "+ does not take a duration and a " (valueTypeName b)) "valAdd")))
+    )
+    (_ (typeErr (concat "+ does not take a " (valueTypeName a)) "valAdd"))))
+
+;; `a - b`.
+(pub :: valSub (-> Value Value (Result Value Error)))
+(pub fn (valSub a b)
+  (match a
+    ((VInt x)
+      (match b
+        ((VInt y)
+          (match (checkedSub x y)
+            ((Some r) (Ok (VInt r)))
+            ((None) (overflow "valSub")))
+        )
+        ((VFloat y) (Ok (VFloat (- (intToFloat x) y))))
+        (_ (typeErr (concat "- does not take an int and a " (valueTypeName b)) "valSub")))
+    )
+    ((VFloat x)
+      (match (asFloat b)
+        ((Some y) (Ok (VFloat (- x y))))
+        ((None) (typeErr (concat "- does not take a float and a " (valueTypeName b)) "valSub")))
+    )
+    ((VDatetime x)
+      (match b
+        ((VDuration y)
+          (match (checkedSub x y)
+            ((Some r) (Ok (VDatetime r)))
+            ((None) (overflow "valSub")))
+        )
+        ((VDatetime y)
+          (match (checkedSub x y)
+            ((Some r) (Ok (VDuration r)))
+            ((None) (overflow "valSub")))
+        )
+        (_ (typeErr (concat "- does not take a datetime and a " (valueTypeName b)) "valSub")))
+    )
+    ((VDuration x)
+      (match b
+        ((VDuration y)
+          (match (checkedSub x y)
+            ((Some r) (Ok (VDuration r)))
+            ((None) (overflow "valSub")))
+        )
+        (_ (typeErr (concat "- does not take a duration and a " (valueTypeName b)) "valSub")))
+    )
+    (_ (typeErr (concat "- does not take a " (valueTypeName a)) "valSub"))))
+
+;; `a * b`.
+(pub :: valMul (-> Value Value (Result Value Error)))
+(pub fn (valMul a b)
+  (match a
+    ((VInt x)
+      (match b
+        ((VInt y)
+          (match (checkedMul x y)
+            ((Some r) (Ok (VInt r)))
+            ((None) (overflow "valMul")))
+        )
+        ((VFloat y) (Ok (VFloat (* (intToFloat x) y))))
+        (_ (typeErr (concat "* does not take an int and a " (valueTypeName b)) "valMul")))
+    )
+    ((VFloat x)
+      (match (asFloat b)
+        ((Some y) (Ok (VFloat (* x y))))
+        ((None) (typeErr (concat "* does not take a float and a " (valueTypeName b)) "valMul")))
+    )
+    ((VDuration x)
+      (match b
+        ((VInt y)
+          (match (checkedMul x y)
+            ((Some r) (Ok (VDuration r)))
+            ((None) (overflow "valMul")))
+        )
+        (_ (typeErr (concat "* does not take a duration and a " (valueTypeName b)) "valMul")))
+    )
+    (_ (typeErr (concat "* does not take a " (valueTypeName a)) "valMul"))))
+
+;; `a / b`: an int when two ints divide evenly, a float otherwise.
+;; Dividing by zero is `axqArithmetic`.
+(pub :: valDiv (-> Value Value (Result Value Error)))
+(pub fn (valDiv a b)
+  (match a
+    ((VInt x)
+      (match b
+        ((VInt y)
+          (if (== y 0)
+            (arithErr "division by zero" "valDiv")
+            (if (== (% x y) 0)
+              (if (&& (== x intMin) (== y -1))
+                (overflow "valDiv")
+                (Ok (VInt (/ x y))))
+              (Ok (VFloat (/ (intToFloat x) (intToFloat y))))))
+        )
+        ((VFloat y) (floatDiv (intToFloat x) y))
+        (_ (typeErr (concat "/ does not take an int and a " (valueTypeName b)) "valDiv")))
+    )
+    ((VFloat x)
+      (match (asFloat b)
+        ((Some y) (floatDiv x y))
+        ((None) (typeErr (concat "/ does not take a float and a " (valueTypeName b)) "valDiv")))
+    )
+    ((VDuration x)
+      (match b
+        ((VInt y)
+          (if (== y 0)
+            (arithErr "division by zero" "valDiv")
+            (Ok (VDuration (/ x y))))
+        )
+        (_ (typeErr (concat "/ does not take a duration and a " (valueTypeName b)) "valDiv")))
+    )
+    (_ (typeErr (concat "/ does not take a " (valueTypeName a)) "valDiv"))))
+
+(:: floatDiv (-> Float Float (Result Value Error)))
+(fn (floatDiv x y)
+  (if (== y 0.0)
+    (arithErr "division by zero" "valDiv")
+    (Ok (VFloat (/ x y)))))
+
+;; `a % b`: the remainder, on ints. A zero divisor is `axqArithmetic`.
+(pub :: valMod (-> Value Value (Result Value Error)))
+(pub fn (valMod a b)
+  (match a
+    ((VInt x)
+      (match b
+        ((VInt y)
+          (if (== y 0)
+            (arithErr "remainder by zero" "valMod")
+            (if (&& (== x intMin) (== y -1))
+              (Ok (VInt 0))
+              (Ok (VInt (% x y)))))
+        )
+        (_ (typeErr (concat "% does not take an int and a " (valueTypeName b)) "valMod")))
+    )
+    (_ (typeErr (concat "% does not take a " (valueTypeName a)) "valMod"))))
+
+;; `-a`.
+(pub :: valNeg (-> Value (Result Value Error)))
+(pub fn (valNeg a)
+  (match a
+    ((VInt x)
+      (if (== x intMin)
+        (overflow "valNeg")
+        (Ok (VInt (- 0 x))))
+    )
+    ((VFloat x) (Ok (VFloat (- 0.0 x))))
+    ((VDuration x)
+      (if (== x intMin)
+        (overflow "valNeg")
+        (Ok (VDuration (- 0 x))))
+    )
+    (_ (typeErr (concat "- does not take a " (valueTypeName a)) "valNeg"))))
+
+;; Whether `haystack` holds `needle`: an element of an array, or a
+;; substring of text. Anything else is false, not an error, so a
+;; `WHERE` over mixed documents stays quiet.
+(pub :: valContains (-> Value Value Bool))
+(pub fn (valContains haystack needle)
+  (match haystack
+    ((VArray xs)
+      {
+        (let mut found false)
+        {
+          (for x in xs
+            (if (valEqual x needle)
+              (set found true)))
+          found
+        }
+      }
+    )
+    ((VText s)
+      (match needle
+        ((VText t) (isSome (strFind s t 0)))
+        (_ false))
+    )
+    (_ false)))
+
+;; `a ?= b`: `a` is `b`, or some element of array `a` is.
+(pub :: valAnyEq (-> Value Value Bool))
+(pub fn (valAnyEq a b)
+  (match a
+    ((VArray _) (valContains a b))
+    (_ (valEqual a b))))
+
+;; `a *= b`: `a` is `b`, or every element of nonempty array `a` is.
+(pub :: valAllEq (-> Value Value Bool))
+(pub fn (valAllEq a b)
+  (match a
+    ((VArray xs)
+      (if (== (vecLen xs) 0)
+        false
+        {
+          (let mut all true)
+          {
+            (for x in xs
+              (if (! (valEqual x b))
+                (set all false)))
+            all
+          }
+        })
+    )
+    (_ (valEqual a b))))
+
+; ------------------------------------------------------------------
+; Datetimes and durations, as text.
+; ------------------------------------------------------------------
+; A datetime as ISO 8601 text in UTC: 2026-11-03T10:15:30Z, with a
+; fractional part only when the microseconds need one.
+(:: datetimeText (-> Int String))
+(fn (datetimeText micros)
+  (match (datetimeOfMicros micros)
+    ((Err _) "1970-01-01T00:00:00Z")
+    ((Ok dt)
+      (match (datetimeFormat "%Y-%m-%dT%H:%M:%S" dt)
+        ((Err _) "1970-01-01T00:00:00Z")
+        ((Ok base)
+          {
+            (let rem (% micros 1000000))
+            (let frac
+              (if (< rem 0)
+                (+ rem 1000000)
+                rem))
+            (if (== frac 0)
+              (concat base "Z")
+              (concat (concat (concat base ".") (trimZeros (padMicros frac))) "Z"))
+          }
+        ))
+    )))
+
+(:: padMicros (-> Int String))
+(fn (padMicros n)
+  {
+    (let s (fmtInt n))
+    (let mut out s)
+    {
+      (while (< (strLen out) 6)
+        (set out (concat "0" out)))
+      out
     }
   })
+
+(:: trimZeros (-> String String))
+(fn (trimZeros s)
+  {
+    (let mut n (strLen s))
+    {
+      (while (&& (> n 0) (== (strByte s (- n 1)) 48))
+        (set n (- n 1)))
+      (strSlice s 0 n)
+    }
+  })
+
+; The microseconds a datetime text names: an RFC 3339 timestamp, a
+; naive datetime read as UTC, or a plain date at midnight.
+(:: parseDatetimeText (-> String (Option Int)))
+(fn (parseDatetimeText s)
+  (match (datetimeParseUtc s)
+    ((Ok dt) (Some (microsOfDatetime dt)))
+    ((Err _)
+      (match (datetimeParse s)
+        ((Ok dt) (Some (microsOfDatetime dt)))
+        ((Err _)
+          (match (dateParse s)
+            ((Ok d)
+              (match (timeParse "00:00:00")
+                ((Ok t) (Some (microsOfDatetime (datetimeNew d t))))
+                ((Err _) None))
+            )
+            ((Err _) None))
+        ))
+    )))
+
+; A duration written back in the units it is read in: the largest
+; units first, as `1h30m`. Zero is `0s`, and a negative duration
+; carries its sign in front.
+(:: durationText (-> Int String))
+(fn (durationText micros)
+  (if (== micros 0)
+    "0s"
+    (if (< micros 0)
+      (if (== micros intMin)
+        "-292471y"
+        (concat "-" (durationTextPos (- 0 micros))))
+      (durationTextPos micros))))
+
+(:: durationTextPos (-> Int String))
+(fn (durationTextPos micros)
+  {
+    (let parts vecNew)
+    (let mut left micros)
+    {
+      (set left (durationTake parts left 31536000000000 "y"))
+      (set left (durationTake parts left 604800000000 "w"))
+      (set left (durationTake parts left 86400000000 "d"))
+      (set left (durationTake parts left 3600000000 "h"))
+      (set left (durationTake parts left 60000000 "m"))
+      (set left (durationTake parts left 1000000 "s"))
+      (set left (durationTake parts left 1000 "ms"))
+      (set left (durationTake parts left 1 "us"))
+      (strJoin parts "")
+    }
+  })
+
+(:: durationTake (-> (Vec String) Int Int String Int))
+(fn (durationTake parts left factor unit)
+  {
+    (let n (/ left factor))
+    (if (> n 0)
+      {
+        (vecPush parts (concat (fmtInt n) unit))
+        (- left (* n factor))
+      }
+      left)
+  })
+
+; ------------------------------------------------------------------
+; Values as text.
+; ------------------------------------------------------------------
+;; A value written as AXQL: what a result prints as, and what a dump
+;; writes, so the text reads back as the same value. Text is quoted,
+;; a datetime is `d'...'`, a uuid `u'...'`, and a record `table:key`.
+(pub :: valueText (-> Value String))
+(pub fn (valueText v)
+  (match v
+    ((VNone) "none")
+    ((VBool b)
+      (if b
+        "true"
+        "false")
+    )
+    ((VInt n) (fmtInt n))
+    ((VFloat x) (floatText x))
+    ((VText s) (quoteText s))
+    ((VBytes s) (bytesText s))
+    ((VDatetime n) (concat (concat "d'" (datetimeText n)) "'"))
+    ((VDuration n) (durationText n))
+    ((VUuid s) (concat (concat "u'" (uuidText s)) "'"))
+    ((VArray xs)
+      {
+        (let parts vecNew)
+        {
+          (for x in xs
+            (vecPush parts (valueText x)))
+          (concat (concat "[" (strJoin parts ", ")) "]")
+        }
+      }
+    )
+    ((VObject fs)
+      {
+        (let parts vecNew)
+        {
+          (for f in fs
+            (vecPush parts (concat (concat (fieldNameText f.name) ": ") (valueText f.value))))
+          (concat (concat "{ " (strJoin parts ", ")) " }")
+        }
+      }
+    )
+    ((VRecord rid) (concat (concat rid.table ":") (keyText rid.key)))))
+
+; A value as the text a `<text>` cast answers: no quotes around
+; text, and containers as `valueText` writes them.
+(:: rawText (-> Value String))
+(fn (rawText v)
+  (match v
+    ((VText s) s)
+    ((VDatetime n) (datetimeText n))
+    ((VUuid s) (uuidText s))
+    ((VBytes s) s)
+    (_ (valueText v))))
+
+(:: floatText (-> Float String))
+(fn (floatText x)
+  (if (floatIsInfinite x)
+      (if (< x 0.0)
+        "-1e999"
+        "1e999")
+    (floatIsNan x)
+      "0.0"
+    {
+      (let s (floatToString x))
+      (if (|| (isSome (strFind s "." 0)) (|| (isSome (strFind s "e" 0)) (isSome (strFind s "E" 0))))
+        s
+        (concat s ".0"))
+    }))
+
+(:: quoteText (-> String String))
+(fn (quoteText s)
+  {
+    (let b strBuilderNew)
+    {
+      (strBuilderPush b "'")
+      (for i in 0..(strLen s)
+        {
+          (let c (strByte s i))
+          (if (== c 39)
+              (strBuilderPush b "\\'")
+            (== c 92)
+              (strBuilderPush b "\\\\")
+            (== c 10)
+              (strBuilderPush b "\\n")
+            (== c 13)
+              (strBuilderPush b "\\r")
+            (== c 9)
+              (strBuilderPush b "\\t")
+            (strBuilderPush b (strSlice s i 1)))
+        })
+      (strBuilderPush b "'")
+      (strBuilderFinish b)
+    }
+  })
+
+(:: bytesText (-> String String))
+(fn (bytesText s)
+  {
+    (let b strBuilderNew)
+    {
+      (strBuilderPush b "x'")
+      (for i in 0..(strLen s)
+        {
+          (let c (strByte s i))
+          (strBuilderPush b (hexPair c))
+        })
+      (strBuilderPush b "'")
+      (strBuilderFinish b)
+    }
+  })
+
+(:: hexPair (-> Int String))
+(fn (hexPair c)
+  (concat (hexDigitOf (/ c 16)) (hexDigitOf (% c 16))))
+
+(:: hexDigitOf (-> Int String))
+(fn (hexDigitOf d)
+  (strSlice "0123456789abcdef" d 1))
+
+(:: uuidText (-> String String))
+(fn (uuidText bytes)
+  (match (uuidFromBytes bytes)
+    ((Ok u) (uuidToString u))
+    ((Err _) (bytesText bytes))))
+
+; A field name as an object writes it: bare when it is a plain name,
+; quoted otherwise.
+(:: fieldNameText (-> String String))
+(fn (fieldNameText name)
+  (if (isPlainName name)
+    name
+    (quoteText name)))
+
+(:: isPlainName (-> String Bool))
+(fn (isPlainName s)
+  (if (== (strLen s) 0)
+    false
+    {
+      (let mut ok (|| (strIsAlpha (strByte s 0)) (== (strByte s 0) 95)))
+      {
+        (for i in 1..(strLen s)
+          (if (!
+                (|| (strIsAlpha (strByte s i))
+                  (|| (strIsDigit (strByte s i)) (== (strByte s i) 95))))
+            (set ok false)))
+        ok
+      }
+    }))
+
+; A record's key as `table:key` writes it: a number bare, a plain
+; name bare (hyphens welcome), any other text quoted, a uuid as one.
+(:: keyText (-> Value String))
+(fn (keyText k)
+  (match k
+    ((VInt n) (fmtInt n))
+    ((VText s)
+      (if (isKeyName s)
+        s
+        (quoteText s))
+    )
+    ((VUuid s) (uuidText s))
+    (_ (valueText k))))
+
+(:: isKeyName (-> String Bool))
+(fn (isKeyName s)
+  (if (== (strLen s) 0)
+    false
+    {
+      (let mut ok (! (strIsDigit (strByte s 0))))
+      {
+        (for i in 0..(strLen s)
+          {
+            (let c (strByte s i))
+            (if (! (|| (strIsAlpha c) (|| (strIsDigit c) (|| (== c 95) (== c 45)))))
+              (set ok false))
+          })
+        ; A digits-only key would read back as a number.
+        (&& ok (isNone (strParseInt s)))
+      }
+    }))
+
+; ------------------------------------------------------------------
+; Casts and types.
+; ------------------------------------------------------------------
+; The float `x` truncated toward zero, when it fits in an int.
+(:: truncToInt (-> Float (Option Int)))
+(fn (truncToInt x)
+  (if (|| (floatIsNan x) (|| (>= x 9223372036854775808.0) (< x -9223372036854775808.0)))
+    None
+    (Some (as x Int))))
+
+;; `v` cast to `t`, as `<text>`, `type::int` and a field's `TYPE`
+;; do. `none` casts to `none` at every type. A cast that can't be
+;; made is `axqType`.
+(pub :: valCast (-> TypeExpr Value (Result Value Error)))
+(pub fn (valCast t v)
+  (match v
+    ((VNone) (Ok VNone))
+    (_ (castValue t v))))
+
+(:: castValue (-> TypeExpr Value (Result Value Error)))
+(fn (castValue t v)
+  (match t
+    ((TyAny) (Ok v))
+    ((TyBool) (castBool v))
+    ((TyInt) (castInt v))
+    ((TyFloat) (castFloat v))
+    ((TyText) (Ok (VText (rawText v))))
+    ((TyBytes)
+      (match v
+        ((VBytes _) (Ok v))
+        ((VText s) (Ok (VBytes s)))
+        (_ (castErr t v)))
+    )
+    ((TyDatetime)
+      (match v
+        ((VDatetime _) (Ok v))
+        ((VInt n) (Ok (VDatetime n)))
+        ((VText s)
+          (match (parseDatetimeText s)
+            ((Some n) (Ok (VDatetime n)))
+            ((None) (castErr t v)))
+        )
+        (_ (castErr t v)))
+    )
+    ((TyDuration)
+      (match v
+        ((VDuration _) (Ok v))
+        ((VInt n) (Ok (VDuration n)))
+        ((VText s)
+          (match (axqlParseDuration s)
+            ((Some n) (Ok (VDuration n)))
+            ((None) (castErr t v)))
+        )
+        (_ (castErr t v)))
+    )
+    ((TyUuid)
+      (match v
+        ((VUuid _) (Ok v))
+        ((VText s)
+          (match (uuidParse s)
+            ((Ok u) (Ok (VUuid (uuidBytes u))))
+            ((Err _) (castErr t v)))
+        )
+        ((VBytes s)
+          (if (== (strLen s) 16)
+            (Ok (VUuid s))
+            (castErr t v))
+        )
+        (_ (castErr t v)))
+    )
+    ((TyArray)
+      (match v
+        ((VArray _) (Ok v))
+        (_ (Ok (VArray (vecPush vecNew v)))))
+    )
+    ((TyObject)
+      (match v
+        ((VObject _) (Ok v))
+        (_ (castErr t v)))
+    )
+    ((TyRecord) (castRecord v ""))
+    ((TyRecordOf table) (castRecord v table))
+    ((TyOption inner) (castValue inner v))
+    ((TyArrayOf inner)
+      {
+        (let arr (castValue TyArray v)?)
+        (match arr
+          ((VArray xs) (castEach inner xs))
+          (_ (castErr t v)))
+      }
+    )))
+
+(:: castErr (-> TypeExpr Value (Result a Error)))
+(fn (castErr t v)
+  (typeErr (concat (concat (concat "a " (valueTypeName v)) " can't be cast to ") (typeText t))
+    "valCast"))
+
+;; A type as AXQL spells it.
+(pub :: typeText (-> TypeExpr String))
+(pub fn (typeText t)
+  (match t
+    ((TyAny) "any")
+    ((TyBool) "bool")
+    ((TyInt) "int")
+    ((TyFloat) "float")
+    ((TyText) "text")
+    ((TyBytes) "bytes")
+    ((TyDatetime) "datetime")
+    ((TyDuration) "duration")
+    ((TyUuid) "uuid")
+    ((TyArray) "array")
+    ((TyObject) "object")
+    ((TyRecord) "record")
+    ((TyRecordOf table) (concat (concat "record<" table) ">"))
+    ((TyOption inner) (concat (concat "option<" (typeText inner)) ">"))
+    ((TyArrayOf inner) (concat (concat "array<" (typeText inner)) ">"))))
+
+(:: castBool (-> Value (Result Value Error)))
+(fn (castBool v)
+  (match v
+    ((VBool _) (Ok v))
+    ((VInt n) (Ok (VBool (!= n 0))))
+    ((VFloat x) (Ok (VBool (&& (!= x 0.0) (! (floatIsNan x))))))
+    ((VText s)
+      (if (strEq s "true")
+          (Ok (VBool true))
+        (strEq s "false")
+          (Ok (VBool false))
+        (castErr TyBool v))
+    )
+    (_ (castErr TyBool v))))
+
+(:: castInt (-> Value (Result Value Error)))
+(fn (castInt v)
+  (match v
+    ((VInt _) (Ok v))
+    ((VFloat x)
+      (match (truncToInt x)
+        ((Some n) (Ok (VInt n)))
+        ((None) (castErr TyInt v)))
+    )
+    ((VBool b)
+      (Ok
+        (VInt
+          (if b
+            1
+            0)))
+    )
+    ((VText s)
+      (match (strParseInt (strTrim s))
+        ((Some n) (Ok (VInt n)))
+        ((None) (castErr TyInt v)))
+    )
+    ((VDatetime n) (Ok (VInt n)))
+    ((VDuration n) (Ok (VInt n)))
+    (_ (castErr TyInt v))))
+
+(:: castFloat (-> Value (Result Value Error)))
+(fn (castFloat v)
+  (match v
+    ((VFloat _) (Ok v))
+    ((VInt n) (Ok (VFloat (intToFloat n))))
+    ((VBool b)
+      (Ok
+        (VFloat
+          (if b
+            1.0
+            0.0)))
+    )
+    ((VText s)
+      (match (floatParse (strTrim s))
+        ((Ok x)
+          (if (floatIsNan x)
+            (castErr TyFloat v)
+            (Ok (VFloat x)))
+        )
+        ((Err _) (castErr TyFloat v)))
+    )
+    (_ (castErr TyFloat v))))
+
+(:: castRecord (-> Value String (Result Value Error)))
+(fn (castRecord v table)
+  (match v
+    ((VRecord rid)
+      (if (|| (strIsEmpty table) (strEq rid.table table))
+        (Ok v)
+        (typeErr (concat (concat (concat "a record of " rid.table) " is not a record of ") table)
+          "valCast"))
+    )
+    ((VText s)
+      (match (recordOfText s)
+        ((Some r) (castRecord r table))
+        ((None) (typeErr (concat "not a record id: " s) "valCast")))
+    )
+    (_ (castErr TyRecord v))))
+
+; The record a `table:key` text names. A key that reads as an int is
+; an int key, and one in uuid shape a uuid, so text that `valueText`
+; wrote reads back whole.
+(:: recordOfText (-> String (Option Value)))
+(fn (recordOfText s)
+  (match (strFind s ":" 0)
+    ((None) None)
+    ((Some at)
+      {
+        (let table (strSlice s 0 at))
+        (let rest (strSlice s (+ at 1) (- (strLen s) (+ at 1))))
+        (if (|| (strIsEmpty table) (strIsEmpty rest))
+          None
+          (Some (recordId table (keyOfText rest))))
+      }
+    )))
+
+(:: keyOfText (-> String Value))
+(fn (keyOfText s)
+  (match (strParseInt s)
+    ((Some n) (VInt n))
+    ((None)
+      (match (uuidParse s)
+        ((Ok u) (VUuid (uuidBytes u)))
+        ((Err _) (VText s)))
+    )))
+
+(:: castEach (-> TypeExpr (Vec Value) (Result Value Error)))
+(fn (castEach t xs)
+  {
+    (let out vecNew)
+    (let mut failure None)
+    {
+      (for x in xs
+        (if (isNone failure)
+          (match (valCast t x)
+            ((Ok y) (vecPush out y))
+            ((Err e)
+              (set failure (Some e))
+            ))))
+      (match failure
+        ((Some e) (Err e))
+        ((None) (Ok (VArray out))))
+    }
+  })
+
+;; Whether `v` is of type `t`, with no conversion: what a schemafull
+;; field checks after a cast, and what `type::is` answers.
+(pub :: valIsType (-> TypeExpr Value Bool))
+(pub fn (valIsType t v)
+  (match t
+    ((TyAny) true)
+    ((TyBool)
+      (match v
+        ((VBool _) true)
+        (_ false))
+    )
+    ((TyInt)
+      (match v
+        ((VInt _) true)
+        (_ false))
+    )
+    ((TyFloat)
+      (match v
+        ((VFloat _) true)
+        ((VInt _) true)
+        (_ false))
+    )
+    ((TyText)
+      (match v
+        ((VText _) true)
+        (_ false))
+    )
+    ((TyBytes)
+      (match v
+        ((VBytes _) true)
+        (_ false))
+    )
+    ((TyDatetime)
+      (match v
+        ((VDatetime _) true)
+        (_ false))
+    )
+    ((TyDuration)
+      (match v
+        ((VDuration _) true)
+        (_ false))
+    )
+    ((TyUuid)
+      (match v
+        ((VUuid _) true)
+        (_ false))
+    )
+    ((TyArray)
+      (match v
+        ((VArray _) true)
+        (_ false))
+    )
+    ((TyObject)
+      (match v
+        ((VObject _) true)
+        (_ false))
+    )
+    ((TyRecord)
+      (match v
+        ((VRecord _) true)
+        (_ false))
+    )
+    ((TyRecordOf table)
+      (match v
+        ((VRecord rid) (strEq rid.table table))
+        (_ false))
+    )
+    ((TyOption inner)
+      (match v
+        ((VNone) true)
+        (_ (valIsType inner v)))
+    )
+    ((TyArrayOf inner)
+      (match v
+        ((VArray xs)
+          {
+            (let mut all true)
+            {
+              (for x in xs
+                (if (! (valIsType inner x))
+                  (set all false)))
+              all
+            }
+          }
+        )
+        (_ false))
+    )))
+
+; ------------------------------------------------------------------
+; Paths into documents.
+; ------------------------------------------------------------------
+;; The field `name` of `v`: a document's field, and `none` for
+;; anything else or a missing field.
+(pub :: valField (-> Value String Value))
+(pub fn (valField v name)
+  (match (objGet v name)
+    ((Some x) x)
+    ((None) VNone)))
+
+;; `v` at index `key`: an array element (negative counts from the
+;; end), a document field by text key, and `none` otherwise.
+(pub :: valIndex (-> Value Value Value))
+(pub fn (valIndex v key)
+  (match key
+    ((VInt i)
+      (match v
+        ((VArray xs)
+          {
+            (let n (vecLen xs))
+            (let at
+              (if (< i 0)
+                (+ n i)
+                i))
+            (if (&& (>= at 0) (< at n))
+              (vecGet xs at)
+              VNone)
+          }
+        )
+        (_ VNone))
+    )
+    ((VText name) (valField v name))
+    (_ VNone)))
+
+; The fields a dotted path walks, as its pieces.
+(:: pathPieces (-> String (Vec String)))
+(fn (pathPieces path)
+  (strSplit path 46))
+
+;; The value at dotted `path` in `v`, or `none`.
+(pub :: valGetPath (-> Value String Value))
+(pub fn (valGetPath v path)
+  {
+    (let mut cur v)
+    {
+      (for piece in (pathPieces path)
+        (set cur (valStep cur piece)))
+      cur
+    }
+  })
+
+(:: valStep (-> Value String Value))
+(fn (valStep v piece)
+  (match v
+    ((VArray _)
+      (match (strParseInt piece)
+        ((Some i) (valIndex v (VInt i)))
+        ((None) (valField v piece)))
+    )
+    (_ (valField v piece))))
+
+;; `v` with dotted `path` set to `value`, making documents on the
+;; way. A numeric piece steps into an array when the value at hand
+;; is one, growing it with `none` up to the index.
+(pub :: valSetPath (-> Value String Value Value))
+(pub fn (valSetPath v path value)
+  (setPieces v (pathPieces path) 0 value))
+
+(:: setPieces (-> Value (Vec String) Int Value Value))
+(fn (setPieces v pieces i value)
+  {
+    (let piece (vecGet pieces i))
+    (if (== i (- (vecLen pieces) 1))
+      (match v
+        ((VArray xs)
+          (match (strParseInt piece)
+            ((Some at) (VArray (setAt xs at value)))
+            ((None) v))
+        )
+        (_ (objSet (asObject v) piece value)))
+      (match v
+        ((VArray xs)
+          (match (strParseInt piece)
+            ((Some at)
+              (VArray (setAt xs at (setPieces (valIndex v (VInt at)) pieces (+ i 1) value)))
+            )
+            ((None) v))
+        )
+        (_ (objSet (asObject v) piece (setPieces (valField v piece) pieces (+ i 1) value)))))
+  })
+
+(:: asObject (-> Value Value))
+(fn (asObject v)
+  (match v
+    ((VObject _) v)
+    (_ emptyObject)))
+
+(:: setAt (-> (Vec Value) Int Value (Vec Value)))
+(fn (setAt xs at value)
+  {
+    (let out vecNew)
+    {
+      (for x in xs
+        (vecPush out x))
+      (if (< at 0)
+        out
+        {
+          (while (< (vecLen out) at)
+            (vecPush out VNone))
+          (if (== (vecLen out) at)
+            (vecPush out value)
+            (vecSet out at value))
+          out
+        })
+    }
+  })
+
+;; `v` with dotted `path` removed.
+(pub :: valDelPath (-> Value String Value))
+(pub fn (valDelPath v path)
+  (delPieces v (pathPieces path) 0))
+
+(:: delPieces (-> Value (Vec String) Int Value))
+(fn (delPieces v pieces i)
+  {
+    (let piece (vecGet pieces i))
+    (if (== i (- (vecLen pieces) 1))
+      (match v
+        ((VArray xs)
+          (match (strParseInt piece)
+            ((Some at) (VArray (removeAt xs at)))
+            ((None) v))
+        )
+        ((VObject _) (objDel v piece))
+        (_ v))
+      (match v
+        ((VObject _) (objSet v piece (delPieces (valField v piece) pieces (+ i 1))))
+        (_ v)))
+  })
+
+(:: removeAt (-> (Vec Value) Int (Vec Value)))
+(fn (removeAt xs at)
+  {
+    (let out vecNew)
+    {
+      (for (x i) in xs
+        (if (!= i at)
+          (vecPush out x)))
+      out
+    }
+  })
+
+;; Deep-merge `patch` into `base`: documents merge field by field,
+;; and anything else in the patch replaces. What `MERGE` does.
+(pub :: valMerge (-> Value Value Value))
+(pub fn (valMerge base patch)
+  (match patch
+    ((VObject fs)
+      {
+        (let mut out (asObject base))
+        {
+          (for f in fs
+            (set out (objSet out f.name (valMerge (valField out f.name) f.value))))
+          out
+        }
+      }
+    )
+    (_ patch)))
+
+; ------------------------------------------------------------------
+; Patches and diffs. A patch is an array of {op, path, value?, from?}
+; documents with `/a/0/b` pointer paths (`~1` for /, `~0` for ~).
+; ------------------------------------------------------------------
+;; Apply a patch to `base`, as a `PATCH` clause does. A malformed
+;; operation is `axqType`; a failed `test` is `axqConstraint`.
+(pub :: valPatch (-> Value Value (Result Value Error)))
+(pub fn (valPatch base patch)
+  (match patch
+    ((VArray ops) (applyOps base ops 0))
+    (_ (typeErr "a PATCH takes an array of operations" "valPatch"))))
+
+(:: applyOps (-> Value (Vec Value) Int (Result Value Error)))
+(fn (applyOps cur ops i)
+  (if (>= i (vecLen ops))
+    (Ok cur)
+    {
+      (let next (applyOp cur (vecGet ops i))?)
+      (applyOps next ops (+ i 1))
+    }))
+
+(:: applyOp (-> Value Value (Result Value Error)))
+(fn (applyOp cur op)
+  {
+    (let name (textOr (valField op "op") ""))
+    (let path (textOr (valField op "path") ""))
+    (let pieces (pointerPieces path))
+    (if (strEq name "add")
+        (Ok (patchSet cur pieces 0 (valField op "value")))
+      (strEq name "replace")
+        (Ok (patchSet cur pieces 0 (valField op "value")))
+      (strEq name "remove")
+        (Ok (patchDel cur pieces 0))
+      (strEq name "copy")
+        {
+          (let from (pointerPieces (textOr (valField op "from") "")))
+          (Ok (patchSet cur pieces 0 (patchGet cur from 0)))
+        }
+      (strEq name "move")
+        {
+          (let from (pointerPieces (textOr (valField op "from") "")))
+          {
+            (let moved (patchGet cur from 0))
+            (Ok (patchSet (patchDel cur from 0) pieces 0 moved))
+          }
+        }
+      (strEq name "test")
+        (if (valEqual (patchGet cur pieces 0) (valField op "value"))
+          (Ok cur)
+          (axqErr axqConstraint (concat "a patch test failed at " path) "valPatch"))
+      (typeErr (concat "no such patch operation: " name) "valPatch"))
+  })
+
+(:: textOr (-> Value String String))
+(fn (textOr v dflt)
+  (match v
+    ((VText s) s)
+    (_ dflt)))
+
+(:: pointerPieces (-> String (Vec String)))
+(fn (pointerPieces path)
+  (if (strIsEmpty path)
+    vecNew
+    {
+      (let raw (strSplit path 47))
+      (let out vecNew)
+      {
+        (for (piece i) in raw
+          (if (> i 0)
+            (vecPush out (unescapePointer piece))))
+        out
+      }
+    }))
+
+(:: unescapePointer (-> String String))
+(fn (unescapePointer piece)
+  {
+    (let b strBuilderNew)
+    (let mut i 0)
+    {
+      (while (< i (strLen piece))
+        {
+          (let c (strByte piece i))
+          (if (&& (== c 126) (< (+ i 1) (strLen piece)))
+            {
+              (strBuilderPush b
+                (if (== (strByte piece (+ i 1)) 49)
+                  "/"
+                  "~"))
+              (set i (+ i 2))
+            }
+            {
+              (strBuilderPush b (strSlice piece i 1))
+              (set i (+ i 1))
+            })
+        })
+      (strBuilderFinish b)
+    }
+  })
+
+(:: patchGet (-> Value (Vec String) Int Value))
+(fn (patchGet v pieces i)
+  (if (>= i (vecLen pieces))
+    v
+    (patchGet (valStep v (vecGet pieces i)) pieces (+ i 1))))
+
+(:: patchSet (-> Value (Vec String) Int Value Value))
+(fn (patchSet v pieces i value)
+  (if (>= i (vecLen pieces))
+    value
+    {
+      (let piece (vecGet pieces i))
+      (match v
+        ((VArray xs)
+          (if (strEq piece "-")
+            (VArray (setAt xs (vecLen xs) (patchSet VNone pieces (+ i 1) value)))
+            (match (strParseInt piece)
+              ((Some at)
+                (VArray (setAt xs at (patchSet (valIndex v (VInt at)) pieces (+ i 1) value)))
+              )
+              ((None) v)))
+        )
+        (_ (objSet (asObject v) piece (patchSet (valField v piece) pieces (+ i 1) value))))
+    }))
+
+(:: patchDel (-> Value (Vec String) Int Value))
+(fn (patchDel v pieces i)
+  (if (>= i (vecLen pieces))
+    VNone
+    {
+      (let piece (vecGet pieces i))
+      (if (== i (- (vecLen pieces) 1))
+        (match v
+          ((VArray xs)
+            (match (strParseInt piece)
+              ((Some at) (VArray (removeAt xs at)))
+              ((None) v))
+          )
+          ((VObject _) (objDel v piece))
+          (_ v))
+        (match v
+          ((VObject _) (objSet v piece (patchDel (valField v piece) pieces (+ i 1))))
+          (_ v)))
+    }))
+
+;; The patch that turns `before` into `after`: what `RETURN DIFF`
+;; answers, and what a later `PATCH` can apply.
+(pub :: valDiff (-> Value Value Value))
+(pub fn (valDiff before after)
+  {
+    (let ops vecNew)
+    {
+      (diffInto ops "" before after)
+      (VArray ops)
+    }
+  })
+
+(:: diffInto (-> (Vec Value) String Value Value Int))
+(fn (diffInto ops path before after)
+  (if (valIdentical before after)
+    0
+    (match before
+      ((VObject xs)
+        (match after
+          ((VObject ys) (diffObjects ops path xs ys))
+          (_ (pushOp ops "replace" path after)))
+      )
+      (_ (pushOp ops "replace" path after)))))
+
+(:: diffObjects (-> (Vec Value) String (Vec Field) (Vec Field) Int))
+(fn (diffObjects ops path xs ys)
+  {
+    (for f in ys
+      (match (objGet (VObject xs) f.name)
+        ((None) (pushOp ops "add" (concat (concat path "/") (escapePointer f.name)) f.value))
+        ((Some old) (diffInto ops (concat (concat path "/") (escapePointer f.name)) old f.value))))
+    {
+      (for f in xs
+        (if (isNone (objGet (VObject ys) f.name))
+          (pushOp ops "remove" (concat (concat path "/") (escapePointer f.name)) VNone)))
+      0
+    }
+  })
+
+(:: pushOp (-> (Vec Value) String String Value Int))
+(fn (pushOp ops op path value)
+  {
+    (let fs vecNew)
+    {
+      (vecPush fs (Field :name "op" :value (VText op)))
+      (vecPush fs (Field :name "path" :value (VText path)))
+      (if (! (strEq op "remove"))
+        (vecPush fs (Field :name "value" :value value)))
+      (vecPush ops (VObject fs))
+      0
+    }
+  })
+
+(:: escapePointer (-> String String))
+(fn (escapePointer piece)
+  {
+    (let b strBuilderNew)
+    {
+      (for i in 0..(strLen piece)
+        {
+          (let c (strByte piece i))
+          (strBuilderPush b
+            (if (== c 126)
+                "~0"
+              (== c 47)
+                "~1"
+              (strSlice piece i 1)))
+        })
+      (strBuilderFinish b)
+    }
+  })
+
+; ------------------------------------------------------------------
+; Built-in functions. `evalBuiltin` answers (Some value) for the
+; pure ones it knows, and `None` for a name it does not, so the
+; executor can answer the ones that need a database or the clock
+; (`time::now`, `rand::*`, `record::exists`, `fn::*`).
+; ------------------------------------------------------------------
+;; Whether `name` is a function AXQL provides.
+(pub :: axqlIsBuiltin (-> String Bool))
+(pub fn (axqlIsBuiltin name)
+  (isSome (builtinArity name)))
+
+(:: builtinArity (-> String (Option String)))
+(fn (builtinArity name)
+  (if (isMathFn name)
+      (Some name)
+    (isStringFn name)
+      (Some name)
+    (isArrayFn name)
+      (Some name)
+    (isObjectFn name)
+      (Some name)
+    (isTypeFn name)
+      (Some name)
+    (isRecordFn name)
+      (Some name)
+    (|| (strEq name "count")
+      (|| (strEq name "time::now")
+        (|| (strEq name "rand::uuid") (|| (strEq name "rand::int") (strEq name "rand::float")))))
+      (Some name)
+    None))
+
+(:: isMathFn (-> String Bool))
+(fn (isMathFn name)
+  (|| (strEq name "math::abs")
+    (|| (strEq name "math::ceil")
+      (|| (strEq name "math::floor")
+        (|| (strEq name "math::round")
+          (|| (strEq name "math::sqrt")
+            (|| (strEq name "math::min")
+              (|| (strEq name "math::max")
+                (|| (strEq name "math::sum") (strEq name "math::mean"))))))))))
+
+(:: isStringFn (-> String Bool))
+(fn (isStringFn name)
+  (|| (strEq name "string::len")
+    (|| (strEq name "string::lowercase")
+      (|| (strEq name "string::uppercase")
+        (|| (strEq name "string::trim")
+          (|| (strEq name "string::contains")
+            (|| (strEq name "string::startsWith")
+              (|| (strEq name "string::endsWith")
+                (|| (strEq name "string::replace")
+                  (|| (strEq name "string::split")
+                    (|| (strEq name "string::join") (strEq name "string::slice"))))))))))))
+
+(:: isArrayFn (-> String Bool))
+(fn (isArrayFn name)
+  (|| (strEq name "array::len")
+    (|| (strEq name "array::first")
+      (|| (strEq name "array::last")
+        (|| (strEq name "array::push")
+          (|| (strEq name "array::concat")
+            (|| (strEq name "array::sort")
+              (|| (strEq name "array::reverse")
+                (|| (strEq name "array::distinct") (strEq name "array::flatten"))))))))))
+
+(:: isObjectFn (-> String Bool))
+(fn (isObjectFn name)
+  (|| (strEq name "object::keys")
+    (|| (strEq name "object::values") (strEq name "object::entries"))))
+
+(:: isTypeFn (-> String Bool))
+(fn (isTypeFn name)
+  (|| (strEq name "type::is")
+    (|| (strEq name "type::bool")
+      (|| (strEq name "type::int")
+        (|| (strEq name "type::float")
+          (|| (strEq name "type::text")
+            (|| (strEq name "type::string")
+              (|| (strEq name "type::record")
+                (|| (strEq name "type::uuid") (strEq name "type::datetime"))))))))))
+
+(:: isRecordFn (-> String Bool))
+(fn (isRecordFn name)
+  (|| (strEq name "record::id") (|| (strEq name "record::tb") (strEq name "record::exists"))))
+
+(:: fnErr (-> String String (Result a Error)))
+(fn (fnErr name msg)
+  (typeErr (concat (concat name ": ") msg) "evalBuiltin"))
+
+(:: needArgs (-> String (Vec Value) Int (Result Int Error)))
+(fn (needArgs name args n)
+  (if (== (vecLen args) n)
+    (Ok 0)
+    (fnErr name
+      (concat (concat (concat "takes " (fmtInt n)) " arguments, got ") (fmtInt (vecLen args))))))
+
+(:: argAt (-> (Vec Value) Int Value))
+(fn (argAt args i)
+  (vecGet args i))
+
+(:: textArg (-> String (Vec Value) Int (Result String Error)))
+(fn (textArg name args i)
+  (match (argAt args i)
+    ((VText s) (Ok s))
+    (_ (fnErr name "expected text"))))
+
+(:: numArg (-> String (Vec Value) Int (Result Value Error)))
+(fn (numArg name args i)
+  {
+    (let v (argAt args i))
+    (match v
+      ((VInt _) (Ok v))
+      ((VFloat _) (Ok v))
+      (_ (fnErr name "expected a number")))
+  })
+
+(:: arrayArg (-> String (Vec Value) Int (Result (Vec Value) Error)))
+(fn (arrayArg name args i)
+  (match (argAt args i)
+    ((VArray xs) (Ok xs))
+    (_ (fnErr name "expected an array"))))
+
+;; Call a pure built-in. `None` when `name` is not one of these, so
+;; the caller can try the rest.
+(pub :: evalBuiltin (-> String (Vec Value) (Result (Option Value) Error)))
+(pub fn (evalBuiltin name args)
+  (if (isMathFn name)
+      (mathFn name args)
+    (isStringFn name)
+      (stringFn name args)
+    (isArrayFn name)
+      (arrayFn name args)
+    (isObjectFn name)
+      (objectFn name args)
+    (isTypeFn name)
+      (typeFn name args)
+    (strEq name "record::id")
+      {
+        (let _ (needArgs name args 1)?)
+        (match (argAt args 0)
+          ((VRecord rid) (Ok (Some rid.key)))
+          (_ (fnErr name "expected a record")))
+      }
+    (strEq name "record::tb")
+      {
+        (let _ (needArgs name args 1)?)
+        (match (argAt args 0)
+          ((VRecord rid) (Ok (Some (VText rid.table))))
+          (_ (fnErr name "expected a record")))
+      }
+    (strEq name "count")
+      (countFn args)
+    (Ok None)))
+
+(:: countFn (-> (Vec Value) (Result (Option Value) Error)))
+(fn (countFn args)
+  (if (!= (vecLen args) 1)
+    (fnErr "count" "takes one argument")
+    (Ok
+      (Some
+        (VInt
+          (match (argAt args 0)
+            ((VArray xs)
+              {
+                (let mut n 0)
+                {
+                  (for x in xs
+                    (match x
+                      ((VNone) 0)
+                      (_
+                        (set n (+ n 1))
+                      )))
+                  n
+                }
+              }
+            )
+            ((VNone) 0)
+            (_ 1)))))))
+
+; The numbers of a math aggregate: one array argument, or the
+; arguments themselves.
+(:: numList (-> String (Vec Value) (Result (Vec Value) Error)))
+(fn (numList name args)
+  (if (== (vecLen args) 1)
+    (match (argAt args 0)
+      ((VArray xs) (Ok xs))
+      (_ (Ok args)))
+    (if (== (vecLen args) 0)
+      (fnErr name "takes at least one argument")
+      (Ok args))))
+
+(:: mathFn (-> String (Vec Value) (Result (Option Value) Error)))
+(fn (mathFn name args)
+  (if (strEq name "math::abs")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let v (numArg name args 0)?)
+          (match v
+            ((VInt n)
+              (if (== n intMin)
+                (overflow "math::abs")
+                (Ok
+                  (Some
+                    (VInt
+                      (if (< n 0)
+                        (- 0 n)
+                        n)))))
+            )
+            ((VFloat x) (Ok (Some (VFloat (floatAbs x)))))
+            (_ (fnErr name "expected a number")))
+        }
+      }
+    (strEq name "math::sqrt")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let v (numArg name args 0)?)
+          (match (asFloat v)
+            ((Some x)
+              (if (< x 0.0)
+                (arithErr "the square root of a negative number" "math::sqrt")
+                (Ok (Some (VFloat (floatSqrt x)))))
+            )
+            ((None) (fnErr name "expected a number")))
+        }
+      }
+    (strEq name "math::floor")
+      (roundFn name args 0)
+    (strEq name "math::ceil")
+      (roundFn name args 1)
+    (strEq name "math::round")
+      (roundFn name args 2)
+    (strEq name "math::sum")
+      (sumFn name args)
+    (strEq name "math::mean")
+      (meanFn name args)
+    (strEq name "math::min")
+      (minMaxFn name args false)
+    (minMaxFn name args true)))
+
+; mode: 0 floor, 1 ceil, 2 round (halves away from zero). Ints pass
+; through; a float too large to name whole is already whole.
+(:: roundFn (-> String (Vec Value) Int (Result (Option Value) Error)))
+(fn (roundFn name args mode)
+  {
+    (let _ (needArgs name args 1)?)
+    {
+      (let v (numArg name args 0)?)
+      (match v
+        ((VInt _) (Ok (Some v)))
+        ((VFloat x)
+          (match (truncToInt x)
+            ((None) (Ok (Some v)))
+            ((Some t)
+              {
+                (let frac (- x (intToFloat t)))
+                (Ok
+                  (Some
+                    (VInt
+                      (if (== mode 0)
+                          (if (< frac 0.0)
+                            (- t 1)
+                            t)
+                        (== mode 1)
+                          (if (> frac 0.0)
+                            (+ t 1)
+                            t)
+                        (if (>= frac 0.5)
+                          (+ t 1)
+                          (if (<= frac -0.5)
+                            (- t 1)
+                            t))))))
+              }
+            ))
+        )
+        (_ (fnErr name "expected a number")))
+    }
+  })
+
+(:: sumFn (-> String (Vec Value) (Result (Option Value) Error)))
+(fn (sumFn name args)
+  {
+    (let xs (numList name args)?)
+    {
+      (let mut total (VInt 0))
+      (let mut failure None)
+      {
+        (for x in xs
+          (match x
+            ((VNone) 0)
+            (_
+              (if (isNone failure)
+                (match (valAdd total x)
+                  ((Ok r)
+                    (set total r)
+                  )
+                  ((Err e)
+                    (set failure (Some e))
+                  )))
+            )))
+        (match failure
+          ((Some e) (Err e))
+          ((None) (Ok (Some total))))
+      }
+    }
+  })
+
+(:: meanFn (-> String (Vec Value) (Result (Option Value) Error)))
+(fn (meanFn name args)
+  {
+    (let xs (numList name args)?)
+    {
+      (let mut total 0.0)
+      (let mut n 0)
+      (let mut bad false)
+      {
+        (for x in xs
+          (match (asFloat x)
+            ((Some f)
+              {
+                (set total (+ total f))
+                (set n (+ n 1))
+              }
+            )
+            ((None)
+              (match x
+                ((VNone) 0)
+                (_
+                  (set bad true)
+                ))
+            )))
+        (if bad
+          (fnErr name "expected numbers")
+          (if (== n 0)
+            (Ok (Some VNone))
+            (Ok (Some (VFloat (/ total (intToFloat n)))))))
+      }
+    }
+  })
+
+(:: minMaxFn (-> String (Vec Value) Bool (Result (Option Value) Error)))
+(fn (minMaxFn name args isMax)
+  {
+    (let xs (numList name args)?)
+    {
+      (let mut best VNone)
+      (let mut any false)
+      {
+        (for x in xs
+          (match x
+            ((VNone) 0)
+            (_
+              (if (! any)
+                {
+                  (set best x)
+                  (set any true)
+                }
+                (if (if isMax
+                  (> (valCompare x best) 0)
+                  (< (valCompare x best) 0))
+                  (set best x)))
+            )))
+        (Ok (Some best))
+      }
+    }
+  })
+
+(:: stringFn (-> String (Vec Value) (Result (Option Value) Error)))
+(fn (stringFn name args)
+  (if (strEq name "string::len")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let s (textArg name args 0)?)
+          (Ok (Some (VInt (utf8Len s))))
+        }
+      }
+    (strEq name "string::lowercase")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let s (textArg name args 0)?)
+          (Ok (Some (VText (strLower s))))
+        }
+      }
+    (strEq name "string::uppercase")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let s (textArg name args 0)?)
+          (Ok (Some (VText (strUpper s))))
+        }
+      }
+    (strEq name "string::trim")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let s (textArg name args 0)?)
+          (Ok (Some (VText (strTrim s))))
+        }
+      }
+    (strEq name "string::contains")
+      {
+        (let _ (needArgs name args 2)?)
+        {
+          (let s (textArg name args 0)?)
+          {
+            (let t (textArg name args 1)?)
+            (Ok (Some (VBool (isSome (strFind s t 0)))))
+          }
+        }
+      }
+    (strEq name "string::startsWith")
+      {
+        (let _ (needArgs name args 2)?)
+        {
+          (let s (textArg name args 0)?)
+          {
+            (let t (textArg name args 1)?)
+            (Ok (Some (VBool (strStartsWith s t))))
+          }
+        }
+      }
+    (strEq name "string::endsWith")
+      {
+        (let _ (needArgs name args 2)?)
+        {
+          (let s (textArg name args 0)?)
+          {
+            (let t (textArg name args 1)?)
+            (Ok (Some (VBool (endsWith s t))))
+          }
+        }
+      }
+    (strEq name "string::replace")
+      {
+        (let _ (needArgs name args 3)?)
+        {
+          (let s (textArg name args 0)?)
+          {
+            (let from (textArg name args 1)?)
+            {
+              (let to (textArg name args 2)?)
+              (Ok (Some (VText (replaceAll s from to))))
+            }
+          }
+        }
+      }
+    (strEq name "string::split")
+      {
+        (let _ (needArgs name args 2)?)
+        {
+          (let s (textArg name args 0)?)
+          {
+            (let t (textArg name args 1)?)
+            (Ok (Some (VArray (textVec (splitOn s t)))))
+          }
+        }
+      }
+    (strEq name "string::join")
+      {
+        (let _ (needArgs name args 2)?)
+        {
+          (let xs (arrayArg name args 0)?)
+          {
+            (let t (textArg name args 1)?)
+            {
+              (let parts vecNew)
+              {
+                (for x in xs
+                  (vecPush parts (rawText x)))
+                (Ok (Some (VText (strJoin parts t))))
+              }
+            }
+          }
+        }
+      }
+    ; string::slice: characters, as Surreal counts them.
+    (if (== (vecLen args) 2)
+      (sliceFn name args false)
+      (if (== (vecLen args) 3)
+        (sliceFn name args true)
+        (fnErr name "takes two or three arguments")))))
+
+(:: sliceFn (-> String (Vec Value) Bool (Result (Option Value) Error)))
+(fn (sliceFn name args hasEnd)
+  {
+    (let s (textArg name args 0)?)
+    {
+      (let from (intArg name args 1)?)
+      {
+        (let n (utf8Len s))
+        (let start (clampSlice from n))
+        {
+          (let end
+            (if hasEnd
+              (clampSlice (intArg name args 2)? n)
+              n))
+          (Ok
+            (Some
+              (VText
+                (if (>= start end)
+                  ""
+                  (utf8Slice s start end)))))
+        }
+      }
+    }
+  })
+
+(:: intArg (-> String (Vec Value) Int (Result Int Error)))
+(fn (intArg name args i)
+  (match (argAt args i)
+    ((VInt n) (Ok n))
+    (_ (fnErr name "expected an int"))))
+
+(:: clampSlice (-> Int Int Int))
+(fn (clampSlice at n)
+  {
+    (let p
+      (if (< at 0)
+        (+ n at)
+        at))
+    (if (< p 0)
+      0
+      (if (> p n)
+        n
+        p))
+  })
+
+(:: endsWith (-> String String Bool))
+(fn (endsWith s t)
+  (if (> (strLen t) (strLen s))
+    false
+    (strEq (strSlice s (- (strLen s) (strLen t)) (strLen t)) t)))
+
+(:: replaceAll (-> String String String String))
+(fn (replaceAll s from to)
+  (if (strIsEmpty from)
+    s
+    {
+      (let b strBuilderNew)
+      (let mut at 0)
+      (let mut done false)
+      {
+        (while (! done)
+          (match (strFind s from at)
+            ((None)
+              {
+                (strBuilderPush b (strSlice s at (- (strLen s) at)))
+                (set done true)
+              }
+            )
+            ((Some at2)
+              {
+                (strBuilderPush b (strSlice s at (- at2 at)))
+                (strBuilderPush b to)
+                (set at (+ at2 (strLen from)))
+              }
+            )))
+        (strBuilderFinish b)
+      }
+    }))
+
+(:: splitOn (-> String String (Vec String)))
+(fn (splitOn s sep)
+  (if (strIsEmpty sep)
+      {
+        (let out vecNew)
+        {
+          (for i in 0..(utf8Len s)
+            (vecPush out (utf8Slice s i (+ i 1))))
+          out
+        }
+      }
+    (== (strLen sep) 1)
+      (strSplit s (strByte sep 0))
+    {
+      (let out vecNew)
+      (let mut at 0)
+      (let mut done false)
+      {
+        (while (! done)
+          (match (strFind s sep at)
+            ((None)
+              {
+                (vecPush out (strSlice s at (- (strLen s) at)))
+                (set done true)
+              }
+            )
+            ((Some at2)
+              {
+                (vecPush out (strSlice s at (- at2 at)))
+                (set at (+ at2 (strLen sep)))
+              }
+            )))
+        out
+      }
+    }))
+
+(:: textVec (-> (Vec String) (Vec Value)))
+(fn (textVec ss)
+  {
+    (let out vecNew)
+    {
+      (for s in ss
+        (vecPush out (VText s)))
+      out
+    }
+  })
+
+(:: arrayFn (-> String (Vec Value) (Result (Option Value) Error)))
+(fn (arrayFn name args)
+  (if (strEq name "array::len")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let xs (arrayArg name args 0)?)
+          (Ok (Some (VInt (vecLen xs))))
+        }
+      }
+    (strEq name "array::first")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let xs (arrayArg name args 0)?)
+          (Ok (Some (valIndex (VArray xs) (VInt 0))))
+        }
+      }
+    (strEq name "array::last")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let xs (arrayArg name args 0)?)
+          (Ok (Some (valIndex (VArray xs) (VInt -1))))
+        }
+      }
+    (strEq name "array::push")
+      {
+        (let _ (needArgs name args 2)?)
+        {
+          (let xs (arrayArg name args 0)?)
+          {
+            (let out vecNew)
+            {
+              (for x in xs
+                (vecPush out x))
+              (vecPush out (argAt args 1))
+              (Ok (Some (VArray out)))
+            }
+          }
+        }
+      }
+    (strEq name "array::concat")
+      {
+        (let _ (needArgs name args 2)?)
+        {
+          (let r (valAdd (argAt args 0) (argAt args 1))?)
+          (Ok (Some r))
+        }
+      }
+    (strEq name "array::sort")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let xs (arrayArg name args 0)?)
+          (Ok (Some (VArray (sortValues xs))))
+        }
+      }
+    (strEq name "array::reverse")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let xs (arrayArg name args 0)?)
+          {
+            (let out vecNew)
+            {
+              (for i in 0..(vecLen xs)
+                (vecPush out (vecGet xs (- (- (vecLen xs) 1) i))))
+              (Ok (Some (VArray out)))
+            }
+          }
+        }
+      }
+    (strEq name "array::distinct")
+      {
+        (let _ (needArgs name args 1)?)
+        {
+          (let xs (arrayArg name args 0)?)
+          {
+            (let out vecNew)
+            {
+              (for x in xs
+                (if (! (valContains (VArray out) x))
+                  (vecPush out x)))
+              (Ok (Some (VArray out)))
+            }
+          }
+        }
+      }
+    {
+      (let _ (needArgs name args 1)?)
+      {
+        (let xs (arrayArg name args 0)?)
+        {
+          (let out vecNew)
+          {
+            (for x in xs
+              (match x
+                ((VArray ys)
+                  (for y in ys
+                    (vecPush out y))
+                )
+                (_ (vecPush out x))))
+            (Ok (Some (VArray out)))
+          }
+        }
+      }
+    }))
+
+; The values in `valCompare` order.
+(pub :: sortValues (-> (Vec Value) (Vec Value)))
+(pub fn (sortValues xs)
+  (vecSortBy xs (lambda (a b) (valCompare a b))))
+
+(:: objectFn (-> String (Vec Value) (Result (Option Value) Error)))
+(fn (objectFn name args)
+  {
+    (let _ (needArgs name args 1)?)
+    (match (argAt args 0)
+      ((VObject fs)
+        (if (strEq name "object::keys")
+            {
+              (let out vecNew)
+              {
+                (for f in fs
+                  (vecPush out (VText f.name)))
+                (Ok (Some (VArray out)))
+              }
+            }
+          (strEq name "object::values")
+            {
+              (let out vecNew)
+              {
+                (for f in fs
+                  (vecPush out f.value))
+                (Ok (Some (VArray out)))
+              }
+            }
+          {
+            (let out vecNew)
+            {
+              (for f in fs
+                (vecPush out (VArray (vecPush (vecPush vecNew (VText f.name)) f.value))))
+              (Ok (Some (VArray out)))
+            }
+          })
+      )
+      (_ (fnErr name "expected an object")))
+  })
+
+(:: typeFn (-> String (Vec Value) (Result (Option Value) Error)))
+(fn (typeFn name args)
+  (if (strEq name "type::is")
+    {
+      (let _ (needArgs name args 2)?)
+      {
+        (let t (textArg name args 1)?)
+        (Ok (Some (VBool (strEq (valueTypeName (argAt args 0)) t))))
+      }
+    }
+    {
+      (let _ (needArgs name args 1)?)
+      {
+        (let v
+          (valCast
+            (if (strEq name "type::bool")
+                TyBool
+              (strEq name "type::int")
+                TyInt
+              (strEq name "type::float")
+                TyFloat
+              (|| (strEq name "type::text") (strEq name "type::string"))
+                TyText
+              (strEq name "type::record")
+                TyRecord
+              (strEq name "type::uuid")
+                TyUuid
+              TyDatetime)
+            (argAt args 0))?)
+        (Ok (Some v))
+      }
+    }))

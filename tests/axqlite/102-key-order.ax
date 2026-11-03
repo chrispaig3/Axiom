@@ -27,11 +27,11 @@
 (:: classOf (-> Value Int))
 (fn (classOf v)
   (match v
-    ((VNull) 0)
+    ((VNone) 0)
     ((VInt _) 1)
-    ((VReal _) 1)
+    ((VFloat _) 1)
     ((VText _) 2)
-    ((VBlob _) 3)))
+    ((VBytes _) 3)))
 
 (:: cmpFloat (-> Float Float Int))
 (fn (cmpFloat x y)
@@ -77,7 +77,7 @@
     (if (!= ca cb)
       (sign (- ca cb))
       (match a
-        ((VNull) 0)
+        ((VNone) 0)
         ((VInt x)
           (match b
             ((VInt y)
@@ -87,13 +87,13 @@
                   1
                   0))
             )
-            ((VReal y) (cmpIntReal x y))
+            ((VFloat y) (cmpIntReal x y))
             (_ 0))
         )
-        ((VReal x)
+        ((VFloat x)
           (match b
             ((VInt y) (- 0 (cmpIntReal y x)))
-            ((VReal y) (cmpFloat x y))
+            ((VFloat y) (cmpFloat x y))
             (_ 0))
         )
         ((VText x)
@@ -101,9 +101,9 @@
             ((VText y) (sign (strCmp x y)))
             (_ 0))
         )
-        ((VBlob x)
+        ((VBytes x)
           (match b
-            ((VBlob y) (sign (strCmp x y)))
+            ((VBytes y) (sign (strCmp x y)))
             (_ 0))
         )))
   })
@@ -154,7 +154,7 @@
   {
     (let kind (rngBelow r 7))
     (if (== kind 0)
-      VNull
+      VNone
       (if (== kind 1)
         (VInt (rngNext r))
         (if (== kind 2)
@@ -166,19 +166,19 @@
               {
                 (let x (floatFromBits b))
                 (if (floatIsNan x)
-                  (VReal 0.5)
-                  (VReal x))
+                  (VFloat 0.5)
+                  (VFloat x))
               }
             }
             (if (== kind 4)
               ; small REALs, often integral, near the small integers
-              (VReal (/ (as (- (rngBelow r 4001) 2000) Float) 2.0))
+              (VFloat (/ (as (- (rngBelow r 4001) 2000) Float) 2.0))
               (if (== kind 5)
                 (VText (rngBytes r (rngBelow r 4) 3))
-                (VBlob (rngBytes r (rngBelow r 4) 3))))))))
+                (VBytes (rngBytes r (rngBelow r 4) 3))))))))
   })
 
-; Numbers come back as VInt when integral and in range, else VReal
+; Numbers come back as VInt when integral and in range, else VFloat
 ; with the same bits (-0.0 comes back as the integer 0).
 (:: decodedAs (-> Value Value Bool))
 (fn (decodedAs v back)
@@ -205,15 +205,15 @@
         }
       }
       ; equal values, equal keys
-      (check t (strEq (keyOf (VInt 2)) (keyOf (VReal 2.0))) "2 and 2.0 are one key")
-      (check t (strEq (keyOf (VInt 0)) (keyOf (VReal (floatFromBits intMin))))
+      (check t (strEq (keyOf (VInt 2)) (keyOf (VFloat 2.0))) "2 and 2.0 are one key")
+      (check t (strEq (keyOf (VInt 0)) (keyOf (VFloat (floatFromBits intMin))))
         "0 and -0.0 are one key")
-      (check t (strEq (keyOf (VReal 0.0)) (keyOf (VReal (floatFromBits intMin))))
+      (check t (strEq (keyOf (VFloat 0.0)) (keyOf (VFloat (floatFromBits intMin))))
         "0.0 and -0.0 are one key")
-      (check t (== (codeOf (keyEncodeValue (VReal floatNan))) axqType) "a NaN has no key")
+      (check t (== (codeOf (keyEncodeValue (VFloat floatNan))) axqType) "a NaN has no key")
       (check t
         (<
-          (keyCompare (keyOf (VReal (floatFromBits (<< (+ 1023 53) 52))))
+          (keyCompare (keyOf (VFloat (floatFromBits (<< (+ 1023 53) 52))))
             (keyOf (VInt (+ (<< 1 53) 1))))
           0)
         "2^53 as REAL < 2^53 + 1")
@@ -237,8 +237,8 @@
                 "intMax decodes as VInt")
             )
             ((Err e) (check t false "intMax decodes")))
-          (match (keyDecode (keyOf (VReal 0.5)))
-            ((Ok back) (check t (sameValue (vecGet back 0) (VReal 0.5)) "0.5 decodes as VReal"))
+          (match (keyDecode (keyOf (VFloat 0.5)))
+            ((Ok back) (check t (sameValue (vecGet back 0) (VFloat 0.5)) "0.5 decodes as VFloat"))
             ((Err e) (check t false "0.5 decodes")))
           (check t
             (== (codeOf (keyDecode (bytesStr (vecPush (vecPush (vecPush vecNew 2) 97) 98))))
