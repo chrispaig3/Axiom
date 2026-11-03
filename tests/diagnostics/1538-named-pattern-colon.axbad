@@ -1,0 +1,10 @@
+; The braced named pattern this language used to spell. Named fields
+; now take the labelled spelling of struct construction, so this
+; must be refused at the brace with the new form named.
+(data Shape
+  (Rect { w : Int, h : Int }))
+
+(:: area (-> Shape Int))
+(fn (area s)
+  (match s
+    ((Rect {w = w, h = h}) (* w h))))

@@ -834,25 +834,27 @@ module.exports = grammar({
     ),
 
     // `(Cons h t)`, and nested: `(Cons h (Cons h2 t))`.
-    // `(Just x)`, or the struct-variant form `(Rect { w = w, h })`.
+    // `(Just x)`, or the named-field form `(Rect :w w :h)`, spelled
+    // as in struct construction, `(Point :x 1 :y 2)`.
     //
-    // In the braced form a field may be bound explicitly (`w = pat`) or
-    // punned (`w`, meaning `w = w`), the order need not match the
-    // declaration, and a field the pattern does not name is simply not
-    // bound.
+    // In the labelled form a field may be bound explicitly
+    // (`:w pat`) or punned (`:w`, meaning `:w w`), the order need
+    // not match the declaration, and a field the pattern does not
+    // name is simply not bound.
     constructor_pattern: $ => seq(
       '(',
       field('constructor', $.constructor_identifier),
       choice(
         repeat(field('argument', $._pattern)),
-        seq('{', repeat(seq(field('field', $.field_pattern), optional(','))), '}'),
+        repeat1(field('field', $.field_pattern)),
       ),
       ')',
     ),
 
     field_pattern: $ => seq(
+      ':',
       field('name', $.identifier),
-      optional(seq('=', field('pattern', $._pattern))),
+      optional(field('pattern', $._pattern)),
     ),
 
     tuple_pattern: $ => seq(

@@ -16638,7 +16638,7 @@
     (strJoin parts " ")
   })
 
-; `(Rect { w = p, h = q })`: field names in `b`, sub-patterns aligned
+; `(Rect :w p :h q)`: field names in `b`, sub-patterns aligned
 ; in `c`.
 (pub :: lspRenderConNamed (-> ASTNode Int String))
 (pub fn (lspRenderConNamed e ind)

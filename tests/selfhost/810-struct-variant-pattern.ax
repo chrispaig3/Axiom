@@ -2,11 +2,11 @@
 ; NAMED constructor patterns, in the three shapes that can each be
 ; wrong in a way positional binding cannot show:
 ;
-;   - REVERSED ORDER. `{ h = h, w = w }` must bind by NAME. An
+;   - REVERSED ORDER. `:h h :w w` must bind by NAME. An
 ;     implementation that ignored the names and bound positionally
 ;     would answer 43 here instead of 34, which is the only reason
 ;     this case reverses them.
-;   - PUNNING. `{ w, h }` means `{ w = w, h = h }`, resolved at parse
+;   - PUNNING. `:w :h` means `:w w :h h`, resolved at parse
 ;     time since it needs no knowledge of the declaration.
 ;   - NESTING. A named pattern inside a named pattern has to recurse,
 ;     and the binder for an inner field has to reach the arm body.
@@ -24,12 +24,12 @@
 (:: area (-> Shape Int))
 (fn (area s)
   (match s
-    ((Rect {h = h, w = w}) (+ (* w 10) h))))
+    ((Rect :h h :w w) (+ (* w 10) h))))
 
 (:: inner (-> Boxed Int))
 (fn (inner b)
   (match b
-    ((Wrap {inner = (Rect {w = w, h = h}), tag = t}) (+ (* w 10) (+ h t)))))
+    ((Wrap :inner (Rect :w w :h h) :tag t) (+ (* w 10) (+ h t)))))
 
 (:: main Int)
 (fn (main)

@@ -171,8 +171,8 @@
 (:: area (-> Shape Int))
 (fn (area s)
   (match s
-    ((Circle {r = r}) (* r r))
-    ((Rect {w = w, h = h}) (* w h))
+    ((Circle :r r) (* r r))
+    ((Rect :w w :h h) (* w h))
     ((Empty) 0)))
 
 (:: depth (-> (Tree Int) Int))

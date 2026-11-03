@@ -6,7 +6,7 @@
 ; performs IO. Every `Vec` function reading an element then performed
 ; IO too, 53 declarations in `stdlib/` drew false AX3042 and AX3049
 ; errors, and this program did not compile. `t` is the second case:
-; a named pattern's binder, `{tag = t}`, which the same walk read as
+; a named pattern's binder, `:tag t`, which the same walk read as
 ; a free name and so attributed to the function `t` below.
 (import Vec)
 
@@ -28,7 +28,7 @@
 (:: tagOf (-> Wrapped Int))
 (fn (tagOf w)
   (match w
-    ((Wrap {tag = t}) t)))
+    ((Wrap :tag t) t)))
 
 (:: second (-> (Vec Int) Int))
 (fn (second v)

@@ -53,7 +53,7 @@
 (pub :: bPatternBox (-> (Box a) a))
 (pub fn (bPatternBox box)
   (match box
-    ((BoxValue {item = value}) value)))
+    ((BoxValue :item value) value)))
 
 (pub :: bLevel (-> Int Level))
 (pub fn (bLevel n)

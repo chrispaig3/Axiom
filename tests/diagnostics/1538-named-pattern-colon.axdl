@@ -1,0 +1,1 @@
+E AX2001 1538-named-pattern-colon.ax:10:12-13 unexpected-token "expected a `:field` label; named patterns are written `(Rect :w w :h h)`, found `{`" #"found `{` here" ?"Axiom expected a `:field` label; named patterns are written `(Rect :w w :h h)` at this position"

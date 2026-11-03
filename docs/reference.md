@@ -908,6 +908,27 @@ anything and binds nothing. Every possible constructor must be covered,
 or the compiler reports AX3005. Constructor patterns need the right
 number of fields, and arm results must agree in type.
 
+A variant with named fields can also match by name. The spelling is
+the labelled one struct construction uses:
+
+```scheme
+(data Shape
+  (Circle { r : Int })
+  (Rect { w : Int, h : Int }))
+
+(:: area (-> Shape Int))
+(fn (area s)
+  (match s
+    ((Circle :r r) (* r r))
+    ((Rect :w w :h h) (* w h))))
+```
+
+Fields bind by name, so their order in the pattern is free. A field
+you do not name is not bound, and `:w` on its own binds `w`.
+Positional patterns keep working on the same constructors.
+
+Tested by `tests/stdlib/210-struct-variants.ax`.
+
 `Option` is built in: `Some` holds a value and `None` means absence.
 `Err` supplies `Result`, whose constructors are `Ok` and `Err`.
 

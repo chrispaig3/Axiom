@@ -80,7 +80,7 @@
    (:: modeCode (-> Dev Int))
    (fn (modeCode d)
      (match d
-       ((MkDev {st = s}) v) ...))))
+       ((MkDev :st s) v) ...))))
 
 (modem (Off 10) (On 20))
 

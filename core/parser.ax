@@ -1286,7 +1286,7 @@
 (pub fn (TAG_E_TRY)
   57)
 
-; A NAMED constructor pattern: `(Rect { h = h, w = w })`. a=constructor
+; A NAMED constructor pattern: `(Rect :h h :w w)`. a=constructor
 ; name, b=Vec of field-name nodes (TAG_E_VAR, so each carries its own
 ; span - AX3007 anchors at the field name), c=Vec of sub-patterns,
 ; positionally aligned with b. The span is the constructor's.
@@ -7266,10 +7266,12 @@
               (pErrExp (advance pos) "constructor")
               (if (peekIs tokens after TK_RPAREN)
                 (pOk (nodeBuildPCon0 (nodeAName node) 0 0 (nodeSpan node)) (advance after))
-                (if (peekIs tokens after TK_LBRACE)
-                  (parseNamedPatFields tokens (advance after) (nodeAName node) (nodeSpan node)
-                    vecNew vecNew)
-                  (parseArmPatternArgs tokens after node))))
+                (if (peekIs tokens after TK_COLON)
+                  (parseNamedPatFields tokens after (nodeAName node) (nodeSpan node) vecNew vecNew)
+                  (if (peekIs tokens after TK_LBRACE)
+                    (pErrExp after
+                      "a `:field` label; named patterns are written `(Rect :w w :h h)`")
+                    (parseArmPatternArgs tokens after node)))))
           }
         ))
     }
@@ -7370,51 +7372,43 @@
       1
       (declaredHasFieldFrom declared n (+ i 1)))))
 
-(pub :: peekIsEq (-> Tokens Int Bool))
-(pub fn (peekIsEq tokens pos)
-  (if (peekIs tokens pos TK_IDENT)
-    (strEq (tokenLexeme (vecGet tokens pos)) "=")
-    false))
-
-; `{ f = pat, g }` to the closing brace. A bare name PUNS: `{ w, h }`
-; means `{ w = w, h = h }`, which is stage0's rule and is resolved
-; here at parse time, since it needs no knowledge of the declaration.
+; `:f pat :g` to the closing paren: the labelled spelling struct
+; construction uses, as in `(Point :x 1 :y 2)`, so one field syntax
+; serves building and matching. A label with no pattern after it
+; PUNS: `:w :h` means `:w w :h h`, resolved here at parse time,
+; since it needs no knowledge of the declaration.
 (pub :: parseNamedPatFields
   (-> Tokens Int String Int (Vec ASTNode) (Vec ASTNode) (PResult ASTNode)))
 (pub fn (parseNamedPatFields tokens pos cname csp names pats)
-  (if (peekIs tokens pos TK_RBRACE)
-    (if (peekIs tokens (advance pos) TK_RPAREN)
-      (pOk (nodeBuildPConnamed cname names pats csp) (advance (advance pos)))
-      (pErr (advance pos)))
-    (if (peekIs tokens pos TK_IDENT)
-      {
-        (let fTok (vecGet tokens pos))
+  (if (peekIs tokens pos TK_RPAREN)
+    (pOk (nodeBuildPConnamed cname names pats csp) (advance pos))
+    (if (! (peekIs tokens pos TK_COLON))
+      (pErrExp pos "a `:field` label or `)`")
+      (if (peekIs tokens (advance pos) TK_IDENT)
         {
-          (vecPush names (mkEVarAt (tokenLexeme fTok) (tokenSpan fTok)))
-          ; `=` has no token of its own: it is an operator character,
-          ; so the lexer hands it back as an identifier whose lexeme
-          ; is "=".
-          (if (peekIsEq tokens (advance pos))
-            {
-              (let pr (parseArmPattern tokens (advance (advance pos))))
-              (match pr
-                ((ParseFailed parseError110) (ParseFailed parseError110))
-                ((ParseSuccess parsedValue110 parsedPos110)
-                  {
-                    (vecPush pats parsedValue110)
-                    (parseNamedPatFields tokens (skipFieldComma tokens parsedPos110) cname csp
-                      names pats)
-                  }
-                ))
-            }
-            {
-              (vecPush pats (mkEVarAt (tokenLexeme fTok) (tokenSpan fTok)))
-              (parseNamedPatFields tokens (skipFieldComma tokens (advance pos)) cname csp names
-                pats)
-            })
+          (let fTok (vecGet tokens (advance pos)))
+          {
+            (vecPush names (mkEVarAt (tokenLexeme fTok) (tokenSpan fTok)))
+            (if (|| (peekIs tokens (advance (advance pos)) TK_COLON)
+                  (peekIs tokens (advance (advance pos)) TK_RPAREN))
+              {
+                (vecPush pats (mkEVarAt (tokenLexeme fTok) (tokenSpan fTok)))
+                (parseNamedPatFields tokens (advance (advance pos)) cname csp names pats)
+              }
+              {
+                (let pr (parseArmPattern tokens (advance (advance pos))))
+                (match pr
+                  ((ParseFailed parseError110) (ParseFailed parseError110))
+                  ((ParseSuccess parsedValue110 parsedPos110)
+                    {
+                      (vecPush pats parsedValue110)
+                      (parseNamedPatFields tokens parsedPos110 cname csp names pats)
+                    }
+                  ))
+              })
+          }
         }
-      }
-      (pErr pos))))
+        (pErrExp (advance pos) "field name")))))
 
 (pub :: parseArmPatternArgs (-> Tokens Int ASTNode (PResult ASTNode)))
 (pub fn (parseArmPatternArgs tokens pos acc)
