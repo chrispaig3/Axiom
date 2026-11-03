@@ -741,7 +741,7 @@ paint: not stocked
   {
     id: "digest",
     file: "digest.ax",
-    tab: "Stdlib pipeline",
+    tab: "Pipeline",
     title: "Read TOML, ship on UTC, fingerprint as JSON",
     lede: "Four standard-library modules in one pipeline - `Cereal`, `Chrono` and `Crypto` over `Err` - all of them written in Axiom and calling no C.",
     points: [
