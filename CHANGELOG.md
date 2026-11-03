@@ -16,6 +16,18 @@ its changelog too.
 
 ## Unreleased
 
+- CI plans each run instead of following a hand-written step list.
+  `scripts/ci-plan.py` discovers every gate, selects the ones a
+  change can affect, and shards them longest first over six shards
+  per supported target. The compiler under test is built once per
+  platform and handed to the shards, gates inside a shard run in
+  parallel, and a gate whose inputs are unchanged since it last
+  passed is reused, so a re-run redoes only what has not passed.
+  The nightly schedule still runs everything. Locally,
+  `scripts/run-gates.sh --changed` applies the same selection.
+  Tested by `scripts/check-ci-coverage.sh`, `tests/ci/gate-cache.py`
+  and `tests/ci/shards.py`.
+
 ## 0.8.0 — 2026-11-02
 
 This release moves Rust FFI into the official `pkg/axiom-oxide` package.

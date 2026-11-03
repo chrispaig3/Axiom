@@ -6,6 +6,8 @@
 #   scripts/run-gates.sh fmt lsp                  # only gates whose name contains these
 #   scripts/run-gates.sh --profile fast           # the smoke set: seconds once the compiler is cached
 #   scripts/run-gates.sh --profile expensive      # platform, bootstrap and measurement gates only
+#   scripts/run-gates.sh --changed               # the gates your working tree can affect
+#   scripts/run-gates.sh --changed origin/nightly # the same, against that ref
 #   AXIOM_GATE_JOBS=4 scripts/run-gates.sh
 #
 # Profiles. `fast` is the edit-and-rerun set: gates that take 15 seconds
@@ -117,21 +119,60 @@ fi
 
 profile=full
 list=0
+changed_mode=0
+changed_ref=HEAD
 patterns=()
 while (( $# )); do
   case "$1" in
     --list) list=1 ;;
+    --changed)
+      changed_mode=1
+      # An optional ref follows when the next word names a commit;
+      # otherwise it is a gate-name pattern like any other.
+      if [[ -n "${2:-}" && "$2" != --* ]] \
+           && git rev-parse --verify --quiet "$2^{commit}" >/dev/null 2>&1; then
+        shift
+        changed_ref="$1"
+      fi ;;
     --profile)
       shift
       profile="${1:-}"
       [[ "$profile" == fast || "$profile" == full || "$profile" == expensive ]] || {
-        echo "usage: $0 [--list] [--profile fast|full|expensive] [name ...]" >&2; exit 2;
+        echo "usage: $0 [--list] [--changed [ref]] [--profile fast|full|expensive] [name ...]" >&2; exit 2;
       } ;;
     --*) echo "FAIL: unknown option $1" >&2; exit 2 ;;
     *) patterns+=("$1") ;;
   esac
   shift
 done
+
+# --changed: the gates this change can affect, by the same input
+# definition CI selects and reuses with (`scripts/ci-plan.py` over
+# `scripts/ci-gate.py`), so the local answer and the CI answer are
+# one answer. The change set is the working tree against the ref,
+# untracked files included, renames naming both paths. Dedicated-job
+# gates the change touches are named rather than run: they belong to
+# machines and toolchains this battery does not stand in for.
+changed_gates=""
+if (( changed_mode )); then
+  changed_file="$(mktemp)" || exit 1
+  { git diff --name-status "$changed_ref" -- . 2>/dev/null \
+      | awk '{print $NF; if (NF > 2) print $(NF-1)}'
+    git ls-files --others --exclude-standard
+  } | sort -u > "$changed_file"
+  if [[ ! -s "$changed_file" ]]; then
+    echo "run-gates: no changes against $changed_ref; nothing to run"
+    rm -f "$changed_file"
+    exit 0
+  fi
+  echo "run-gates: $(wc -l < "$changed_file" | tr -d ' ') changed path(s) against $changed_ref"
+  changed_gates=" $(python3 scripts/ci-plan.py --changed "$changed_file" --shards 1 --shard 1 | tr '\n' ' ')"
+  changed_special="$(python3 scripts/ci-plan.py --changed "$changed_file" --special | tr '\n' ' ')"
+  rm -f "$changed_file"
+  if [[ -n "${changed_special// /}" ]]; then
+    echo "run-gates: dedicated CI jobs also cover this change: $changed_special"
+  fi
+fi
 # Gates that answer in seconds on a warm cache. The corpora and the
 # diagnostics goldens are `full`-tier by cost (see Profiles above), and
 # a gate that grows slower belongs there too. `check-gate-lib.sh`
@@ -140,6 +181,12 @@ FAST_RE='check-(type-pinning|gate-lib|ci-coverage|vec-field-shape|cast-arg-root|
 EXPENSIVE_RE='check-(bootstrap|poisoned-alloc|seed-lineage|seed-provenance|ddc|cross-targets|embedded|windows-hello|reproducible|memory-baseline|arena-reset-rate|container-reclaim|reclaim-soak|steady-state|recover|name-scale|type-namespace|degenerate|stack-bound|stack-depth)\.sh$'
 all=(); omitted=()
 for g in scripts/check-*.sh; do
+  if (( changed_mode )); then
+    case "$changed_gates" in
+      *" $(basename "$g") "*) ;;
+      *) omitted+=("$g"); continue ;;
+    esac
+  fi
   if [[ "$profile" == fast && ! "$g" =~ $FAST_RE ]] ||
      [[ "$profile" == expensive && ! "$g" =~ $EXPENSIVE_RE ]]; then
     omitted+=("$g"); continue
@@ -151,6 +198,10 @@ for g in scripts/check-*.sh; do
   fi
   all+=("$g")
 done
+if (( changed_mode )) && (( ${#all[@]} == 0 )); then
+  echo "run-gates: no battery gate reads this change set; nothing to run locally"
+  exit 0
+fi
 (( ${#all[@]} )) || { echo "FAIL: no gates match the requested selection" >&2; exit 2; }
 
 par=(); ser=(); notrun=()

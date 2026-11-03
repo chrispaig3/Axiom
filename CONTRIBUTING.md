@@ -231,8 +231,8 @@ relevant gates there before proposing a merge into `stable`.
    most gates rebuild the compiler under test themselves.
 2. **Make your change** in the relevant files.
 3. **Test** by running the gates your change could affect (see
-   [Testing](#testing)). Each gate is its own script, and
-   `.github/workflows/ci.yml` runs each one by name.
+   [Testing](#testing)). Each gate is its own script, and CI runs
+   every one: adding the file is the whole registration.
 4. **Commit** with a clear message in the project's style. Read a few
    first: they tell the story of the change, and carry the measurement
    that justified it.
@@ -307,20 +307,41 @@ The compiler lives in `core/` and is written in Axiom.
 Axiom's tests are gates: shell scripts in `scripts/`, one per property.
 Before you open a pull request, run the ones your change could affect.
 
-### Reuse successful CI gates
+### Run only what changed, reuse what passed
 
-GitHub CI keeps successful gate results for unchanged inputs for seven days.
-It checks source files, fixtures, compiler binaries, toolchain versions and
-runner images before reusing a result. Reviewed fixture boundaries let a
-change to one suite preserve passes from unrelated suites. Other gates use
-the whole tree, and compiler source changes invalidate every cached gate.
+A push does not rerun the whole battery. Two mechanisms share one
+definition of a gate's inputs, in `scripts/ci-gate.py`: the files a
+gate, the check scripts it calls and its `scripts/lib/` helpers
+actually read. Fixture trees count root by root, documents count
+only for gates that read them, and compiler sources count for
+everyone. Anything the scan cannot pin down (a dynamic path, a sweep
+of the whole tree, a `git` enumeration) keeps the whole tree as
+input. Selection only ever narrows a run it can see whole.
 
-Passing gates are saved even when another gate fails. Failed gates run again;
-the job summary names each reused pass and its original run. Bootstrap,
-seed provenance, reproducibility and cache audits run fresh. Pull requests
-can read the cache; only pushes to stable save results.
+Selection comes first. `scripts/ci-plan.py` plans the gates whose
+inputs your change touches, deletions and renames included. A change
+to `core/`, `stdlib/` or the CI machinery itself plans everything.
+Dedicated jobs such as FFI follow the same rule and skip when
+nothing they read changed.
 
-Local gate commands always run fresh. To bypass reuse when invoking
+Reuse comes second. GitHub CI keeps each gate's recorded pass for
+seven days and reuses it only when the fingerprint still matches:
+input bytes, compiler binaries, toolchain versions and runner
+images. So a re-run, and the next push to the same pull request,
+redo only the gates that have not passed on these inputs. Passing
+gates are saved even when another gate fails, and the job summary
+names each reused pass and its original run. Bootstrap, seed
+provenance, reproducibility and the cache audits always run fresh.
+Branch pushes and pull requests from this repository save results;
+forks only read them.
+
+The nightly schedule runs everything with no selection. That is the
+safety net: a gate a selective run wrongly left out is caught there
+within a day.
+
+Locally, `scripts/run-gates.sh --changed` runs the gates your
+working tree can affect, by the same definition. Gate commands you
+run by hand always run fresh. To bypass reuse when invoking
 `scripts/ci-gate.py`, set `AXIOM_CI_FRESH=1`. Tested by
 `tests/ci/gate-cache.py` through `scripts/check-ci-coverage.sh`.
 
@@ -387,6 +408,10 @@ to learn before you could read a single gate.
   checks.
 - `scripts/run-gates.sh --list` shows the split without running
   anything.
+- `scripts/run-gates.sh --changed` runs the gates your working tree
+  can affect, selected the way CI selects them. Give a ref
+  (`--changed origin/nightly`) to compare against that instead of
+  `HEAD`. Dedicated CI jobs the change touches are named, not run.
 - Extra arguments select the gates whose names contain them, as in
   `scripts/run-gates.sh fmt lsp`.
 - `scripts/check-gate-lib.sh` holds the profile lists to the tree:
@@ -406,7 +431,7 @@ shows the check can fail at all.
 |---|---|
 | `check-tree-sitter.sh` | The checked-in grammar parses every `.ax` file in the repository, and the Axiom blocks in the documentation balance their delimiters. `check-tools-selfhost.sh` checks whole programs and verifies displayed output where a `doc-gate:run` marker opts in. It needs the tree-sitter CLI (`npm install --prefix tree-sitter-axiom tree-sitter-cli`) and fails without it. Set `AXIOM_TREE_SITTER_OPTIONAL=1` to skip it instead (`tree-sitter-axiom/README.md`) |
 | `check-vscode.sh` | The VS Code extension in `editors/vscode/` agrees with the compiler: its grammar's head-keyword alternation equals the set derived from `core/parser.ax`'s `kwEq` sites and `core/lsp.ax`'s `lspKeywords`, every semantic token type and modifier it maps is in the server's legend and every legend type is mapped, `package.json` states `VERSION`, the three JSON files parse, `extension.js` is JavaScript and `scripts/sync-keywords.mjs` is a fixed point. Needs `node` and no compiler. One ablation, required: a grammar missing `while` |
-| `check-ci-coverage.sh` | Every `scripts/check-*.sh` in the tree is named on a `run:` line in `.github/workflows/ci.yml`, and every gate a step names exists. It reads `run:` lines rather than the whole file, because the workflow's comments name gates too, including deleted ones. It runs no compiler. Three ablations, all required: a step deleted, a step naming a script that isn't there, and an uncovered gate named only in a comment |
+| `check-ci-coverage.sh` | Every `scripts/check-*.sh` in the tree is assigned by `scripts/ci-plan.py` exactly once, to the battery or a dedicated job, and the workflow executes that plan: the `scope` job generates the matrix, each shard regenerates its list and runs it through `scripts/ci-run.py`, and each dedicated gate keeps a real step in its job, read structurally so a comment or step name doesn't count. It also runs the CI machinery's own tests in `tests/ci/`. It runs no compiler. Four ablations, all required: the plan drops a gate, the plan names a gate that isn't there, the runner step deleted, and a dedicated gate's step deleted |
 | `run-stdlib-tests.sh` | Every case in `tests/stdlib` compiles, runs with its `.in` file as standard input (`/dev/null` when it has none), prints its `.out` file and exits with the status its `.exit` file gives |
 | `check-freestanding.sh` | Generated code needs no C library. On windows-x86_64 and windows-aarch64, where the runtime must import kernel32, every symbol the IR declares must be on `scripts/platform-allow.windows.txt`, a reviewed list that may not hold a libc name |
 | `check-nostd-subset.sh` | The freestanding subset (`Pre`, `Mem`, `Str`, `Vec`, `Map`, `Fmt`, `Float`, `Utf8`, `Err`) is closed. Its transitive imports stay inside it and the library's internal modules, and none of them declares an `extern` block. A probe importing all nine imports nothing a hello world doesn't: linked imports on the host, IR declarations on every other supported target. Two planted breakages must each turn it red |
@@ -490,11 +515,16 @@ shows the check can fail at all.
 | `check-assurance-controls.sh` | The rule tables in `docs/assurance.md`, every table headed `Area`, `Refused as`, `A refusal` and `An acceptance`, are checked claims: each refusal path draws one of its row's codes, each acceptance path checks clean, and a missing path or a table with no rows fails. Three negative controls rebuild the compiler from a copy of `core/` with one enforcement removed, `AX3042`, `AX3010` and `AX3005` in turn, and require the refusal fixtures that name the code to be accepted by it. Every seam is counted before it is edited, so a reformatted seam fails rather than ablating nothing |
 | `check-mir.sh` | The mid-level IR in `core/mir.ax`: SSA with block parameters instead of phis, a printer, and a verifier (one terminator per block, single assignment, branch arity, dominance). Goldens hold the printer, and a differential holds the meaning: each fixture, run by the real compiler and lowered and run by `core/mireval.ax`, must print the same bytes. No build emits from the IR: `axir.ax` and `mireval.ax` are its only importers, and `codegen.ax` must not import it. A floor on how much of `core/` and `stdlib/` lowers catches a subset that narrows itself. Each ablation must fire its own check; one breaks only dominance, so that rule is shown to fail |
 
-The rest of `scripts/` doesn't run in CI. `.github/workflows/ci.yml` is
-the authority on which scripts do, so check it rather than this table.
+Three more scripts are CI's machinery rather than gates. The rest
+are local tools. `.github/workflows/ci.yml` and
+`scripts/ci-plan.py` together are the authority on what runs where,
+so check them rather than this table.
 
 | Script | What it's for |
 |---|---|
+| `ci-plan.py` | Plans the battery: discovers every gate, selects the ones a change set can affect, and shards them longest first. `--refresh-weights` folds shard result files back into `ci-weights.json` so the shards stay balanced as gates grow |
+| `ci-run.py` | Runs one shard in CI: gates in parallel, the serial set afterwards, each with its own log, timeout and summary row |
+| `ci-gate.py` | Runs one gate in CI, or reuses its recorded pass when the fingerprint of everything it reads still matches. The input definition both selection and reuse share |
 | `bench-frontend.sh` | Compares serial module lexing and parsing with bounded process workers. It checks ordered fingerprints and failure results before timing. Add `--ast-transfer` to compare direct serial parsing against workers including syntax transfer and reconstruction. `--phase-profile` measures encoding and reconstruction separately. Use `--jobs 1 2 4 --reps 5`, with `--json report.json` to save samples |
 
 Command-line compilation can parse imported modules in worker processes.
@@ -528,27 +558,46 @@ A change that touches only `web/` skips it, because the website has its
 own workflow, `pages.yml`.
 
 The jobs are staged so that a cheap failure shows up before an
-expensive one. A `scope` job first works out whether the change is
-documentation only. If it is, the Documentation gates job runs and
-the platform jobs are skipped. Otherwise the grammar job runs first,
-because it needs no compiler, and every other job depends on it. The
-jobs that need a compiler get it through the same composite action,
-`.github/actions/provision`.
+expensive one. A `scope` job first plans the run. It works out
+whether the change is documentation only, selects the gates the
+change can affect (see [Run only what changed](#testing)), and
+shards them longest first. If it cannot enumerate the change, it
+plans everything.
+
+On a documentation-only change the Documentation gates job runs and
+the platform jobs are skipped. Otherwise the grammar job runs
+first, because it needs no compiler, and every other job depends on
+it. A build job then builds the compiler under test once per
+platform and hands it to the shards as an artifact, so no shard
+rebuilds it. The jobs that still need a seed compiler get it
+through the same composite action, `.github/actions/provision`.
+
+A newer push cancels the run it supersedes, except on `stable`,
+whose verdict a release may be waiting for. To reproduce a failure,
+open the shard's log artifact or run the gate by hand: it is the
+same command CI ran.
 
 1. **Tree-sitter grammar.** The checked-in grammar parses every `.ax`
    file in the repository.
 2. **Tests.** The gate battery above, on linux-aarch64 and
-   darwin-aarch64, the two supported targets. Four independent shards
-   run on each target. Each provisions a compiler from `bootstrap/`
-   first, and both Tests checks require every shard to pass.
-   Successful gates are reused only when their input fingerprints match.
-   No Tests leg runs on a source-only
-   target (README's *Targets* section lists them).
+   darwin-aarch64, the two supported targets. Six shards run on each
+   target, balanced by measured gate weights, and gates inside a
+   shard run in parallel (the serial set in `scripts/run-gates.sh`
+   still runs alone). Both Tests checks require every shard to pass.
+   A push runs the selected gates, and a selected gate whose inputs
+   are unchanged since it last passed is reused instead of rerun, so
+   a re-run redoes only what has not passed. Every gate in a shard
+   runs even when another fails, so one push reports every failure
+   it caused.
+
+   No Tests leg runs on a source-only target (README's *Targets*
+   section lists them).
    `scripts/check-release-targets.sh` refuses a target that is on the
    supported list and has an advisory (`continue-on-error`) leg.
-   After the compiler builds, gates continue after a failed check.
-   Each failure keeps the job failed. Cancelling a job stops the
-   remaining gates.
+   Adding a gate takes no workflow edit: `scripts/ci-plan.py`
+   discovers the new script and shards it. It joins a dedicated job
+   instead only when the battery's shape cannot serve it, which is
+   one reviewed line in that file's `SPECIAL` table.
 3. **FFI.** `check-ffi.sh` on darwin-aarch64. The
    `extern` boundary opens exactly the symbols it declares, the
    generated bindings match a fresh generation, and the `pkg/axiom-oxide/`
@@ -592,10 +641,12 @@ jobs that need a compiler get it through the same composite action,
    forces the full replay. It has its own job because it needs
    `fetch-depth: 0`.
 
-One more job, **Seed lineage (full)**, replays every row with `--full`,
-with cargo installed for the Rust anchor. It runs only on the nightly
-`schedule:` and on `workflow_dispatch`, and on those triggers it's the
-only job that runs.
+Two more jobs run only on the nightly `schedule:` and on
+`workflow_dispatch`. **Seed lineage (full)** replays every row with
+`--full`, with cargo installed for the Rust anchor. **Long
+evidence** runs the fuzzer's full budget and every trace of the
+executable model. On those triggers the battery also runs in full,
+with no selection: it is the safety net under selective pushes.
 
 ### What the CI tests actually do
 

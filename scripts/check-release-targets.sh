@@ -148,15 +148,14 @@ else
   # A supported, unshipped target passes if it has a leg or if README
   # explains that it is executed by no runner. An unexplained gap fails.
   targets_section="$(sed -n '/^### Targets/,/^## /p' "$readme")"
-  # A Tests leg only: a `- name: <t>` row of the `test:` job's matrix,
-  # or a job of its own named `Tests (<t>)`. Any `- name: <t>` in the
-  # file would also count `Bootstrap from seed (<t>)`, which builds the
-  # compiler there and executes nothing it emits.
-  test_legs="$( { awk '
-      /^  test:/ { on = 1; next }
-      on && /^  [a-z]/ { exit }
-      on { if (match($0, /^ *- name: [a-z0-9_]+-[a-z0-9_]+ *$/)) { sub(/^ *- name: /, ""); sub(/ *$/, ""); print } }
-    ' "$ci_yml"
+  # A Tests leg only: a platform of the battery the `test:` job runs.
+  # That matrix is generated (`scripts/ci-plan.py` PLATFORMS, emitted as
+  # the scope job's matrix output), so the legs are read from the
+  # planner, with a job of its own named `Tests (<t>)` still counting.
+  # Reading `- name: <t>` rows anywhere in the file would also count
+  # `Bootstrap from seed (<t>)`, which builds the compiler there and
+  # executes nothing it emits.
+  test_legs="$( { python3 "$repo_root/scripts/ci-plan.py" --platforms
     sed -n 's/^ *name: Tests (\([a-z0-9_]*-[a-z0-9_]*\)) *$/\1/p' "$ci_yml"; } | sort -u)"
   gap=""; excused=""
   for t in $readme_supported; do

@@ -6,6 +6,10 @@ description: >
 
 # Every job that needs a compiler uses this action, so the toolchain is
 # chosen and recorded in one place.
+inputs:
+  bootstrap:
+    description: Provision a seed compiler at .axiom-bin/axiom ('false' installs LLVM only, for jobs handed a built compiler)
+    default: 'true'
 runs:
   using: composite
   steps:
@@ -66,5 +70,6 @@ runs:
     # and installs it where the shared gate preamble's default `$AXIOM`
     # looks. A failure here is the seed going stale: `scripts/reseed.sh`.
     - name: Provision a compiler from the committed seed
+      if: inputs.bootstrap == 'true'
       shell: bash
       run: ./scripts/bootstrap-from-seed.sh --install .axiom-bin

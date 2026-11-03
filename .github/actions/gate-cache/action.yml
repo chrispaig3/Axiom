@@ -22,8 +22,17 @@ runs:
       if: inputs.mode == 'restore'
       shell: bash
       run: echo "AXIOM_CI_CACHE=$GITHUB_WORKSPACE/.axiom-ci/results" >> "$GITHUB_ENV"
+    # Saves happen on branch pushes and on same-repository pull
+    # requests, so a re-run (or the next push to the same PR) reuses
+    # the passes the failed attempt already earned instead of
+    # starting over. That is safe to widen: a record is only ever
+    # honoured when its content fingerprint - input bytes, toolchain
+    # hashes, compiler binaries - matches this tree on this runner,
+    # and a pull request's caches are scoped to its own ref, never
+    # readable as a branch's evidence. Fork pull requests stay
+    # read-only.
     - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-      if: ${{ !cancelled() && inputs.mode == 'save' && github.event_name == 'push' && github.ref == 'refs/heads/stable' }}
+      if: ${{ !cancelled() && inputs.mode == 'save' && ((github.event_name == 'push' && (github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly')) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
       with:
         path: ${{ github.workspace }}/.axiom-ci/results
         key: axiom-gates-v1-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}${{ inputs.namespace }}-${{ github.run_id }}-${{ github.run_attempt }}

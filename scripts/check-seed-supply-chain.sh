@@ -258,6 +258,20 @@ ci=".github/workflows/ci.yml"
 [[ -f "$threats" ]] || { echo "FAIL: $threats is missing"; exit 1; }
 [[ -f "$ci" ]] || { echo "FAIL: $ci is missing"; exit 1; }
 
+# "CI runs this gate" has two shapes now. A battery gate runs because
+# `scripts/ci-plan.py` assigns it to a shard and the workflow executes
+# the plan - `check-ci-coverage.sh` audits that pairing, so membership
+# in the plan is the evidence here. A dedicated-job gate keeps a
+# literal step, read from `$ci` as before (which is also what lets
+# the unwired-gate probe below doctor one away).
+planned_gates=" $(python3 scripts/ci-plan.py --shards 1 --shard 1 | tr '\n' ' ')"
+ci_runs_gate() {
+  case "$planned_gates" in
+    *" $(basename "$1") "*) return 0 ;;
+  esac
+  grep -q "$1" "$ci"
+}
+
 # threats_rows <THREATS.md>
 # Prints one line per table row: "<n>|<defended>|<scripts named>".
 threats_rows() {
@@ -301,7 +315,7 @@ check_threats() { # <THREATS.md>
     for s in $named; do
       if [[ ! -f "$s" ]]; then
         fail "$1 row $n names $s, which does not exist"
-      elif ! grep -q "$s" "$ci"; then
+      elif ! ci_runs_gate "$s"; then
         fail "$1 row $n names $s, which .github/workflows/ci.yml does not run"
       fi
     done
@@ -346,11 +360,12 @@ else fail "probe: a THREATS.md with every row deleted was accepted"; fi
 # A gate named in a `yes` row that exists but that CI does not run is
 # the third shape: a row true on a maintainer's machine and false on
 # every push. `check-ci-coverage.sh` requires every `scripts/check-*.sh`
-# to be on a `run:` line, so no real unwired gate exists to point a row
-# at, and a non-gate script would trip the "names no scripts/check-*.sh"
-# arm instead. So this probe removes a real, wired gate from a copy of
-# `ci.yml`, and the unchanged THREATS.md must then be refused for naming
-# it. That exercises the `$ci` lookup and nothing else:
+# to be planned by `ci-plan.py` and run by the workflow, so no real
+# unwired gate exists to point a row at, and a non-gate script would
+# trip the "names no scripts/check-*.sh" arm instead. So this probe
+# removes a real, wired dedicated gate from a copy of `ci.yml`, and
+# the unchanged THREATS.md must then be refused for naming it. That
+# exercises the `$ci` lookup and nothing else:
 #
 #     FAIL: bootstrap/THREATS.md row 2 names scripts/check-seed-provenance.sh,
 #           which .github/workflows/ci.yml does not run

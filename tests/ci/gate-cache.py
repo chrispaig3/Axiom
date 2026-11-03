@@ -118,8 +118,11 @@ try:
         record.write_text(json.dumps(base_proof))
         action = (repo / '.github/actions/gate-cache/action.yml').read_text()
         expect("!cancelled() && inputs.mode == 'save'" in action and
-               "github.event_name == 'push' && github.ref == 'refs/heads/stable'" in action,
-               'failed jobs must save completed passes, with writes restricted to stable pushes')
+               "github.event_name == 'push'" in action and
+               "github.ref == 'refs/heads/stable' || github.ref == 'refs/heads/nightly'" in action and
+               "github.event_name == 'pull_request'" in action and
+               "head.repo.full_name == github.repository" in action,
+               'failed jobs must save completed passes on branch pushes and same-repository pull requests')
         ci.ALWAYS_RUN.add(gate.name)
         expect(run() == 0 and run() == 0 and count() == 19, 'always-run audits must not reuse passes')
         ci.ALWAYS_RUN.remove(gate.name)
@@ -134,6 +137,26 @@ try:
         before = len(list((root / '.results').glob('*.json')))
         expect(run() == 0 and len(list((root / '.results').glob('*.json'))) == before,
                'a gate that mutates its inputs must not earn a success record')
+        # Input selection: the rules CI uses to rerun only what changed.
+        expect(not ci.uses_git(root, gate.name),
+               'a gate that never invokes git must not be history-dependent')
+        probe = root / 'scripts/check-probe.sh'
+        probe.write_text('#!/bin/sh\ngit ls-files\n')
+        expect(ci.uses_git(root, probe.name), 'a git enumeration is history-dependent')
+        expect(len(ci.input_paths(root, probe.name)) == len(ci.tracked_paths(root)),
+               'a git enumeration keeps the whole tree as input')
+        probe.write_text('#!/bin/sh\ntar -cf - tests\n')
+        expect(len(ci.input_paths(root, probe.name)) == len(ci.tracked_paths(root)),
+               'sweeping the bare tests directory keeps the whole tree as input')
+        probe.write_text('#!/bin/sh\ncat ' + '/'.join(('tests', 'selfhost', 'input.ax'))
+                         + '\necho "so it tests nothing"\n')
+        expect(ci.touches_gate(root, probe.name, {'/'.join(('tests', 'selfhost', 'gone.ax'))}),
+               'a deleted fixture in a named root must still select its gate')
+        expect(not ci.touches_gate(root, probe.name, {'/'.join(('tests', 'stdlib', 'unrelated.ax'))}),
+               'an unrelated fixture root must not select the gate')
+        expect(not ci.touches_gate(root, probe.name, {'docs/reference.md', 'README.md'}),
+               'prose a gate never names must not select it')
+        probe.unlink()
         # The coverage reader accepts only the exact audited wrapper form.
         spec = importlib.util.spec_from_file_location('ci_steps', repo / 'scripts/lib/ci-steps.py')
         reader = importlib.util.module_from_spec(spec)
