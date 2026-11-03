@@ -150,6 +150,7 @@ export function Start() {
           </p>
         </SectionHead>
 
+        <div className="install">
         <ol className="steps">
           <li className="step">
             <div className="step__text">
@@ -201,6 +202,7 @@ export function Start() {
               <li key={name}>{name}</li>
             ))}
           </ul>
+        </div>
         </div>
       </div>
     </section>
